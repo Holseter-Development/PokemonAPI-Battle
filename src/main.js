@@ -1663,7 +1663,9 @@ function bestMove(attacker, defender) {
     if (m.ppLeft <= 0) return;
     const eff = typeEffect(m.type, defender.types);
     const stab = attacker.types.includes(m.type) ? 1.5 : 1;
-    const sc = ((m.power || 0) * eff * stab * (m.accuracy || 100)) / 100;
+    const ppFactor = m.pp > 0 ? m.ppLeft / m.pp : 0; // Prefer moves with more PP
+    const sc =
+      ((m.power || 0) * eff * stab * (m.accuracy || 100) * ppFactor) / 100;
     if (sc > score) {
       score = sc;
       pick = idx;
@@ -1674,16 +1676,23 @@ function bestMove(attacker, defender) {
 
 // New: Compute overall battle score for a mon vs enemy (offense + defense + HP)
 function battleScore(mon, enemy) {
-  // Offense: max move score
+  // Offense: max move score weighted by PP
   let maxMoveScore = 0;
+  let totalPP = 0;
+  let totalPPLeft = 0;
   mon.moves.forEach((m) => {
+    totalPP += m.pp || 0;
+    totalPPLeft += m.ppLeft || 0;
     if (m.ppLeft <= 0) return;
     const eff = typeEffect(m.type, enemy.types);
     const stab = mon.types.includes(m.type) ? 1.5 : 1;
-    const mScore = ((m.power || 0) * eff * stab * (m.accuracy || 100)) / 100;
+    const ppFactor = m.pp > 0 ? m.ppLeft / m.pp : 0;
+    const mScore =
+      ((m.power || 0) * eff * stab * (m.accuracy || 100) * ppFactor) / 100;
     if (mScore > maxMoveScore) maxMoveScore = mScore;
   });
   if (maxMoveScore <= 0) return 0; // No viable moves
+  const ppFactorOverall = totalPP > 0 ? totalPPLeft / totalPP : 0;
 
   // Defense: average incoming effectiveness (lower better, so invert)
   let defScore = 0;
@@ -1699,14 +1708,19 @@ function battleScore(mon, enemy) {
   // HP factor
   const hpFactor = mon.stats.hp / mon.stats.maxHp;
 
-  // Overall: offense weighted higher, modulated by defense and HP
-  return maxMoveScore * defFactor * hpFactor;
+  // Level factor
+  const levelFactor = enemy.level
+    ? Math.max(0.5, Math.min(2, mon.level / enemy.level))
+    : 1;
+
+  // Overall: offense weighted higher, modulated by defense, HP, PP, and level
+  return maxMoveScore * defFactor * hpFactor * ppFactorOverall * levelFactor;
 }
 
 // Updated bestSwitch: Returns index of best alternative if better than current
-function bestSwitch(enemy, currentScore) {
+function bestSwitch(enemy, currentScore, threshold = 1.5) {
   let bestIdx = null;
-  let bestScore = currentScore * 1.5; // Only switch if 50% better
+  let bestScore = currentScore * threshold;
   state.party.forEach((mon, idx) => {
     if (mon.stats.hp <= 0 || idx === state.active) return; // Skip fainted or current
     const score = battleScore(mon, enemy);
@@ -1760,17 +1774,21 @@ async function maybeAuto() {
     return;
   }
 
-  // 3) Attack if we have any viable move
-  const moveIdx = bestMove(state.player, state.enemy); // your scorer
-  if (moveIdx != null) {
-    await useMove(moveIdx);
-    await sleep(400);
-    return;
+  const curScore = battleScore(state.player, state.enemy);
+
+  // 3) If our health is low, try to preserve the mon by switching
+  if (hpF < 0.3) {
+    const switchIdxLow = bestSwitch(state.enemy, curScore, 1.1);
+    if (switchIdxLow != null) {
+      text("Auto: Preserving low HP mon…");
+      await autoSwitch(switchIdxLow);
+      await sleep(400);
+      return;
+    }
   }
 
-  // 4) If we’ve got no good moves, try switching to a better matchup
-  const curScore = battleScore(state.player, state.enemy); // your composite score
-  const switchIdx = bestSwitch(state.enemy, curScore); // prefers ≥50% better
+  // 4) If another mon is far better suited, switch even at high HP
+  const switchIdx = bestSwitch(state.enemy, curScore, 1.5);
   if (switchIdx != null) {
     text("Auto: Switching to a better matchup…");
     await autoSwitch(switchIdx);
@@ -1778,7 +1796,24 @@ async function maybeAuto() {
     return;
   }
 
-  // 5) Absolute last resort: run
+  // 5) Attack if we have any viable move
+  const moveIdx = bestMove(state.player, state.enemy);
+  if (moveIdx != null) {
+    await useMove(moveIdx);
+    await sleep(400);
+    return;
+  }
+
+  // 6) As a fallback, try switching to any slightly better option
+  const backupSwitch = bestSwitch(state.enemy, curScore, 1.1);
+  if (backupSwitch != null) {
+    text("Auto: Switching to available option…");
+    await autoSwitch(backupSwitch);
+    await sleep(400);
+    return;
+  }
+
+  // 7) Absolute last resort: run
   text("Auto: No viable moves, no healthy switch — running.");
   await sleep(350);
   await startEncounter();
