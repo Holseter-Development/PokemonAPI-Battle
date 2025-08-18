@@ -1,0 +1,11 @@
+{
+  "name": "pokemonapi-battle",
+  "version": "1.0.0",
+  "scripts": {
+    "build": "esbuild src/main.js --bundle --outfile=dist/bundle.js",
+    "test": "echo 'no tests'"
+  },
+  "devDependencies": {
+    "esbuild": "^0.19.2"
+  }
+}

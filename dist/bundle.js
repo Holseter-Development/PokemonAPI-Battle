@@ -1,15 +1,51 @@
-console.info("Gen1 Battle build v0.8");
 const API = "https://pokeapi.co/api/v2";
 const GEN1_MAX_ID = 151;
 const VERSION_GROUPS_GEN1 = ["red-blue", "yellow"];
 const MOVE_CACHE = new Map();
 const GROWTH_CACHE = new Map();
 const EVO_CACHE = new Map();
-const CRY_CACHE = new Map();
-const TRIMMED_SPRITE_CACHE = new Map();
-let wins = 0;
 
-// --- AUDIO SYSTEM ---
+const JSON_TTL = 1000 * 60 * 60 * 24 * 7;
+
+async function fetchCachedJSON(url) {
+  try {
+    const now = Date.now();
+    const hit = localStorage.getItem("cache:" + url);
+    if (hit) {
+      const { t, v } = JSON.parse(hit);
+      if (now - t < JSON_TTL) return v;
+    }
+    const r = await fetch(url, { cache: "force-cache" });
+    if (!r.ok) throw new Error("net");
+    const v = await r.json();
+    localStorage.setItem("cache:" + url, JSON.stringify({ t: now, v }));
+    return v;
+  } catch (e) {
+    const r = await fetch(url);
+    if (!r.ok) throw new Error("net");
+    return r.json();
+  }
+}
+
+function fetchPokemon(idOrName) {
+  return fetchCachedJSON(`${API}/pokemon/${idOrName}`);
+}
+
+function fetchSpecies(id) {
+  return fetchCachedJSON(`${API}/pokemon-species/${id}`);
+}
+
+function fetchGrowth(url) {
+  if (!GROWTH_CACHE.has(url)) GROWTH_CACHE.set(url, fetchCachedJSON(url));
+  return GROWTH_CACHE.get(url);
+}
+
+function fetchEvo(url) {
+  if (!EVO_CACHE.has(url)) EVO_CACHE.set(url, fetchCachedJSON(url));
+  return EVO_CACHE.get(url);
+}
+
+
 let isMuted = false;
 let sfxVolume = 0.2;
 
@@ -236,6 +272,221 @@ function initAudio() {
   music.volume = sfxVolume;
 }
 // --- END AUDIO SYSTEM ---
+const CRY_CACHE = new Map();
+
+async function getCryAudio(id, hintUrl) {
+  try {
+    if (CRY_CACHE.has(id)) return CRY_CACHE.get(id);
+    const cache =
+      window.isSecureContext && "caches" in window
+        ? await caches.open("poke-cache")
+        : null;
+    const url =
+      hintUrl ||
+      `https://raw.githubusercontent.com/PokeAPI/cries/main/cries/pokemon/latest/${id}.ogg`;
+    let resp = cache ? await cache.match(url) : null;
+    if (!resp) {
+      resp = await fetch(url, { mode: "cors" });
+      if (resp.ok && cache) cache.put(url, resp.clone());
+    }
+    let audio;
+    if (resp && resp.ok) {
+      const blob = await resp.blob();
+      audio = new Audio(URL.createObjectURL(blob));
+    } else {
+      audio = new Audio(url);
+      audio.crossOrigin = "anonymous";
+    }
+    audio.volume = sfxVolume; // Use global volume
+    CRY_CACHE.set(id, audio);
+    return audio;
+  } catch (e) {
+    return new Audio();
+  }
+}
+async function playCry(mon) {
+  if (isMuted) return;
+  try {
+    const poke = await fetchPokemon(mon.id);
+    const cryUrl =
+      (poke.cries && (poke.cries.latest || poke.cries.legacy)) || undefined;
+    const a = await getCryAudio(mon.id, cryUrl);
+    a.currentTime = 0;
+    a.volume = sfxVolume;
+    await a.play();
+  } catch (_) {}
+}
+function clamp(v, a, b) {
+  return Math.max(a, Math.min(b, v));
+}
+
+const CHART = {
+  normal: { rock: 0.5, ghost: 0 },
+  fire: {
+    fire: 0.5,
+    water: 0.5,
+    grass: 2,
+    ice: 2,
+    bug: 2,
+    rock: 0.5,
+    dragon: 0.5,
+  },
+  water: { fire: 2, water: 0.5, grass: 0.5, ground: 2, rock: 2, dragon: 0.5 },
+  electric: {
+    water: 2,
+    electric: 0.5,
+    grass: 0.5,
+    ground: 0,
+    flying: 2,
+    dragon: 0.5,
+  },
+  grass: {
+    fire: 0.5,
+    water: 2,
+    grass: 0.5,
+    poison: 0.5,
+    ground: 2,
+    flying: 0.5,
+    bug: 0.5,
+    rock: 2,
+    dragon: 0.5,
+  },
+  ice: {
+    fire: 0.5,
+    water: 0.5,
+    ice: 0.5,
+    grass: 2,
+    ground: 2,
+    flying: 2,
+    dragon: 2,
+  },
+  fighting: {
+    normal: 2,
+    ice: 2,
+    rock: 2,
+    poison: 0.5,
+    flying: 0.5,
+    psychic: 0.5,
+    bug: 0.5,
+    ghost: 0,
+  },
+  poison: { grass: 2, poison: 0.5, ground: 0.5, rock: 0.5, ghost: 0.5 },
+  ground: { fire: 2, electric: 2, poison: 2, rock: 2, bug: 0.5, flying: 0 },
+  flying: { grass: 2, fighting: 2, bug: 2, electric: 0.5, rock: 0.5 },
+  psychic: { fighting: 2, poison: 2, psychic: 0.5 },
+  bug: {
+    grass: 2,
+    psychic: 2,
+    fire: 0.5,
+    fighting: 0.5,
+    poison: 0.5,
+    flying: 0.5,
+    ghost: 0.5,
+  },
+  rock: { fire: 2, ice: 2, flying: 2, bug: 2, fighting: 0.5, ground: 0.5 },
+  ghost: { ghost: 2, normal: 0, psychic: 0 },
+  dragon: { dragon: 2 },
+};
+
+function typeEffect(moveType, targetTypes) {
+  let mult = 1;
+  const row = CHART[moveType] || {};
+  for (const t of targetTypes) {
+    mult *= row[t] ?? 1;
+  }
+  return mult;
+}
+
+function rollHit(acc) {
+  const a = acc ?? 100;
+  return Math.random() * 100 < a;
+}
+
+function rollCrit(attacker, move) {
+  let base = clamp(attacker.stats.spd / 512, 0.02, 0.25);
+  if (move.highCrit) base = clamp(base * 2, 0.02, 0.33);
+  return Math.random() < base;
+}
+
+function calcDamage(attacker, defender, move) {
+  const level = attacker.level;
+  let atkStat =
+    move.damage_class === "special" ? attacker.stats.spa : attacker.stats.atk;
+  const defStat =
+    move.damage_class === "special" ? defender.stats.spd : defender.stats.def;
+  if (move.damage_class !== "special" && attacker.status.cond === "brn") {
+    atkStat = Math.max(1, Math.floor(atkStat * 0.5));
+  }
+  const eff = typeEffect(move.type, defender.types);
+  const base = Math.floor(
+    Math.floor(
+      (Math.floor((2 * level) / 5 + 2) *
+        move.power *
+        (atkStat / Math.max(1, defStat))) /
+        50
+    ) + 2
+  );
+  const rand = 0.85 + Math.random() * 0.15;
+  const stab = attacker.types.includes(move.type) ? 1.2 : 1.0;
+  let dmg = Math.max(1, Math.floor(base * rand * stab * eff));
+  const crit = rollCrit(attacker, move);
+  if (crit) dmg = Math.floor(dmg * 2);
+  return { dmg, eff, crit };
+}
+
+function catchSuccess(mon) {
+  const maxHP = mon.stats.maxHp,
+    curHP = mon.stats.hp,
+    rate = mon.capture_rate || 45;
+  let a = ((3 * maxHP - 2 * curHP) * rate) / (3 * maxHP);
+  const s = mon.status.cond;
+  if (s === "slp" || s === "frz") a *= 2.0;
+  else if (s === "par" || s === "psn" || s === "brn") a *= 1.5;
+  const chance = a / 256;
+  return Math.random() < chance;
+}
+function show(view) {
+  $("#starterPick").classList.toggle("hidden", view !== "starter");
+  $("#menu").classList.toggle("hidden", view !== "menu");
+  $("#movesView").classList.toggle("hidden", view !== "moves");
+  $("#swapView").classList.toggle("hidden", view !== "swap");
+  const bv = $("#bagView");
+  if (bv) bv.classList.toggle("hidden", view !== "bag");
+  const bxv = $("#boxView");
+  if (bxv) bxv.classList.toggle("hidden", view !== "box");
+}
+
+function text(t) {
+  const el = document.getElementById("textLine");
+  if (el) el.textContent = t;
+}
+
+  API,
+  GEN1_MAX_ID,
+  VERSION_GROUPS_GEN1,
+  MOVE_CACHE,
+  GROWTH_CACHE,
+  EVO_CACHE,
+  fetchCachedJSON,
+  fetchPokemon,
+  fetchSpecies,
+  fetchGrowth,
+  fetchEvo,
+} from "./api.js";
+
+
+  typeEffect,
+  rollHit,
+  rollCrit,
+  calcDamage,
+  catchSuccess,
+} from "./battle.js";
+
+
+console.info("Gen1 Battle build v0.8");
+const TRIMMED_SPRITE_CACHE = new Map();
+let wins = 0;
+
 
 async function getTrimmedSprite(url) {
   if (!url) return "";
@@ -345,159 +596,8 @@ function cssNum(varName, fallback) {
   return isNaN(v) ? fallback : v;
 }
 
-const JSON_TTL = 1000 * 60 * 60 * 24 * 7;
-async function fetchCachedJSON(url) {
-  try {
-    const now = Date.now();
-    const hit = localStorage.getItem("cache:" + url);
-    if (hit) {
-      const { t, v } = JSON.parse(hit);
-      if (now - t < JSON_TTL) return v;
-    }
-    const r = await fetch(url, { cache: "force-cache" });
-    if (!r.ok) throw new Error("net");
-    const v = await r.json();
-    localStorage.setItem("cache:" + url, JSON.stringify({ t: now, v }));
-    return v;
-  } catch (e) {
-    const r = await fetch(url);
-    if (!r.ok) throw new Error("net");
-    return r.json();
-  }
-}
-async function fetchPokemon(idOrName) {
-  return fetchCachedJSON(`${API}/pokemon/${idOrName}`);
-}
-async function fetchSpecies(id) {
-  return fetchCachedJSON(`${API}/pokemon-species/${id}`);
-}
-async function fetchGrowth(url) {
-  if (!GROWTH_CACHE.has(url)) GROWTH_CACHE.set(url, fetchCachedJSON(url));
-  return GROWTH_CACHE.get(url);
-}
-async function fetchEvo(url) {
-  if (!EVO_CACHE.has(url)) EVO_CACHE.set(url, fetchCachedJSON(url));
-  return EVO_CACHE.get(url);
-}
 
-const CHART = {
-  normal: { rock: 0.5, ghost: 0 },
-  fire: {
-    fire: 0.5,
-    water: 0.5,
-    grass: 2,
-    ice: 2,
-    bug: 2,
-    rock: 0.5,
-    dragon: 0.5,
-  },
-  water: { fire: 2, water: 0.5, grass: 0.5, ground: 2, rock: 2, dragon: 0.5 },
-  electric: {
-    water: 2,
-    electric: 0.5,
-    grass: 0.5,
-    ground: 0,
-    flying: 2,
-    dragon: 0.5,
-  },
-  grass: {
-    fire: 0.5,
-    water: 2,
-    grass: 0.5,
-    poison: 0.5,
-    ground: 2,
-    flying: 0.5,
-    bug: 0.5,
-    rock: 2,
-    dragon: 0.5,
-  },
-  ice: {
-    fire: 0.5,
-    water: 0.5,
-    ice: 0.5,
-    grass: 2,
-    ground: 2,
-    flying: 2,
-    dragon: 2,
-  },
-  fighting: {
-    normal: 2,
-    ice: 2,
-    rock: 2,
-    poison: 0.5,
-    flying: 0.5,
-    psychic: 0.5,
-    bug: 0.5,
-    ghost: 0,
-  },
-  poison: { grass: 2, poison: 0.5, ground: 0.5, rock: 0.5, ghost: 0.5 },
-  ground: { fire: 2, electric: 2, poison: 2, rock: 2, bug: 0.5, flying: 0 },
-  flying: { grass: 2, fighting: 2, bug: 2, electric: 0.5, rock: 0.5 },
-  psychic: { fighting: 2, poison: 2, psychic: 0.5 },
-  bug: {
-    grass: 2,
-    psychic: 2,
-    fire: 0.5,
-    fighting: 0.5,
-    poison: 0.5,
-    flying: 0.5,
-    ghost: 0.5,
-  },
-  rock: { fire: 2, ice: 2, flying: 2, bug: 2, fighting: 0.5, ground: 0.5 },
-  ghost: { ghost: 2, normal: 0, psychic: 0 },
-  dragon: { dragon: 2 },
-};
-function typeEffect(moveType, targetTypes) {
-  let mult = 1;
-  const row = CHART[moveType] || {};
-  for (const t of targetTypes) {
-    mult *= row[t] ?? 1;
-  }
-  return mult;
-}
 
-async function getCryAudio(id, hintUrl) {
-  try {
-    if (CRY_CACHE.has(id)) return CRY_CACHE.get(id);
-    const cache =
-      window.isSecureContext && "caches" in window
-        ? await caches.open("poke-cache")
-        : null;
-    const url =
-      hintUrl ||
-      `https://raw.githubusercontent.com/PokeAPI/cries/main/cries/pokemon/latest/${id}.ogg`;
-    let resp = cache ? await cache.match(url) : null;
-    if (!resp) {
-      resp = await fetch(url, { mode: "cors" });
-      if (resp.ok && cache) cache.put(url, resp.clone());
-    }
-    let audio;
-    if (resp && resp.ok) {
-      const blob = await resp.blob();
-      audio = new Audio(URL.createObjectURL(blob));
-    } else {
-      audio = new Audio(url);
-      audio.crossOrigin = "anonymous";
-    }
-    audio.volume = sfxVolume; // Use global volume
-    CRY_CACHE.set(id, audio);
-    return audio;
-  } catch (e) {
-    return new Audio();
-  }
-}
-async function playCry(mon) {
-  if (isMuted) return;
-  try {
-    const poke = await fetchPokemon(mon.id);
-    const cryUrl =
-      (poke.cries && (poke.cries.latest || poke.cries.legacy)) || undefined;
-    const a = await getCryAudio(mon.id, cryUrl);
-    a.currentTime = 0;
-    a.volume = sfxVolume;
-    await a.play();
-  } catch (_) {}
-}
 
 const state = {
   party: [],
@@ -759,20 +859,6 @@ async function updateHUD() {
   }
 }
 
-function show(view) {
-  $("#starterPick").classList.toggle("hidden", view !== "starter");
-  $("#menu").classList.toggle("hidden", view !== "menu");
-  $("#movesView").classList.toggle("hidden", view !== "moves");
-  $("#swapView").classList.toggle("hidden", view !== "swap");
-  const bv = $("#bagView");
-  if (bv) bv.classList.toggle("hidden", view !== "bag");
-  const bxv = $("#boxView");
-  if (bxv) bxv.classList.toggle("hidden", view !== "box");
-}
-function text(t) {
-  const el = document.getElementById("textLine");
-  if (el) el.textContent = t;
-}
 
 function floatTextNear(targetSelector, txt, good = false) {
   const host = document.querySelector(".screen");
@@ -1005,15 +1091,6 @@ function captureRelease(selector) {
   );
 }
 
-function rollHit(acc) {
-  const a = acc ?? 100;
-  return Math.random() * 100 < a;
-}
-function rollCrit(attacker, move) {
-  let base = clamp(attacker.stats.spd / 512, 0.02, 0.25);
-  if (move.highCrit) base = clamp(base * 2, 0.02, 0.33);
-  return Math.random() < base;
-}
 
 function canAct(mon) {
   const s = mon.status;
@@ -1087,42 +1164,6 @@ function applyAilment(target, ail) {
   );
 }
 
-function calcDamage(attacker, defender, move) {
-  const level = attacker.level;
-  let atkStat =
-    move.damage_class === "special" ? attacker.stats.spa : attacker.stats.atk;
-  const defStat =
-    move.damage_class === "special" ? defender.stats.spd : defender.stats.def;
-  if (move.damage_class !== "special" && attacker.status.cond === "brn") {
-    atkStat = Math.max(1, Math.floor(atkStat * 0.5));
-  }
-  const eff = typeEffect(move.type, defender.types);
-  const base = Math.floor(
-    Math.floor(
-      (Math.floor((2 * level) / 5 + 2) *
-        move.power *
-        (atkStat / Math.max(1, defStat))) /
-        50
-    ) + 2
-  );
-  const rand = 0.85 + Math.random() * 0.15;
-  const stab = attacker.types.includes(move.type) ? 1.2 : 1.0;
-  let dmg = Math.max(1, Math.floor(base * rand * stab * eff));
-  const crit = rollCrit(attacker, move);
-  if (crit) dmg = Math.floor(dmg * 2);
-  return { dmg, eff, crit };
-}
-function catchSuccess(mon) {
-  const maxHP = mon.stats.maxHp,
-    curHP = mon.stats.hp,
-    rate = mon.capture_rate || 45;
-  let a = ((3 * maxHP - 2 * curHP) * rate) / (3 * maxHP);
-  const s = mon.status.cond;
-  if (s === "slp" || s === "frz") a *= 2.0;
-  else if (s === "par" || s === "psn" || s === "brn") a *= 1.5;
-  const chance = a / 256;
-  return Math.random() < chance;
-}
 
 const fx = (function () {
   const canvas = document.getElementById("fxCanvas");
