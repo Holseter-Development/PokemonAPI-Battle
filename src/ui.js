@@ -1,3 +1,5 @@
+const $ = (sel) => document.querySelector(sel);
+
 export function show(view) {
   $("#starterPick").classList.toggle("hidden", view !== "starter");
   $("#menu").classList.toggle("hidden", view !== "menu");

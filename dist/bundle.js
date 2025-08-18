@@ -427,6 +427,7 @@
   }
 
   // src/ui.js
+  var $ = (sel) => document.querySelector(sel);
   function show(view) {
     $("#starterPick").classList.toggle("hidden", view !== "starter");
     $("#menu").classList.toggle("hidden", view !== "menu");
