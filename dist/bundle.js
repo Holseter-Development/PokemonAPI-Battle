@@ -461,28 +461,7 @@ function text(t) {
   if (el) el.textContent = t;
 }
 
-  API,
-  GEN1_MAX_ID,
-  VERSION_GROUPS_GEN1,
-  MOVE_CACHE,
-  GROWTH_CACHE,
-  EVO_CACHE,
-  fetchCachedJSON,
-  fetchPokemon,
-  fetchSpecies,
-  fetchGrowth,
-  fetchEvo,
-} from "./api.js";
-
-
-  typeEffect,
-  rollHit,
-  rollCrit,
-  calcDamage,
-  catchSuccess,
-} from "./battle.js";
-
-
+// ...fixed unexpected closing brace...
 console.info("Gen1 Battle build v0.8");
 const TRIMMED_SPRITE_CACHE = new Map();
 let wins = 0;
@@ -570,9 +549,13 @@ function setThemeByType(types) {
 
 const $ = (sel) => document.querySelector(sel);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+/* Duplicate clamp removed to avoid shadowing.
+
 function clamp(v, a, b) {
   return Math.max(a, Math.min(b, v));
 }
+
+*/
 function hpColor(frac) {
   return frac > 0.5
     ? "var(--hp-green)"
