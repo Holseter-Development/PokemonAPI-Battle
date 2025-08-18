@@ -1138,7 +1138,7 @@
     canvas.className = "themefx";
     host.prepend(canvas);
     const ctx = canvas.getContext("2d");
-    let w = 0, h = 0, mode = "normal", particles = [];
+    let w = 0, h = 0, mode = "normal", particles = [], pulses = [];
     function resize() {
       w = canvas.width = host.clientWidth;
       h = canvas.height = host.clientHeight;
@@ -1189,36 +1189,82 @@
     function set(type = "normal") {
       mode = type;
       particles = [];
+      pulses = [];
       const n = COUNT[type] || COUNT.normal;
       for (let i = 0; i < n; i++)
         particles.push(makeParticle());
     }
+    const TYPE_COLORS = {
+      normal: "#ffffff",
+      fire: "#ff5722",
+      water: "#4fc3f7",
+      grass: "#81c784",
+      electric: "#fff176",
+      ice: "#b3e5fc",
+      fighting: "#ff8a65",
+      poison: "#ba68c8",
+      ground: "#d7ccc8",
+      flying: "#90caf9",
+      psychic: "#e040fb",
+      bug: "#cddc39",
+      rock: "#a1887f",
+      ghost: "#7e57c2",
+      dragon: "#7986cb"
+    };
+    function burst(type = "normal") {
+      pulses.push({ t: 0, color: TYPE_COLORS[type] || TYPE_COLORS.normal });
+    }
     function render(t) {
       ctx.clearRect(0, 0, w, h);
-      if (mode === "water") {
-        ctx.save();
-        ctx.globalAlpha = 0.1;
-        ctx.fillStyle = "#fff";
-        const step = 40;
-        for (let y = 0; y < h; y += step) {
-          const off = (t / 20 + y) % step;
-          ctx.beginPath();
-          ctx.moveTo(0, y + off);
-          ctx.lineTo(w, y + off);
-          ctx.stroke();
+      switch (mode) {
+        case "fire": {
+          const g = ctx.createLinearGradient(0, h, 0, 0);
+          g.addColorStop(0, "#100");
+          g.addColorStop(1, `hsl(${t / 10 % 360},100%,25%)`);
+          ctx.fillStyle = g;
+          ctx.fillRect(0, 0, w, h);
+          break;
         }
-        ctx.restore();
-      } else if (mode === "psychic") {
-        ctx.save();
-        ctx.globalAlpha = 0.2;
-        ctx.translate(w / 2, h / 2);
-        const grad = ctx.createRadialGradient(0, 0, 0, 0, 0, Math.max(w, h) / 1.5);
-        const hue = t / 40 % 360;
-        grad.addColorStop(0, `hsl(${hue},80%,60%)`);
-        grad.addColorStop(1, "transparent");
-        ctx.fillStyle = grad;
-        ctx.fillRect(-w / 2, -h / 2, w, h);
-        ctx.restore();
+        case "water": {
+          const g = ctx.createLinearGradient(0, 0, 0, h);
+          g.addColorStop(0, "#001e3c");
+          g.addColorStop(1, "#003a5c");
+          ctx.fillStyle = g;
+          ctx.fillRect(0, 0, w, h);
+          ctx.save();
+          ctx.globalAlpha = 0.25;
+          ctx.strokeStyle = "#7ad3ff";
+          ctx.lineWidth = 2;
+          const step = 30;
+          for (let y = 0; y < h; y += step) {
+            const off = Math.sin(t / 25 + y * 0.1) * 20;
+            ctx.beginPath();
+            ctx.moveTo(0, y + off);
+            ctx.lineTo(w, y + off);
+            ctx.stroke();
+          }
+          ctx.restore();
+          break;
+        }
+        case "psychic": {
+          const grad = ctx.createRadialGradient(
+            w / 2,
+            h / 2,
+            0,
+            w / 2,
+            h / 2,
+            Math.max(w, h) / 1.2
+          );
+          const hue = t / 30 % 360;
+          grad.addColorStop(0, `hsl(${hue},80%,45%)`);
+          grad.addColorStop(1, "#000");
+          ctx.fillStyle = grad;
+          ctx.fillRect(0, 0, w, h);
+          break;
+        }
+        default:
+          ctx.fillStyle = "#000";
+          ctx.fillRect(0, 0, w, h);
       }
       for (const p of particles) {
         switch (mode) {
@@ -1272,11 +1318,28 @@
             ctx.fillRect(p.x, p.y, 2, 2);
         }
       }
+      for (let i = pulses.length - 1; i >= 0; i--) {
+        const p = pulses[i];
+        p.t += 0.03;
+        if (p.t >= 1) {
+          pulses.splice(i, 1);
+          continue;
+        }
+        ctx.save();
+        ctx.globalAlpha = 1 - p.t;
+        const r = p.t * Math.hypot(w, h);
+        const g = ctx.createRadialGradient(w / 2, h / 2, 0, w / 2, h / 2, r);
+        g.addColorStop(0, p.color);
+        g.addColorStop(1, "transparent");
+        ctx.fillStyle = g;
+        ctx.fillRect(0, 0, w, h);
+        ctx.restore();
+      }
       requestAnimationFrame(render);
     }
     requestAnimationFrame(render);
     set("normal");
-    return { set };
+    return { set, burst };
   })();
   function maybeAwardDrops() {
     if (Math.random() < 0.2) {
@@ -1481,6 +1544,7 @@
     const { dmg, eff, crit } = calcDamage(actor, state.enemy, mv);
     impactSprite("#enemySprite", crit, true);
     spawnSparksAt("#enemySprite", mv.type, crit ? 14 : 10);
+    ThemeFX.burst(mv.type);
     state.enemy.stats.hp = clamp2(
       state.enemy.stats.hp - dmg,
       0,
@@ -1579,6 +1643,7 @@
     const { dmg, eff, crit } = calcDamage(actor, state.player, mv);
     impactSprite("#playerSprite", crit, false);
     spawnSparksAt("#playerSprite", mv.type, crit ? 14 : 10);
+    ThemeFX.burst(mv.type);
     screenShake(crit ? "crit" : "hit");
     state.player.stats.hp = clamp2(
       state.player.stats.hp - dmg,
