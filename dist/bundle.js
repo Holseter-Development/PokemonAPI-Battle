@@ -1134,168 +1134,149 @@
     if (!host)
       return { set: () => {
       } };
-    const layer = document.createElement("div");
-    layer.className = "themefx";
-    host.prepend(layer);
-    let current = "", intensity = 1;
-    const CONFIG = {
-      normal: {
-        kind: "mote",
-        count: 14,
-        size: [4, 10],
-        dur: [12, 18],
-        blur: [0, 1]
-      },
-      fire: {
-        kind: "ember",
-        count: 18,
-        size: [5, 12],
-        dur: [10, 15],
-        blur: [0, 1]
-      },
-      water: {
-        kind: "bubble",
-        count: 14,
-        size: [6, 14],
-        dur: [12, 18],
-        blur: [0, 0]
-      },
-      grass: {
-        kind: "leaf",
-        count: 12,
-        size: [8, 14],
-        dur: [12, 18],
-        blur: [0, 0]
-      },
-      electric: {
-        kind: "spark",
-        count: 10,
-        size: [10, 16],
-        dur: [8, 12],
-        blur: [0, 0]
-      },
-      ice: {
-        kind: "snow",
-        count: 20,
-        size: [4, 8],
-        dur: [12, 20],
-        blur: [0, 0.5]
-      },
-      fighting: {
-        kind: "mote",
-        count: 10,
-        size: [4, 10],
-        dur: [10, 16],
-        blur: [0, 0]
-      },
-      poison: {
-        kind: "fume",
-        count: 12,
-        size: [18, 28],
-        dur: [14, 22],
-        blur: [4, 8]
-      },
-      ground: {
-        kind: "dust",
-        count: 14,
-        size: [6, 12],
-        dur: [12, 18],
-        blur: [1, 3]
-      },
-      flying: {
-        kind: "feather",
-        count: 8,
-        size: [10, 18],
-        dur: [16, 22],
-        blur: [0, 0]
-      },
-      psychic: {
-        kind: "orb",
-        count: 8,
-        size: [10, 16],
-        dur: [10, 16],
-        blur: [0, 0]
-      },
-      bug: {
-        kind: "spore",
-        count: 14,
-        size: [5, 10],
-        dur: [12, 18],
-        blur: [0, 1]
-      },
-      rock: {
-        kind: "grit",
-        count: 12,
-        size: [5, 8],
-        dur: [10, 16],
-        blur: [0, 0]
-      },
-      ghost: {
-        kind: "wisp",
-        count: 8,
-        size: [16, 26],
-        dur: [16, 22],
-        blur: [4, 8]
-      },
-      dragon: {
-        kind: "star",
-        count: 10,
-        size: [4, 8],
-        dur: [16, 24],
-        blur: [0, 0]
+    const canvas = document.createElement("canvas");
+    canvas.className = "themefx";
+    host.prepend(canvas);
+    const ctx = canvas.getContext("2d");
+    let w = 0, h = 0, mode = "normal", particles = [];
+    function resize() {
+      w = canvas.width = host.clientWidth;
+      h = canvas.height = host.clientHeight;
+    }
+    resize();
+    window.addEventListener("resize", resize);
+    const COUNT = { normal: 40, fire: 80, water: 40, psychic: 40 };
+    function makeParticle() {
+      switch (mode) {
+        case "fire":
+          return {
+            x: Math.random() * w,
+            y: h + Math.random() * 40,
+            vx: (Math.random() - 0.5) * 0.3,
+            vy: 1 + Math.random() * 1.2,
+            size: 2 + Math.random() * 3,
+            life: 1
+          };
+        case "water":
+          return {
+            x: Math.random() * w,
+            y: h + Math.random() * 60,
+            vx: (Math.random() - 0.5) * 0.2,
+            vy: 0.6 + Math.random() * 0.8,
+            size: 3 + Math.random() * 4
+          };
+        case "psychic":
+          return {
+            angle: Math.random() * Math.PI * 2,
+            radius: 40 + Math.random() * 120,
+            speed: 4e-3 + Math.random() * 0.01,
+            size: 3 + Math.random() * 5,
+            hue: Math.random() * 360
+          };
+        default:
+          return {
+            x: Math.random() * w,
+            y: Math.random() * h,
+            vx: (Math.random() - 0.5) * 0.4,
+            vy: (Math.random() - 0.5) * 0.4,
+            size: 2 + Math.random() * 2
+          };
       }
-    };
-    function rand(a, b) {
-      return a + Math.random() * (b - a);
     }
-    function clear() {
-      layer.innerHTML = "";
+    function resetParticle(p) {
+      Object.assign(p, makeParticle());
     }
-    function spawn(kind, conf) {
-      const el2 = document.createElement("div");
-      el2.className = "p " + kind;
-      const x = rand(5, 95).toFixed(2);
-      const size = Math.round(rand(conf.size[0], conf.size[1]));
-      const durNum = rand(conf.dur[0], conf.dur[1]);
-      const dur = durNum.toFixed(2);
-      const delay = (-rand(0, durNum)).toFixed(2);
-      const dx = (Math.random() < 0.5 ? -1 : 1) * rand(4, 26);
-      const blur = rand(conf.blur[0], conf.blur[1]).toFixed(1);
-      el2.style.setProperty("--x", x);
-      el2.style.setProperty("--size", `${size}px`);
-      el2.style.setProperty("--dur", `${dur}s`);
-      el2.style.setProperty("--delay", `${delay}s`);
-      el2.style.setProperty("--dx", `${dx}px`);
-      el2.style.setProperty("--blur", blur);
-      if (kind === "orb") {
-        el2.style.setProperty("--r", `${Math.round(rand(50, 120))}px`);
-        el2.style.setProperty("--delay", `${rand(0, 6).toFixed(2)}s`);
-      }
-      layer.appendChild(el2);
-    }
-    function set(type) {
-      if (!type)
-        type = "normal";
-      if (type === current)
-        return;
-      current = type;
-      clear();
-      const conf = CONFIG[type] || CONFIG.normal;
-      const n = Math.round(conf.count * intensity);
+    function set(type = "normal") {
+      mode = type;
+      particles = [];
+      const n = COUNT[type] || COUNT.normal;
       for (let i = 0; i < n; i++)
-        spawn(conf.kind, conf);
+        particles.push(makeParticle());
     }
-    function setIntensity(value = 1) {
-      intensity = Math.max(0.25, Math.min(2, value));
-      set(current);
+    function render(t) {
+      ctx.clearRect(0, 0, w, h);
+      if (mode === "water") {
+        ctx.save();
+        ctx.globalAlpha = 0.1;
+        ctx.fillStyle = "#fff";
+        const step = 40;
+        for (let y = 0; y < h; y += step) {
+          const off = (t / 20 + y) % step;
+          ctx.beginPath();
+          ctx.moveTo(0, y + off);
+          ctx.lineTo(w, y + off);
+          ctx.stroke();
+        }
+        ctx.restore();
+      } else if (mode === "psychic") {
+        ctx.save();
+        ctx.globalAlpha = 0.2;
+        ctx.translate(w / 2, h / 2);
+        const grad = ctx.createRadialGradient(0, 0, 0, 0, 0, Math.max(w, h) / 1.5);
+        const hue = t / 40 % 360;
+        grad.addColorStop(0, `hsl(${hue},80%,60%)`);
+        grad.addColorStop(1, "transparent");
+        ctx.fillStyle = grad;
+        ctx.fillRect(-w / 2, -h / 2, w, h);
+        ctx.restore();
+      }
+      for (const p of particles) {
+        switch (mode) {
+          case "fire":
+            p.y -= p.vy;
+            p.x += p.vx + (Math.random() - 0.5) * 0.2;
+            p.life -= 0.015;
+            if (p.life <= 0 || p.y < -50)
+              resetParticle(p);
+            ctx.save();
+            ctx.globalAlpha = p.life;
+            const g = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, p.size);
+            g.addColorStop(0, "#ffea00");
+            g.addColorStop(1, "#ff3c00");
+            ctx.fillStyle = g;
+            ctx.beginPath();
+            ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.restore();
+            break;
+          case "water":
+            p.y -= p.vy;
+            p.x += p.vx;
+            if (p.y < -20)
+              resetParticle(p);
+            ctx.save();
+            ctx.strokeStyle = "rgba(200,240,255,0.7)";
+            ctx.fillStyle = "rgba(200,240,255,0.1)";
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.stroke();
+            ctx.restore();
+            break;
+          case "psychic":
+            p.angle += p.speed;
+            const px = w / 2 + Math.cos(p.angle) * p.radius;
+            const py = h / 2 + Math.sin(p.angle) * p.radius;
+            ctx.fillStyle = `hsla(${(p.hue + t / 30) % 360},80%,70%,0.8)`;
+            ctx.beginPath();
+            ctx.arc(px, py, p.size, 0, Math.PI * 2);
+            ctx.fill();
+            break;
+          default:
+            p.x += p.vx;
+            p.y += p.vy;
+            if (p.x < 0 || p.x > w || p.y < 0 || p.y > h)
+              resetParticle(p);
+            ctx.fillStyle = "rgba(255,255,255,0.2)";
+            ctx.fillRect(p.x, p.y, 2, 2);
+        }
+      }
+      requestAnimationFrame(render);
     }
+    requestAnimationFrame(render);
     set("normal");
-    function burst(kind = CONFIG[current]?.kind || "mote", count = 8) {
-      const temp = { size: [10, 16], dur: [4, 7], blur: [0, 1] };
-      for (let i = 0; i < count; i++)
-        spawn(kind, temp);
-    }
-    return { set, burst, setIntensity };
+    return { set };
   })();
   function maybeAwardDrops() {
     if (Math.random() < 0.2) {

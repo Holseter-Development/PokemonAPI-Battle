@@ -141,6 +141,22 @@ body {
   --bg1: #3a1c49;
   --bg2: #d047c7;
 }
+
+.type-psychic .themefx {
+  animation: psychic-hue 20s linear infinite;
+}
+
+@keyframes psychic-hue {
+  0% {
+    filter: hue-rotate(0deg) saturate(1.2);
+  }
+  50% {
+    filter: hue-rotate(180deg) saturate(2);
+  }
+  100% {
+    filter: hue-rotate(360deg) saturate(1.2);
+  }
+}
 .type-bug {
   --bg1: #2c3a18;
   --bg2: #86a522;
