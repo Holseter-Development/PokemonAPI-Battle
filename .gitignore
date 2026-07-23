@@ -1,3 +1,4 @@
 node_modules/
 test/engine.build.mjs
+test/rogue.build.mjs
 *.log
