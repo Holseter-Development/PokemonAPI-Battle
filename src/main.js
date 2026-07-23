@@ -528,6 +528,60 @@ async function showBanner(txt, ms = 1100) {
   if (token === bannerHold.t) b.classList.add("hidden");
 }
 
+function trainerSpritePath(trainer) {
+  return trainer?.sprite || "assets/sprites/acetrainerf-gen4.png";
+}
+
+function renderTrainerBadge(trainer) {
+  const badge = $("#enemyTrainerBadge");
+  const img = $("#enemyTrainerMini");
+  const label = $("#enemyTrainerLabel");
+  if (!badge || !img || !label) return;
+  if (!trainer) {
+    badge.classList.add("hidden");
+    img.removeAttribute("src");
+    img.alt = "";
+    label.textContent = "";
+    return;
+  }
+  img.src = trainerSpritePath(trainer);
+  img.alt = "";
+  label.textContent = trainer.leader;
+  badge.title = `${trainer.title} ${trainer.leader}`;
+  badge.classList.remove("hidden");
+}
+
+async function showTrainerEntrance(trainer, champion = false) {
+  const intro = $("#trainerIntro");
+  const sprite = $("#trainerIntroSprite");
+  if (!intro || !sprite || !trainer) return;
+
+  $("#trainerIntroKicker").textContent = trainer.title || "Trainer";
+  $("#trainerIntroName").textContent = trainer.leader;
+  $("#trainerIntroMeta").textContent = champion
+    ? `${trainer.town} · Final challenge`
+    : `${trainer.town} Gym · ${trainer.badge} Badge`;
+  sprite.src = trainerSpritePath(trainer);
+  sprite.alt = "";
+  intro.style.setProperty("--trainer-accent", TYPE_COLOR[trainer.type] || TYPE_COLOR.normal);
+  intro.classList.toggle("trainer-intro-champion", champion);
+  intro.classList.remove("hidden", "is-leaving");
+
+  // Restart the entrance choreography if a test or future mode reuses the same
+  // trainer without replacing the DOM node.
+  intro.classList.remove("is-active");
+  void intro.offsetWidth;
+  intro.classList.add("is-active");
+
+  const reduceMotion = typeof matchMedia === "function" &&
+    matchMedia("(prefers-reduced-motion: reduce)").matches;
+  await sleep(reduceMotion ? 650 : 1550);
+  intro.classList.add("is-leaving");
+  await sleep(reduceMotion ? 80 : 320);
+  intro.classList.add("hidden");
+  intro.classList.remove("is-active", "is-leaving");
+}
+
 const THEMES = ["normal","fire","water","grass","electric","ice","fighting","poison","ground","flying","psychic","bug","rock","ghost","dragon"];
 function setThemeByType(types) {
   const t = (types && types[0]) || "normal";
@@ -949,6 +1003,7 @@ async function startBattle(spec) {
   if (spec.kind === "battle") {
     state.enemy = spec.enemy;
     state.trainer = null; state.trainerTeam = [];
+    renderTrainerBadge(null);
     ensureRuntime(state.enemy);
     const entryStatus = applyEnemyEntryEffect(state.enemy);
     updateHUD();
@@ -961,7 +1016,9 @@ async function startBattle(spec) {
     state.trainer = spec.boss;
     state.trainerTeam = spec.team;
     state.trainerIdx = 0;
-    await showBanner(`${spec.boss.title} ${spec.boss.leader}`, 1300);
+    setThemeByType([spec.boss.type]);
+    renderTrainerBadge(spec.boss);
+    await showTrainerEntrance(spec.boss, spec.kind === "champion");
     await say(spec.boss.intro, 400);
     await sendTrainerMon(0);
   }
@@ -2021,12 +2078,16 @@ function clearBattlePresentation() {
     const node = $(sel);
     if (node) node.classList.add("hidden");
   }
+  renderTrainerBadge(null);
+  $("#trainerIntro")?.classList.add("hidden");
   setText("");
   setThemeByType(["normal"]);
 }
 
 function clearEnemyPresentation() {
   state.enemy = null;
+  renderTrainerBadge(null);
+  $("#trainerIntro")?.classList.add("hidden");
   const sprite = $("#enemySprite");
   if (sprite) {
     sprite.style.opacity = "0";

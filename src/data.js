@@ -114,27 +114,28 @@ export const PRIORITY_STATUS_MOVES = new Set([
 // challenge the Champion. Wild battles between Gyms are the grind that levels
 // your team. Each Gym scales with progression and New Game+ level.
 export const GYMS = [
-  { leader: "Brock",   title: "Gym Leader", town: "Pewter",     type: "rock",     badge: "Boulder",
+  { leader: "Brock",   title: "Gym Leader", town: "Pewter",     type: "rock",     badge: "Boulder", sprite: "assets/sprites/gordie.png",
     team: [74, 95], intro: "Brock, the Rock-solid trainer, blocks your path!", floor: 12, reward: { money: 600, potions: 2 } },
-  { leader: "Misty",   title: "Gym Leader", town: "Cerulean",   type: "water",    badge: "Cascade",
+  { leader: "Misty",   title: "Gym Leader", town: "Cerulean",   type: "water",    badge: "Cascade", sprite: "assets/sprites/misty-lgpe.png",
     team: [120, 121], intro: "Misty, the Tomboyish Mermaid, dives in!", floor: 18, reward: { money: 800, superPotions: 2 } },
-  { leader: "Lt. Surge", title: "Gym Leader", town: "Vermilion", type: "electric", badge: "Thunder",
+  { leader: "Lt. Surge", title: "Gym Leader", town: "Vermilion", type: "electric", badge: "Thunder", sprite: "assets/sprites/volkner.png",
     team: [100, 25, 26], intro: "Lt. Surge, the Lightning American, sparks up!", floor: 24, reward: { money: 1000, balls: 4 } },
-  { leader: "Erika",   title: "Gym Leader", town: "Celadon",    type: "grass",    badge: "Rainbow",
+  { leader: "Erika",   title: "Gym Leader", town: "Celadon",    type: "grass",    badge: "Rainbow", sprite: "assets/sprites/pokemonbreeder.png",
     team: [114, 71, 45], intro: "Erika, the Nature-Loving Princess, greets you.", floor: 29, reward: { money: 1200, superPotions: 3 } },
-  { leader: "Koga",    title: "Gym Leader", town: "Fuchsia",    type: "poison",   badge: "Soul",
+  { leader: "Koga",    title: "Gym Leader", town: "Fuchsia",    type: "poison",   badge: "Soul", sprite: "assets/sprites/ninjaboy.png",
     team: [109, 89, 110], intro: "Koga, the Poisonous Ninja Master, appears!", floor: 34, reward: { money: 1400, hyperPotions: 1 } },
-  { leader: "Sabrina", title: "Gym Leader", town: "Saffron",    type: "psychic",  badge: "Marsh",
+  { leader: "Sabrina", title: "Gym Leader", town: "Saffron",    type: "psychic",  badge: "Marsh", sprite: "assets/sprites/psychicf.png",
     team: [64, 122, 65], intro: "Sabrina, the Master of Psychic power, awaits.", floor: 40, reward: { money: 1600, ultraBalls: 2 } },
-  { leader: "Blaine",  title: "Gym Leader", town: "Cinnabar",   type: "fire",     badge: "Volcano",
+  { leader: "Blaine",  title: "Gym Leader", town: "Cinnabar",   type: "fire",     badge: "Volcano", sprite: "assets/sprites/blaine.png",
     team: [58, 77, 59], intro: "Blaine, the Hot-Headed Quiz Master, ignites!", floor: 45, reward: { money: 1800, hyperPotions: 2 } },
-  { leader: "Giovanni", title: "Gym Leader", town: "Viridian",  type: "ground",   badge: "Earth",
+  { leader: "Giovanni", title: "Gym Leader", town: "Viridian",  type: "ground",   badge: "Earth", sprite: "assets/sprites/larry.png",
     team: [111, 51, 112], intro: "Giovanni, the self-proclaimed strongest, sneers.", floor: 50, reward: { money: 2500, ultraBalls: 3, hyperPotions: 2 } },
 ];
 
 // The final challenge after all eight badges.
 export const CHAMPION = {
   leader: "Champion Blue", title: "Champion", town: "Indigo Plateau", type: "normal", badge: "Champion",
+  sprite: "assets/sprites/trace.png",
   team: [18, 65, 112, 103, 130, 6], // Pidgeot, Alakazam, Rhydon, Exeggutor, Gyarados, Charizard
   intro: "Your rival stands as Champion. This is the battle you've trained for!",
   floor: 56, reward: { money: 5000, ultraBalls: 5, hyperPotions: 3 },

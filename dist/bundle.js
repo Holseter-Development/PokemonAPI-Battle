@@ -131,6 +131,7 @@
       town: "Pewter",
       type: "rock",
       badge: "Boulder",
+      sprite: "assets/sprites/gordie.png",
       team: [74, 95],
       intro: "Brock, the Rock-solid trainer, blocks your path!",
       floor: 12,
@@ -142,6 +143,7 @@
       town: "Cerulean",
       type: "water",
       badge: "Cascade",
+      sprite: "assets/sprites/misty-lgpe.png",
       team: [120, 121],
       intro: "Misty, the Tomboyish Mermaid, dives in!",
       floor: 18,
@@ -153,6 +155,7 @@
       town: "Vermilion",
       type: "electric",
       badge: "Thunder",
+      sprite: "assets/sprites/volkner.png",
       team: [100, 25, 26],
       intro: "Lt. Surge, the Lightning American, sparks up!",
       floor: 24,
@@ -164,6 +167,7 @@
       town: "Celadon",
       type: "grass",
       badge: "Rainbow",
+      sprite: "assets/sprites/pokemonbreeder.png",
       team: [114, 71, 45],
       intro: "Erika, the Nature-Loving Princess, greets you.",
       floor: 29,
@@ -175,6 +179,7 @@
       town: "Fuchsia",
       type: "poison",
       badge: "Soul",
+      sprite: "assets/sprites/ninjaboy.png",
       team: [109, 89, 110],
       intro: "Koga, the Poisonous Ninja Master, appears!",
       floor: 34,
@@ -186,6 +191,7 @@
       town: "Saffron",
       type: "psychic",
       badge: "Marsh",
+      sprite: "assets/sprites/psychicf.png",
       team: [64, 122, 65],
       intro: "Sabrina, the Master of Psychic power, awaits.",
       floor: 40,
@@ -197,6 +203,7 @@
       town: "Cinnabar",
       type: "fire",
       badge: "Volcano",
+      sprite: "assets/sprites/blaine.png",
       team: [58, 77, 59],
       intro: "Blaine, the Hot-Headed Quiz Master, ignites!",
       floor: 45,
@@ -208,6 +215,7 @@
       town: "Viridian",
       type: "ground",
       badge: "Earth",
+      sprite: "assets/sprites/larry.png",
       team: [111, 51, 112],
       intro: "Giovanni, the self-proclaimed strongest, sneers.",
       floor: 50,
@@ -220,6 +228,7 @@
     town: "Indigo Plateau",
     type: "normal",
     badge: "Champion",
+    sprite: "assets/sprites/trace.png",
     team: [18, 65, 112, 103, 130, 6],
     // Pidgeot, Alakazam, Rhydon, Exeggutor, Gyarados, Charizard
     intro: "Your rival stands as Champion. This is the battle you've trained for!",
@@ -2684,6 +2693,51 @@
     if (token === bannerHold.t)
       b.classList.add("hidden");
   }
+  function trainerSpritePath(trainer) {
+    return trainer?.sprite || "assets/sprites/acetrainerf-gen4.png";
+  }
+  function renderTrainerBadge(trainer) {
+    const badge = $("#enemyTrainerBadge");
+    const img = $("#enemyTrainerMini");
+    const label = $("#enemyTrainerLabel");
+    if (!badge || !img || !label)
+      return;
+    if (!trainer) {
+      badge.classList.add("hidden");
+      img.removeAttribute("src");
+      img.alt = "";
+      label.textContent = "";
+      return;
+    }
+    img.src = trainerSpritePath(trainer);
+    img.alt = "";
+    label.textContent = trainer.leader;
+    badge.title = `${trainer.title} ${trainer.leader}`;
+    badge.classList.remove("hidden");
+  }
+  async function showTrainerEntrance(trainer, champion = false) {
+    const intro = $("#trainerIntro");
+    const sprite = $("#trainerIntroSprite");
+    if (!intro || !sprite || !trainer)
+      return;
+    $("#trainerIntroKicker").textContent = trainer.title || "Trainer";
+    $("#trainerIntroName").textContent = trainer.leader;
+    $("#trainerIntroMeta").textContent = champion ? `${trainer.town} \xB7 Final challenge` : `${trainer.town} Gym \xB7 ${trainer.badge} Badge`;
+    sprite.src = trainerSpritePath(trainer);
+    sprite.alt = "";
+    intro.style.setProperty("--trainer-accent", TYPE_COLOR[trainer.type] || TYPE_COLOR.normal);
+    intro.classList.toggle("trainer-intro-champion", champion);
+    intro.classList.remove("hidden", "is-leaving");
+    intro.classList.remove("is-active");
+    void intro.offsetWidth;
+    intro.classList.add("is-active");
+    const reduceMotion2 = typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
+    await sleep(reduceMotion2 ? 650 : 1550);
+    intro.classList.add("is-leaving");
+    await sleep(reduceMotion2 ? 80 : 320);
+    intro.classList.add("hidden");
+    intro.classList.remove("is-active", "is-leaving");
+  }
   var THEMES = ["normal", "fire", "water", "grass", "electric", "ice", "fighting", "poison", "ground", "flying", "psychic", "bug", "rock", "ghost", "dragon"];
   function setThemeByType(types) {
     const t = types && types[0] || "normal";
@@ -3140,6 +3194,7 @@
       state.enemy = spec.enemy;
       state.trainer = null;
       state.trainerTeam = [];
+      renderTrainerBadge(null);
       ensureRuntime(state.enemy);
       const entryStatus = applyEnemyEntryEffect(state.enemy);
       updateHUD();
@@ -3153,7 +3208,9 @@
       state.trainer = spec.boss;
       state.trainerTeam = spec.team;
       state.trainerIdx = 0;
-      await showBanner(`${spec.boss.title} ${spec.boss.leader}`, 1300);
+      setThemeByType([spec.boss.type]);
+      renderTrainerBadge(spec.boss);
+      await showTrainerEntrance(spec.boss, spec.kind === "champion");
       await say(spec.boss.intro, 400);
       await sendTrainerMon(0);
     }
@@ -4387,11 +4444,15 @@
       if (node)
         node.classList.add("hidden");
     }
+    renderTrainerBadge(null);
+    $("#trainerIntro")?.classList.add("hidden");
     setText("");
     setThemeByType(["normal"]);
   }
   function clearEnemyPresentation() {
     state.enemy = null;
+    renderTrainerBadge(null);
+    $("#trainerIntro")?.classList.add("hidden");
     const sprite = $("#enemySprite");
     if (sprite) {
       sprite.style.opacity = "0";

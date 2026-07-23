@@ -82,6 +82,7 @@ setTimeout(() => {
     // Expedition map overlay exists and starts hidden.
     const map = doc.getElementById("mapScreen");
     assert.ok(map && doc.getElementById("mapCanvas") && doc.getElementById("runHud"), "map screen present");
+    assert.ok(doc.getElementById("trainerIntro") && doc.getElementById("enemyTrainerBadge"), "trainer presentation shell present");
     assert.ok(doc.getElementById("mapScroll") && doc.querySelector(".map-route-bar"), "overworld route shell present");
     assert.ok(doc.querySelector(".map-compass") && doc.querySelectorAll(".legend-node").length === 6, "map landmarks present");
     assert.ok(map.classList.contains("hidden"), "map hidden pre-run");

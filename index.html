@@ -111,6 +111,20 @@
           </div>
         </div>
 
+        <!-- Static trainer art gets a cinematic entrance, then remains as a compact battle badge. -->
+        <div id="trainerIntro" class="trainer-intro hidden" aria-live="polite" aria-atomic="true">
+          <div class="trainer-intro-copy">
+            <span id="trainerIntroKicker" class="trainer-intro-kicker"></span>
+            <h2 id="trainerIntroName"></h2>
+            <p id="trainerIntroMeta"></p>
+          </div>
+          <div class="trainer-intro-stage" aria-hidden="true">
+            <div class="trainer-intro-ring"></div>
+            <div class="trainer-intro-shadow"></div>
+            <img id="trainerIntroSprite" alt="" />
+          </div>
+        </div>
+
         <!-- HUD -->
         <div class="hud">
           <div id="weatherIndicator" class="weather-indicator hidden" role="status" aria-live="polite"></div>
@@ -126,6 +140,10 @@
               <div class="hpbar"><div id="enemyHpFill" class="fill"></div></div>
             </div>
             <div class="statusbox-bottom">
+              <span id="enemyTrainerBadge" class="enemy-trainer-badge hidden">
+                <img id="enemyTrainerMini" alt="" />
+                <span id="enemyTrainerLabel"></span>
+              </span>
               <span id="enemyParty" class="poke-dots"></span>
               <span id="enemyHpText" class="small hp-text"></span>
             </div>

@@ -172,6 +172,181 @@ body {
 #playerSprite { animation: sprite-bob 5.6s ease-in-out infinite; }
 #enemySprite { animation: sprite-bob 7.2s ease-in-out infinite; }
 
+/* ---- trainer entrance --------------------------------------------------- */
+.trainer-intro {
+  --trainer-accent: var(--accent);
+  position: absolute;
+  inset: 0;
+  z-index: 9;
+  overflow: hidden;
+  display: grid;
+  grid-template-columns: minmax(0, 1.05fr) minmax(220px, .95fr);
+  align-items: center;
+  padding: clamp(34px, 7vw, 110px);
+  pointer-events: none;
+  opacity: 0;
+  background:
+    radial-gradient(circle at 78% 45%, color-mix(in srgb, var(--trainer-accent) 34%, transparent), transparent 29%),
+    linear-gradient(112deg, rgba(7, 11, 20, .98) 0 49%, color-mix(in srgb, var(--trainer-accent) 35%, #101728) 49.2% 100%);
+}
+.trainer-intro::before {
+  content: "";
+  position: absolute;
+  inset: -20% -10%;
+  background:
+    repeating-linear-gradient(118deg, transparent 0 36px, rgba(255,255,255,.055) 37px 39px, transparent 40px 78px);
+  transform: translateX(18%);
+}
+.trainer-intro::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, var(--trainer-accent) 22% 78%, transparent);
+  box-shadow: 0 0 22px var(--trainer-accent);
+  opacity: .7;
+}
+.trainer-intro.is-active { animation: trainer-curtain-in .24s ease-out forwards; }
+.trainer-intro.is-leaving { animation: trainer-curtain-out .32s ease-in forwards; }
+
+.trainer-intro-copy {
+  position: relative;
+  z-index: 2;
+  max-width: 620px;
+  opacity: 0;
+  transform: translateX(-46px);
+}
+.trainer-intro.is-active .trainer-intro-copy {
+  animation: trainer-copy-in .46s .12s cubic-bezier(.18,.82,.22,1) forwards;
+}
+.trainer-intro-kicker {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  color: var(--trainer-accent);
+  font-size: clamp(11px, 1.2vw, 15px);
+  font-weight: 900;
+  letter-spacing: .2em;
+  text-transform: uppercase;
+}
+.trainer-intro-kicker::before {
+  content: "";
+  width: clamp(28px, 5vw, 70px);
+  height: 3px;
+  background: var(--trainer-accent);
+  box-shadow: 0 0 12px var(--trainer-accent);
+}
+.trainer-intro h2 {
+  margin: 9px 0 5px;
+  color: #fff;
+  font-size: clamp(36px, 6.2vw, 92px);
+  line-height: .92;
+  letter-spacing: -.045em;
+  text-shadow: 0 5px 24px rgba(0,0,0,.6);
+}
+.trainer-intro p {
+  margin: 16px 0 0;
+  color: rgba(237, 244, 255, .78);
+  font-size: clamp(12px, 1.35vw, 17px);
+  font-weight: 750;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+
+.trainer-intro-stage {
+  position: relative;
+  z-index: 2;
+  justify-self: center;
+  width: clamp(220px, 29vw, 420px);
+  height: clamp(250px, 38vw, 540px);
+  display: grid;
+  place-items: end center;
+  opacity: 0;
+  transform: translateX(80px);
+}
+.trainer-intro.is-active .trainer-intro-stage {
+  animation: trainer-stage-in .52s .08s cubic-bezier(.16,.86,.2,1) forwards;
+}
+.trainer-intro-stage img {
+  position: relative;
+  z-index: 3;
+  width: clamp(210px, 29vw, 400px);
+  height: clamp(250px, 38vw, 520px);
+  object-fit: contain;
+  object-position: center bottom;
+  image-rendering: pixelated;
+  filter:
+    drop-shadow(0 13px 0 rgba(3, 6, 12, .18))
+    drop-shadow(0 22px 24px rgba(0,0,0,.62));
+}
+.trainer-intro-ring {
+  position: absolute;
+  z-index: 1;
+  width: min(32vw, 440px);
+  aspect-ratio: 1;
+  left: 50%;
+  top: 48%;
+  transform: translate(-50%, -50%);
+  border: 2px solid color-mix(in srgb, var(--trainer-accent) 80%, white);
+  border-radius: 50%;
+  opacity: .52;
+  box-shadow:
+    0 0 0 18px color-mix(in srgb, var(--trainer-accent) 7%, transparent),
+    0 0 0 42px color-mix(in srgb, var(--trainer-accent) 5%, transparent),
+    inset 0 0 38px color-mix(in srgb, var(--trainer-accent) 24%, transparent),
+    0 0 52px color-mix(in srgb, var(--trainer-accent) 28%, transparent);
+}
+.trainer-intro-ring::before,
+.trainer-intro-ring::after {
+  content: "";
+  position: absolute;
+  background: var(--trainer-accent);
+  opacity: .7;
+}
+.trainer-intro-ring::before { left: -20%; right: -20%; top: 50%; height: 1px; }
+.trainer-intro-ring::after { top: -20%; bottom: -20%; left: 50%; width: 1px; }
+.trainer-intro-shadow {
+  position: absolute;
+  z-index: 2;
+  left: 12%;
+  right: 12%;
+  bottom: -2%;
+  height: 8%;
+  border-radius: 50%;
+  background: rgba(0,0,0,.52);
+  filter: blur(8px);
+}
+.trainer-intro-champion {
+  --trainer-accent: #ffd166;
+}
+.trainer-intro-champion .trainer-intro-kicker::after {
+  content: "Final";
+  padding: 3px 8px;
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  font-size: .7em;
+  letter-spacing: .12em;
+}
+
+@keyframes trainer-curtain-in {
+  from { opacity: 0; clip-path: inset(48% 0 48% 0); }
+  to { opacity: 1; clip-path: inset(0 0 0 0); }
+}
+@keyframes trainer-curtain-out {
+  from { opacity: 1; clip-path: inset(0 0 0 0); }
+  to { opacity: 0; clip-path: inset(0 0 0 100%); }
+}
+@keyframes trainer-copy-in {
+  from { opacity: 0; transform: translateX(-46px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+@keyframes trainer-stage-in {
+  from { opacity: 0; transform: translateX(80px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
 /* ---- HUD status boxes --------------------------------------------------- */
 .hud { position: absolute; inset: 0; z-index: 4; pointer-events: none; }
 .weather-indicator {
@@ -256,7 +431,39 @@ body {
 }
 .xpbar .fill { height: 100%; width: 0%; background: linear-gradient(90deg, #2aa8ff, var(--xp)); transition: width .5s ease; }
 
-.statusbox-bottom { display: flex; align-items: center; justify-content: space-between; margin-top: 6px; }
+.statusbox-bottom { display: flex; align-items: center; justify-content: space-between; gap: 7px; margin-top: 6px; }
+.enemy-box .statusbox-bottom { justify-content: flex-start; }
+.enemy-box .hp-text { margin-left: auto; }
+.enemy-trainer-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  max-width: 116px;
+  padding: 2px 7px 2px 3px;
+  border: 1px solid color-mix(in srgb, var(--type) 48%, rgba(255,255,255,.15));
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--type) 16%, rgba(8,12,20,.82));
+  color: var(--ink);
+  font-size: 9px;
+  font-weight: 850;
+  letter-spacing: .02em;
+  line-height: 1;
+  white-space: nowrap;
+}
+.enemy-trainer-badge img {
+  width: 28px;
+  height: 28px;
+  flex: 0 0 28px;
+  object-fit: contain;
+  object-position: center bottom;
+  image-rendering: pixelated;
+  filter: drop-shadow(0 2px 3px rgba(0,0,0,.5));
+}
+.enemy-trainer-badge span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 .hp-text { font-variant-numeric: tabular-nums; }
 .poke-dots { display: inline-flex; gap: 3px; }
 .poke-dots i {
@@ -1095,6 +1302,25 @@ button.use-btn:active { transform: translateY(2px); }
   #enemySprite { width: clamp(120px, 36vw, 210px); margin-bottom: -10px; }
   #playerSprite { width: clamp(140px, 42vw, 240px); margin-bottom: -10px; }
 
+  .trainer-intro {
+    grid-template-columns: minmax(0, .95fr) minmax(150px, 1.05fr);
+    padding: 22px 16px;
+  }
+  .trainer-intro h2 { font-size: clamp(30px, 10vw, 54px); }
+  .trainer-intro p { max-width: 180px; font-size: 9px; }
+  .trainer-intro-stage {
+    width: min(48vw, 260px);
+    height: min(72vw, 380px);
+  }
+  .trainer-intro-stage img {
+    width: min(48vw, 250px);
+    height: min(70vw, 360px);
+  }
+  .trainer-intro-ring { width: min(44vw, 230px); }
+  .enemy-trainer-badge { padding-right: 3px; }
+  .enemy-trainer-badge img { width: 24px; height: 24px; flex-basis: 24px; }
+  .enemy-trainer-badge span { display: none; }
+
   .menu-grid { gap: 8px; }
   .cmd { padding: 14px 8px; font-size: 15px; }
   .auto-toggle { margin-top: 8px; }
@@ -1164,6 +1390,13 @@ button.use-btn:active { transform: translateY(2px); }
 /* ---- reduced motion ----------------------------------------------------- */
 @media (prefers-reduced-motion: reduce) {
   #enemySprite, #playerSprite, .screen::before, .title-orbs::before, .title-orbs::after, .starter-card, .starter-art img { animation: none !important; transition: none !important; }
+  .trainer-intro, .trainer-intro-copy, .trainer-intro-stage {
+    animation: none !important;
+    transition: none !important;
+  }
+  .trainer-intro.is-active { opacity: 1; clip-path: none; }
+  .trainer-intro.is-active .trainer-intro-copy,
+  .trainer-intro.is-active .trainer-intro-stage { opacity: 1; transform: none; }
   .themefx .p { animation-duration: calc(var(--dur, 12s) * 1.3); }
   .caret { animation: none; opacity: 1; }
   .map-node.available, .map-edges .route-available { animation: none !important; }

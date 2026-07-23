@@ -475,7 +475,8 @@ test("gym ladder is well-formed and scales", () => {
   const badges = new Set();
   let lastFloor = 0;
   for (const g of GYMS) {
-    assert.ok(g.leader && g.type && g.badge, "gym fields present");
+    assert.ok(g.leader && g.type && g.badge && g.sprite, "gym fields and trainer sprite present");
+    assert.match(g.sprite, /^assets\/sprites\/.+\.png$/, "gym sprite is a local PNG");
     assert.ok(g.team.length >= 1 && g.team.every((id) => id >= 1 && id <= 151), "valid Gen-1 team");
     assert.ok(g.floor > lastFloor, "floor levels increase");
     lastFloor = g.floor;
@@ -483,6 +484,7 @@ test("gym ladder is well-formed and scales", () => {
   }
   assert.strictEqual(badges.size, 8, "unique badges");
   assert.ok(CHAMPION.team.length >= 5 && CHAMPION.floor > lastFloor, "champion is the toughest");
+  assert.match(CHAMPION.sprite, /^assets\/sprites\/.+\.png$/, "champion has a local trainer sprite");
 });
 
 console.log(`\n${passed} checks passed`);
