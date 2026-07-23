@@ -6,10 +6,11 @@ import assert from "node:assert";
 import {
   typeEffect, calcDamage, useMove, applyAilment, canAct, endOfTurn,
   firstMover, effectiveStat, chooseAIMove, bestMoveIndex, catchSuccess,
-  rollHit, switchOutHeal,
+  rollHit, switchOutHeal, applyEntryStatus, applyWeatherChip, applyDefeatHeal,
 } from "../src/battle.js";
 import { selectMoves, spriteSet } from "../src/api.js";
 import { buildMove, GYMS, CHAMPION } from "../src/data.js";
+import { aggregateSigils, applyStartingBallBonus } from "../src/mutations.js";
 import { snapshotMon, buildRoster, validateRoster, rosterPower } from "../src/roster.js";
 
 let passed = 0;
@@ -297,6 +298,139 @@ test("multiscale halves damage at full HP; vampiric heals; regen on switch", () 
   const regen = mon({ stats: { maxHp: 90, hp: 30 } }); regen.abilities = ["regenerator"];
   const healed = switchOutHeal(regen);
   assert.ok(healed > 0 && regen.stats.hp === 60);
+});
+
+// ---- run-wide Sigil battle context hooks ----
+test("weather Sigils change their player move types", () => {
+  const cases = [
+    ["solar_core", "fire", ">"], ["solar_core", "water", "<"],
+    ["monsoon", "water", ">"], ["monsoon", "fire", "<"],
+    ["permafrost", "ice", ">"], ["sand_totem", "rock", ">"], ["sand_totem", "ground", ">"],
+  ];
+  for (const [sigil, type, direction] of cases) {
+    const attacker = mon({ types: [type] });
+    const defender = mon({ types: ["normal"] });
+    const move = dmgMove({ type });
+    const plain = calcDamage(attacker, defender, move, () => 0.99, { avg: true });
+    const changed = calcDamage(attacker, defender, move, () => 0.99, { avg: true }, {
+      playerFx: aggregateSigils([sigil]), attackerIsPlayer: true,
+    });
+    assert.ok(direction === ">" ? changed.dmg > plain.dmg : changed.dmg < plain.dmg, `${sigil} ${type}`);
+  }
+});
+
+test("Glass Armory boosts both sides; Apex damage only boosts the player", () => {
+  const attacker = mon(), defender = mon({ types: ["bug"] }), move = dmgMove();
+  const plain = calcDamage(attacker, defender, move, () => 0.99, { avg: true });
+  const glassFx = aggregateSigils(["glass_armory"]);
+  const glassPlayer = calcDamage(attacker, defender, move, () => 0.99, { avg: true }, {
+    playerFx: glassFx, attackerIsPlayer: true,
+  });
+  const glassEnemy = calcDamage(attacker, defender, move, () => 0.99, { avg: true }, {
+    playerFx: glassFx, attackerIsPlayer: false,
+  });
+  assert.ok(glassPlayer.dmg > plain.dmg && glassEnemy.dmg > plain.dmg);
+
+  const apexFx = aggregateSigils(["apex"]);
+  const apexPlayer = calcDamage(attacker, defender, move, () => 0.99, { avg: true }, {
+    playerFx: apexFx, attackerIsPlayer: true,
+  });
+  const apexEnemy = calcDamage(attacker, defender, move, () => 0.99, { avg: true }, {
+    playerFx: apexFx, attackerIsPlayer: false,
+  });
+  assert.ok(apexPlayer.dmg > plain.dmg);
+  assert.strictEqual(apexEnemy.dmg, plain.dmg);
+});
+
+test("Momentum Engine adds crit chance for unswitched player turns only", () => {
+  const attacker = mon(), defender = mon(), move = dmgMove();
+  const fx = aggregateSigils(["momentum"]);
+  const plain = calcDamage(attacker, defender, move, () => 0.3, { avg: true }, {
+    playerFx: fx, attackerIsPlayer: true, noSwitchTurns: 0,
+  });
+  const ramped = calcDamage(attacker, defender, move, () => 0.3, { avg: true }, {
+    playerFx: fx, attackerIsPlayer: true, noSwitchTurns: 3,
+  });
+  const enemy = calcDamage(attacker, defender, move, () => 0.3, { avg: true }, {
+    playerFx: fx, attackerIsPlayer: false, noSwitchTurns: 3,
+  });
+  assert.strictEqual(plain.crit, false);
+  assert.strictEqual(ramped.crit, true);
+  assert.strictEqual(enemy.crit, false);
+});
+
+test("Sturdy Banner caps a full-HP hit; Second Wind is consumed once", () => {
+  const attacker = mon({ stats: { atk: 180 } });
+  const sturdy = mon({ stats: { maxHp: 100, hp: 100, def: 20 } });
+  const sturdyFx = aggregateSigils(["sturdy_banner"]);
+  const hit = calcDamage(attacker, sturdy, dmgMove({ power: 200 }), () => 0.99, { avg: true }, {
+    playerFx: sturdyFx, defenderIsPlayer: true,
+  });
+  assert.ok(hit.dmg <= 50, `Sturdy damage was ${hit.dmg}`);
+
+  const defender = mon({ stats: { maxHp: 80, hp: 30, def: 20 } });
+  const flag = { used: false };
+  const ctx = { playerFx: aggregateSigils(["second_wind"]), defenderIsPlayer: true, endureUsed: flag };
+  const first = useMove(attacker, defender, dmgMove({ power: 200 }), () => 0.99, ctx);
+  assert.strictEqual(defender.stats.hp, 1);
+  assert.ok(first.endured && flag.used);
+  const second = useMove(attacker, defender, dmgMove({ power: 200 }), () => 0.99, ctx);
+  assert.strictEqual(defender.stats.hp, 0);
+  assert.ok(second.targetFainted);
+});
+
+test("Vampire Pact stacks additively with the Vampiric mutation", () => {
+  const attacker = mon({ stats: { maxHp: 200, hp: 20 } });
+  attacker.lifesteal = 0.25;
+  const defender = mon({ stats: { maxHp: 300, hp: 300 } });
+  const res = useMove(attacker, defender, dmgMove({ power: 80 }), () => 0.99, {
+    playerFx: aggregateSigils(["vampire_pact"]), attackerIsPlayer: true,
+  });
+  assert.strictEqual(res.drain, Math.max(1, Math.floor(res.totalDmg * 0.37)));
+  assert.strictEqual(attacker.stats.hp, 20 + res.drain);
+});
+
+test("Trick Lens reverses speed order without reversing priority", () => {
+  const fast = mon({ stats: { spe: 100 } });
+  const slow = mon({ stats: { spe: 40 } });
+  const ctx = { playerFx: aggregateSigils(["trick_lens"]) };
+  assert.strictEqual(firstMover(fast, dmgMove(), slow, dmgMove(), makeRng(), ctx), "b");
+  assert.strictEqual(firstMover(fast, dmgMove({ priority: 1 }), slow, dmgMove(), makeRng(), ctx), "a");
+});
+
+test("Toxic Spikes poisons eligible entrants and respects type immunity", () => {
+  const fx = aggregateSigils(["toxic_spikes"]);
+  const foe = mon({ types: ["normal"] });
+  const steel = mon({ types: ["steel"] });
+  assert.ok(applyEntryStatus(foe, fx.enemyEntryStatus).applied);
+  assert.strictEqual(foe.status.cond, "psn");
+  assert.strictEqual(applyEntryStatus(steel, fx.enemyEntryStatus).applied, false);
+});
+
+test("hail and sand chip non-immune combatants", () => {
+  const normal = mon();
+  const hail = applyWeatherChip(normal, aggregateSigils(["permafrost"]).weather);
+  assert.ok(hail.dmg > 0 && normal.stats.hp === 80 - hail.dmg);
+  assert.strictEqual(applyWeatherChip(mon({ types: ["ice"] }), "hail"), null);
+
+  const sandTarget = mon({ types: ["water"] });
+  const sand = applyWeatherChip(sandTarget, aggregateSigils(["sand_totem"]).weather);
+  assert.ok(sand.dmg > 0);
+  for (const type of ["rock", "ground", "steel"]) {
+    assert.strictEqual(applyWeatherChip(mon({ types: [type] }), "sand"), null, `${type} should be immune`);
+  }
+});
+
+test("Apex Predator heals after a KO and Ball Cache augments starting items", () => {
+  const apexFx = aggregateSigils(["apex"]);
+  const winner = mon({ stats: { maxHp: 80, hp: 20 } });
+  assert.strictEqual(applyDefeatHeal(winner, apexFx.healOnKill), 20);
+  assert.strictEqual(winner.stats.hp, 40);
+
+  const items = { "poke-ball": 3 };
+  const added = applyStartingBallBonus(items, aggregateSigils(["ball_cache"]));
+  assert.strictEqual(added, 2);
+  assert.strictEqual(items["poke-ball"], 5);
 });
 
 // ---- roster (multiplayer bridge) ----

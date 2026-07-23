@@ -177,6 +177,11 @@ test("createRun: deterministic map, starts choosing row-0 nodes", () => {
   assert.ok(first.length >= 1 && first.every((n) => n.row === 0));
 });
 
+test("createRun accepts starting Sigils for controller initialization", () => {
+  const run = createRun("STARTING-SIGILS", { sigils: ["ball_cache", "permafrost"] });
+  assert.deepStrictEqual(run.sigils, ["ball_cache", "permafrost"]);
+});
+
 test("run: travel + resolve advances along edges", () => {
   const run = createRun("PATH-TEST");
   const start = availableNext(run)[0];

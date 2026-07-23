@@ -115,13 +115,25 @@ const waitFor = (cond, ms = 9000) => new Promise((resolve, reject) => {
 
     const avail = doc.querySelectorAll("#mapCanvas .map-node.available");
     assert.ok(avail.length >= 1, "at least one reachable node");
+    assert.strictEqual(doc.querySelectorAll("#mapCanvas .map-region").length, 3, "three themed overworld regions");
+    assert.ok(doc.querySelector(".biome-verdant") && doc.querySelector(".biome-crimson") && doc.querySelector(".biome-indigo"), "all biome themes rendered");
+    assert.ok(avail[0].querySelector(".node-mark") && avail[0].querySelector(".node-name"), "landmark node is structured");
+    await waitFor(() => doc.querySelectorAll("#mapCanvas .map-edges path").length > 0);
+    assert.ok(/Wilds/.test(doc.getElementById("mapRegionTitle").textContent), "current region named");
     // Run HUD populated.
     assert.ok(/Region/.test(doc.getElementById("runHud").textContent), "run HUD shows region");
     console.log("  ✓ reachable nodes + run HUD (" + avail.length + " available)");
 
+    // Resume this persisted run with combat Sigils to exercise the complete
+    // run -> aggregateSigils -> controller battle-context path.
+    const stored = JSON.parse(window.localStorage.getItem("pkbattle:run:v1"));
+    stored.sigils = ["permafrost", "toxic_spikes"];
+    window.localStorage.setItem("pkbattle:run:v1", JSON.stringify(stored));
+    doc.getElementById("continueBtn").click();
+
     // Travel to the first available node → a battle (or node) should resolve,
     // hiding the map. (Row-0 nodes are always Wild battles.)
-    avail[0].click();
+    doc.querySelector("#mapCanvas .map-node.available").click();
     await waitFor(() => doc.getElementById("mapScreen").classList.contains("hidden"));
     console.log("  ✓ selecting a node leaves the map");
 
@@ -132,6 +144,11 @@ const waitFor = (cond, ms = 9000) => new Promise((resolve, reject) => {
     // Enable auto-play and let it fight the battle to a finish, which must
     // return control to the map (exercises onEnemyFaint → afterBattleWin →
     // goToMap, the core resolution loop).
+    assert.strictEqual(doc.getElementById("weatherIndicator").textContent, "Hail", "active weather shown");
+    assert.ok(!doc.getElementById("weatherIndicator").classList.contains("hidden"), "weather indicator visible");
+    assert.strictEqual(doc.getElementById("enemyStatus").textContent, "PSN", "Toxic Spikes applied on entry");
+    console.log("  sigils reached battle context + HUD");
+
     const auto = doc.getElementById("autoToggle");
     auto.checked = true;
     auto.dispatchEvent(new window.Event("change"));

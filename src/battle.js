@@ -60,15 +60,15 @@ export function rollHit(move, attacker, defender, rng = Math.random) {
   return rng() * 100 < chance;
 }
 
-export function rollCrit(attacker, move, rng = Math.random) {
+export function rollCrit(attacker, move, rng = Math.random, bonus = 0) {
   let base = clamp((attacker.stats.spe || attacker.stats.spd || 40) / 512, 0.02, 0.25);
   if (move.highCrit) base = clamp(base * 2, 0.02, 0.4);
-  return rng() < base;
+  return rng() < clamp(base + bonus, 0, 1);
 }
 
 // Core damage roll. `opts.avg` forces the average random factor (used by AI
 // look-ahead) and `opts.forceCrit` is for tests.
-export function calcDamage(attacker, defender, move, rng = Math.random, opts = {}) {
+export function calcDamage(attacker, defender, move, rng = Math.random, opts = {}, ctx = {}) {
   const level = attacker.level;
   const special = move.damage_class === "special";
   let atkStat = special ? effectiveStat(attacker, "spa") : effectiveStat(attacker, "atk");
@@ -93,12 +93,24 @@ export function calcDamage(attacker, defender, move, rng = Math.random, opts = {
   const randFactor = opts.avg ? 0.925 : 0.85 + rng() * 0.15;
   const stabMult = attacker.adaptive ? 2.0 : 1.5; // Adaptive/Primeval mutation
   const stab = attacker.types.includes(move.type) ? stabMult : 1.0;
-  let dmg = Math.max(1, Math.floor(base * randFactor * stab * eff));
-  const crit = opts.forceCrit || rollCrit(attacker, move, rng);
+  const fx = ctx.playerFx || {};
+  const globalMult = fx.globalDamageMult ?? 1;
+  const playerMult = ctx.attackerIsPlayer
+    ? (fx.yourDamageMult ?? 1) * (fx.typeMult?.[move.type] ?? 1)
+    : 1;
+  let dmg = Math.max(1, Math.floor(base * randFactor * stab * eff * globalMult * playerMult));
+  const critBonus = ctx.attackerIsPlayer
+    ? (fx.critRampPerTurn || 0) * Math.max(0, ctx.noSwitchTurns || 0)
+    : 0;
+  const crit = opts.forceCrit || rollCrit(attacker, move, rng, critBonus);
   if (crit) dmg = Math.floor(dmg * 1.8);
   // Aegis (multiscale): halves damage while the defender is at full HP.
   if (hasAbility(defender, "multiscale") && defender.stats.hp >= defender.stats.maxHp) {
     dmg = Math.max(1, Math.floor(dmg * 0.5));
+  }
+  // Sturdy Banner: every individual hit is capped while the player's mon is full.
+  if (ctx.defenderIsPlayer && fx.sturdyAtFull && defender.stats.hp >= defender.stats.maxHp) {
+    dmg = Math.min(dmg, Math.max(1, Math.floor(defender.stats.maxHp * 0.5)));
   }
   return { dmg, eff, crit };
 }
@@ -120,6 +132,16 @@ export function applyAilment(target, ailmentName, rng = Math.random, force = fal
   target.status = { cond, turns: 0, toxic: cond === "tox" ? 1 : 0 };
   if (cond === "slp") target.status.turns = 1 + Math.floor(rng() * 3);
   return { applied: true, cond };
+}
+
+// Sigil contexts store normalized internal status codes; translate them through
+// the same immunity-aware ailment path used by moves.
+export function applyEntryStatus(target, statusCode, rng = Math.random) {
+  const ailment = {
+    brn: "burn", par: "paralysis", psn: "poison",
+    tox: "bad-poison", slp: "sleep", frz: "freeze",
+  }[statusCode];
+  return ailment ? applyAilment(target, ailment, rng) : { applied: false };
 }
 
 // Returns { canAct, message, thawed, woke }.
@@ -165,12 +187,34 @@ export function endOfTurn(mon) {
   return null;
 }
 
+// Hail and sandstorm chip. The controller decides when the residual phase runs;
+// this deterministic helper owns the shared immunity and damage rules.
+export function applyWeatherChip(mon, weather) {
+  const immune =
+    (weather === "hail" && mon.types.includes("ice")) ||
+    (weather === "sand" && mon.types.some((t) => ["rock", "ground", "steel"].includes(t)));
+  if (!["hail", "sand"].includes(weather) || immune || mon.stats.hp <= 0) return null;
+  const dmg = Math.min(mon.stats.hp, Math.max(1, Math.floor(mon.stats.maxHp / 16)));
+  mon.stats.hp = clamp(mon.stats.hp - dmg, 0, mon.stats.maxHp);
+  return { dmg, kind: weather, fainted: mon.stats.hp <= 0 };
+}
+
+// Apex Predator heal. Kept here so clients and future server simulations use
+// identical rounding and never revive a fainted attacker.
+export function applyDefeatHeal(mon, fraction) {
+  if (!mon || mon.stats.hp <= 0 || !(fraction > 0)) return 0;
+  const before = mon.stats.hp;
+  const heal = Math.max(1, Math.floor(mon.stats.maxHp * fraction));
+  mon.stats.hp = clamp(mon.stats.hp + heal, 0, mon.stats.maxHp);
+  return mon.stats.hp - before;
+}
+
 // ---- the main move resolver -------------------------------------------
 
 // Resolve a single use of `move` by `attacker` against `defender`.
 // Mutates both mons and returns a structured, message-carrying result the
 // controller animates from.
-export function useMove(attacker, defender, move, rng = Math.random) {
+export function useMove(attacker, defender, move, rng = Math.random, ctx = {}) {
   const res = {
     move,
     missed: false,
@@ -183,6 +227,7 @@ export function useMove(attacker, defender, move, rng = Math.random) {
     drain: 0,
     recoil: 0,
     healed: 0,
+    endured: false,
     flinch: false,
     log: [],
   };
@@ -194,12 +239,19 @@ export function useMove(attacker, defender, move, rng = Math.random) {
       res.log.push("But it failed!");
       return res;
     }
-    const dmg = defender.stats.hp;
-    defender.stats.hp = 0;
-    res.hits.push({ dmg, crit: false, eff: 1 });
-    res.totalDmg = dmg;
-    res.targetFainted = true;
-    res.log.push("It's a one-hit KO!");
+    const fx = ctx.playerFx || {};
+    let dmg = defender.stats.hp;
+    if (ctx.defenderIsPlayer && fx.sturdyAtFull && defender.stats.hp >= defender.stats.maxHp) {
+      dmg = Math.min(dmg, Math.max(1, Math.floor(defender.stats.maxHp * 0.5)));
+    }
+    const applied = applyHitDamage(defender, dmg, ctx);
+    res.hits.push({ dmg: applied.dmg, crit: false, eff: 1 });
+    res.totalDmg = applied.dmg;
+    res.endured = applied.endured;
+    res.targetFainted = defender.stats.hp <= 0;
+    if (res.targetFainted) res.log.push("It's a one-hit KO!");
+    else if (res.endured) res.log.push(`${defender.name} endured the hit!`);
+    else res.log.push(`${defender.name} stood firm!`);
     return res;
   }
 
@@ -232,10 +284,14 @@ export function useMove(attacker, defender, move, rng = Math.random) {
     }
     for (let i = 0; i < hitCount; i++) {
       if (defender.stats.hp <= 0) break;
-      const { dmg, crit } = calcDamage(attacker, defender, move, rng);
-      defender.stats.hp = clamp(defender.stats.hp - dmg, 0, defender.stats.maxHp);
-      res.hits.push({ dmg, crit, eff });
-      res.totalDmg += dmg;
+      const { dmg, crit } = calcDamage(attacker, defender, move, rng, {}, ctx);
+      const applied = applyHitDamage(defender, dmg, ctx);
+      res.hits.push({ dmg: applied.dmg, crit, eff });
+      res.totalDmg += applied.dmg;
+      if (applied.endured) {
+        res.endured = true;
+        res.log.push(`${defender.name} endured the hit!`);
+      }
     }
     if (hitCount > 1) res.log.push(`Hit ${res.hits.length} time(s)!`);
     res.effMult = eff;
@@ -249,9 +305,12 @@ export function useMove(attacker, defender, move, rng = Math.random) {
       res.recoil = Math.max(1, Math.floor((res.totalDmg * -move.drain) / 100));
       attacker.stats.hp = clamp(attacker.stats.hp - res.recoil, 0, attacker.stats.maxHp);
       res.log.push(`${attacker.name} is hit with recoil!`);
-    } else if (attacker.lifesteal > 0 && res.totalDmg > 0) {
-      // Vampiric mutation: heal a fraction of damage dealt.
-      const leech = Math.max(1, Math.floor(res.totalDmg * attacker.lifesteal));
+    } else if (((attacker.lifesteal || 0) +
+      (ctx.attackerIsPlayer ? (ctx.playerFx?.lifesteal || 0) : 0)) > 0 && res.totalDmg > 0) {
+      // Vampiric mutation and Vampire Pact stack additively.
+      const lifesteal = (attacker.lifesteal || 0) +
+        (ctx.attackerIsPlayer ? (ctx.playerFx?.lifesteal || 0) : 0);
+      const leech = Math.max(1, Math.floor(res.totalDmg * lifesteal));
       const before = attacker.stats.hp;
       attacker.stats.hp = clamp(attacker.stats.hp + leech, 0, attacker.stats.maxHp);
       res.drain = attacker.stats.hp - before;
@@ -318,6 +377,28 @@ export function useMove(attacker, defender, move, rng = Math.random) {
   return res;
 }
 
+// Apply one resolved hit, consuming the caller-owned Second Wind flag if needed.
+function applyHitDamage(defender, damage, ctx) {
+  const fx = ctx.playerFx || {};
+  let dmg = Math.min(Math.max(0, damage), defender.stats.hp);
+  let endured = false;
+  const endureFlag = ctx.endureUsed;
+  if (
+    ctx.defenderIsPlayer &&
+    fx.endureOnce &&
+    endureFlag &&
+    !endureFlag.used &&
+    dmg >= defender.stats.hp &&
+    defender.stats.hp > 0
+  ) {
+    dmg = Math.max(0, defender.stats.hp - 1);
+    endureFlag.used = true;
+    endured = true;
+  }
+  defender.stats.hp = clamp(defender.stats.hp - dmg, 0, defender.stats.maxHp);
+  return { dmg, endured };
+}
+
 function changeStage(mon, key, change) {
   if (!mon.stages) mon.stages = { atk: 0, def: 0, spa: 0, spd: 0, spe: 0, acc: 0, eva: 0 };
   const cur = mon.stages[key] || 0;
@@ -346,13 +427,16 @@ function statusVerb(cond) {
 // ---- turn order --------------------------------------------------------
 
 // Returns "a" or "b": which combatant moves first this round.
-export function firstMover(a, aMove, b, bMove, rng = Math.random) {
+export function firstMover(a, aMove, b, bMove, rng = Math.random, ctx = {}) {
   const pa = aMove ? aMove.priority || 0 : 0;
   const pb = bMove ? bMove.priority || 0 : 0;
   if (pa !== pb) return pa > pb ? "a" : "b";
   const sa = effectiveStat(a, "spe");
   const sb = effectiveStat(b, "spe");
-  if (sa !== sb) return sa > sb ? "a" : "b";
+  if (sa !== sb) {
+    const faster = sa > sb ? "a" : "b";
+    return ctx.playerFx?.trickRoom ? (faster === "a" ? "b" : "a") : faster;
+  }
   return rng() < 0.5 ? "a" : "b";
 }
 

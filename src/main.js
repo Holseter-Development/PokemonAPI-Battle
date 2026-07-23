@@ -17,8 +17,11 @@ import {
   typeEffect,
   calcDamage,
   useMove,
+  applyEntryStatus,
   canAct,
   endOfTurn,
+  applyWeatherChip,
+  applyDefeatHeal,
   firstMover,
   chooseAIMove,
   bestMoveIndex,
@@ -47,7 +50,7 @@ import {
   encounterLevel, checkWipe, withRng,
 } from "./run.js";
 import {
-  SIGILS, MUTATIONS, applyMutation, aggregateSigils, emptyEffects, RARITY_COLOR,
+  SIGILS, MUTATIONS, applyMutation, aggregateSigils, applyStartingBallBonus, emptyEffects, RARITY_COLOR,
 } from "./mutations.js";
 import { sampleDistinct } from "./rng.js";
 import { $, el, show, typeText, setText } from "./ui.js";
@@ -94,6 +97,8 @@ const state = {
   run: null,       // the active Expedition (see run.js)
   battle: null,    // { kind, onWin, onLose, onFlee } for the current node battle
   sigilFx: emptyEffects(),
+  noSwitchTurns: 0,
+  endureUsed: { used: false },
   vault: [],       // persistent ascended roster (for ranked)
   meta: { fragments: 0, expeditionsWon: 0 },
   items: null,     // aliased to run.items during a run
@@ -317,6 +322,13 @@ function renderDots(container, list) {
 
 function updateHUD() {
   const ps = $("#playerSprite"), es = $("#enemySprite");
+  const weather = $("#weatherIndicator");
+  const weatherName = state.battle && state.sigilFx.weather;
+  if (weather) {
+    const labels = { sun: "Harsh Sunlight", rain: "Rain", hail: "Hail", sand: "Sandstorm" };
+    weather.textContent = labels[weatherName] || "";
+    weather.className = weatherName ? `weather-indicator weather-${weatherName}` : "weather-indicator hidden";
+  }
 
   if (state.player) {
     const p = state.player;
@@ -664,7 +676,13 @@ async function performMove(attacker, defender, move, attackerIsPlayer) {
   if (move.power > 0) { playSfx(move); await lunge(aSel, towardRight); }
   else { playSfx(move); }
 
-  const res = useMove(attacker, defender, move);
+  const res = useMove(attacker, defender, move, Math.random, {
+    playerFx: state.sigilFx,
+    attackerIsPlayer,
+    defenderIsPlayer: !attackerIsPlayer,
+    noSwitchTurns: state.noSwitchTurns,
+    endureUsed: state.endureUsed,
+  });
 
   // Damage & effect visuals.
   if (res.missed) {
@@ -708,10 +726,18 @@ async function performMove(attacker, defender, move, attackerIsPlayer) {
 async function fightRound(playerMove) {
   setBusy(true);
   show("none");
+  state.noSwitchTurns++;
   const eIdx = chooseAIMove(state.enemy, state.player);
   const enemyMove = state.enemy.moves[eIdx] || { ...STRUGGLE };
 
-  const playerFirst = firstMover(state.player, playerMove, state.enemy, enemyMove) === "a";
+  const playerFirst = firstMover(
+    state.player,
+    playerMove,
+    state.enemy,
+    enemyMove,
+    Math.random,
+    { playerFx: state.sigilFx },
+  ) === "a";
   const order = playerFirst
     ? [["p", playerMove], ["e", enemyMove]]
     : [["e", enemyMove], ["p", playerMove]];
@@ -737,7 +763,8 @@ async function fightRound(playerMove) {
 }
 
 // Enemy takes a free turn after the player used a non-attacking action.
-async function enemyFreeTurn() {
+async function enemyFreeTurn(playerActed = true) {
+  if (playerActed) state.noSwitchTurns++;
   const eIdx = chooseAIMove(state.enemy, state.player);
   const enemyMove = state.enemy.moves[eIdx] || { ...STRUGGLE };
   await performMove(state.enemy, state.player, enemyMove, false);
@@ -746,7 +773,7 @@ async function enemyFreeTurn() {
   await backToMenu();
 }
 
-// End-of-turn burn/poison ticks. Returns true if the battle ended/transitioned.
+// End-of-turn status and weather ticks. Returns true if the battle transitioned.
 async function residualPhase() {
   for (const [mon, sel, isEnemy] of [
     [state.player, "#playerSprite", false],
@@ -758,6 +785,23 @@ async function residualPhase() {
       updateHUD();
       floatTextNear(sel, `-${r.dmg}`, "bad");
       await say(`${mon.name} is hurt by its ${r.kind === "brn" ? "burn" : "poison"}!`);
+      if (r.fainted) {
+        if (isEnemy) { await onEnemyFaint(); return true; }
+        await onPlayerFaint(); return true;
+      }
+    }
+  }
+  const weather = state.sigilFx.weather;
+  for (const [mon, sel, isEnemy] of [
+    [state.player, "#playerSprite", false],
+    [state.enemy, "#enemySprite", true],
+  ]) {
+    if (!mon || mon.stats.hp <= 0) continue;
+    const r = applyWeatherChip(mon, weather);
+    if (r && r.dmg) {
+      updateHUD();
+      floatTextNear(sel, `-${r.dmg}`, "bad");
+      await say(`${mon.name} is buffeted by the ${weather === "hail" ? "hail" : "sandstorm"}!`);
       if (r.fainted) {
         if (isEnemy) { await onEnemyFaint(); return true; }
         await onPlayerFaint(); return true;
@@ -785,6 +829,14 @@ async function onEnemyFaint() {
   await playCry(state.enemy);
   await faintOut("#enemySprite");
   await say(`${labelFor(state.enemy, true)} fainted!`);
+  if (state.player.stats.hp > 0 && state.sigilFx.healOnKill > 0) {
+    const gained = applyDefeatHeal(state.player, state.sigilFx.healOnKill);
+    if (gained > 0) {
+      updateHUD();
+      floatTextNear("#playerSprite", `+${gained}`, "good");
+      await say(`${state.player.name} fed on the victory!`);
+    }
+  }
   await gainXP(state.player, Math.round(xpFor(state.enemy) * (state.sigilFx.xpMult || 1)));
 
   if (state.mode === "trainer") {
@@ -836,6 +888,12 @@ async function onPlayerFaint() {
 // Recompute the aggregated sigil effects for the coming battle.
 function beginBattleEffects() {
   state.sigilFx = aggregateSigils(state.run ? state.run.sigils : []);
+  state.noSwitchTurns = 0;
+  state.endureUsed = { used: false };
+}
+
+function applyEnemyEntryEffect(mon) {
+  return applyEntryStatus(mon, state.sigilFx.enemyEntryStatus).applied;
 }
 
 // Build a level-appropriate wild Pokémon (non-legendary, gentle BST bias).
@@ -879,10 +937,12 @@ async function startBattle(spec) {
     state.enemy = spec.enemy;
     state.trainer = null; state.trainerTeam = [];
     ensureRuntime(state.enemy);
+    const entryStatus = applyEnemyEntryEffect(state.enemy);
     updateHUD();
     setThemeByType(state.enemy.types);
     await fadeInSprite("#enemySprite");
     await say(`A wild ${state.enemy.name} appeared!`);
+    if (entryStatus) await say(`${state.enemy.name} was poisoned by Toxic Spikes!`);
     await playCry(state.enemy);
   } else {
     state.trainer = spec.boss;
@@ -899,10 +959,12 @@ async function sendTrainerMon(idx) {
   const mon = state.trainerTeam[idx];
   ensureRuntime(mon);
   state.enemy = mon;
+  const entryStatus = applyEnemyEntryEffect(mon);
   updateHUD();
   setThemeByType(mon.types);
   await fadeInSprite("#enemySprite");
   await say(`${state.trainer.leader} sent out ${mon.name}!`);
+  if (entryStatus) await say(`${mon.name} was poisoned by Toxic Spikes!`);
   await playCry(mon);
 }
 
@@ -916,8 +978,10 @@ const DEFAULT_ITEMS = () => ({
 
 async function startExpedition(starterMon) {
   const seed = randomSeedString();
-  const run = createRun(seed, {});
+  const run = createRun(seed, { sigils: state.meta.startingSigils || [] });
   run.items = DEFAULT_ITEMS();
+  const startingFx = aggregateSigils(run.sigils);
+  applyStartingBallBonus(run.items, startingFx);
   run.team = [starterMon];
   run.box = [];
   run.gyms = withRng(run, (rng) => sampleDistinct(rng, GYMS.map((_, i) => i), run.config.regions, () => 1));
@@ -981,12 +1045,21 @@ function goToMap() {
 
 const NODE_GLYPH = {
   [NODE.BATTLE]: "W", [NODE.ELITE]: "E", [NODE.SHOP]: "$",
-  [NODE.REST]: "+", [NODE.MYSTERY]: "?", [NODE.CHAMPION]: "★",
+  [NODE.REST]: "+", [NODE.MYSTERY]: "?", [NODE.CHAMPION]: "C",
 };
 const NODE_NAME = {
   [NODE.BATTLE]: "Wild", [NODE.ELITE]: "Elite", [NODE.SHOP]: "Shop",
   [NODE.REST]: "Rest", [NODE.MYSTERY]: "Mystery", [NODE.CHAMPION]: "Champion",
 };
+const NODE_COLOR = {
+  [NODE.BATTLE]: "#ef626c", [NODE.ELITE]: "#a78bfa", [NODE.SHOP]: "#f5c451",
+  [NODE.REST]: "#66d49a", [NODE.MYSTERY]: "#55c9dc", [NODE.CHAMPION]: "#ffd166",
+};
+const REGION_THEME = [
+  { key: "verdant", name: "Viridian Wilds", note: "Tall grass, old trails, and restless Pokémon" },
+  { key: "crimson", name: "Crimson Highlands", note: "A rugged climb through ember-lit ridges" },
+  { key: "indigo", name: "Indigo Summit", note: "The final ascent to the Champion" },
+];
 
 function renderMap() {
   const canvas = $("#mapCanvas");
@@ -995,31 +1068,64 @@ function renderMap() {
   const map = state.run.map;
   const avail = new Set(availableNext(state.run).map((n) => n.id));
   const visited = new Set(state.run.visited);
-  for (let r = map.totalRows - 1; r >= 0; r--) {
-    const rowEl = el("div", { class: "map-row" });
-    rowEl.style.gridTemplateColumns = `repeat(${map.width}, 1fr)`;
-    const byCol = {};
-    map.rows[r].forEach((id) => { byCol[map.nodes[id].col] = id; });
-    for (let c = 0; c < map.width; c++) {
-      const slot = el("div", { class: "map-slot" });
-      const id = byCol[c];
-      if (id) {
-        const node = map.nodes[id];
-        const btn = el("button", { class: "map-node type-" + node.type, title: NODE_NAME[node.type] });
-        btn.dataset.id = id;
-        btn.style.setProperty("--type", TYPE_COLOR[node.type] || "#7a88a8");
-        btn.textContent = NODE_GLYPH[node.type] || "?";
-        if (id === state.run.position) btn.classList.add("current");
-        else if (visited.has(id)) btn.classList.add("visited");
-        if (avail.has(id)) { btn.classList.add("available"); btn.onclick = () => onSelectNode(node); }
-        else if (id !== state.run.position) btn.disabled = true;
-        slot.appendChild(btn);
+  for (let region = map.regions - 1; region >= 0; region--) {
+    const theme = REGION_THEME[region] || REGION_THEME[REGION_THEME.length - 1];
+    const section = el("section", { class: `map-region biome-${theme.key}` });
+    section.dataset.region = String(region);
+    const heading = el("div", { class: "region-heading" });
+    heading.innerHTML =
+      `<span>Region ${region + 1}</span>` +
+      `<strong>${theme.name}</strong>` +
+      `<small>${theme.note}</small>`;
+    section.appendChild(heading);
+    const rows = el("div", { class: "region-rows" });
+    const firstRow = region * map.rowsPerRegion;
+    const lastRow = Math.min(map.totalRows - 1, firstRow + map.rowsPerRegion - 1);
+    for (let r = lastRow; r >= firstRow; r--) {
+      const rowEl = el("div", { class: "map-row" });
+      rowEl.dataset.depth = String(r + 1);
+      rowEl.style.gridTemplateColumns = `repeat(${map.width}, 1fr)`;
+      const byCol = {};
+      map.rows[r].forEach((id) => { byCol[map.nodes[id].col] = id; });
+      for (let c = 0; c < map.width; c++) {
+        const slot = el("div", { class: "map-slot" });
+        const id = byCol[c];
+        if (id) {
+          const node = map.nodes[id];
+          const name = NODE_NAME[node.type] || "Unknown";
+          const btn = el("button", {
+            class: "map-node type-" + node.type,
+            title: `${name} · Depth ${r + 1}`,
+            "aria-label": `${name}, depth ${r + 1}`,
+          });
+          btn.dataset.id = id;
+          btn.style.setProperty("--node-color", NODE_COLOR[node.type] || "#7a88a8");
+          btn.appendChild(el("span", { class: "node-mark", "aria-hidden": "true" }, NODE_GLYPH[node.type] || "?"));
+          btn.appendChild(el("span", { class: "node-name", "aria-hidden": "true" }, name));
+          if (id === state.run.position) btn.classList.add("current");
+          else if (visited.has(id)) btn.classList.add("visited");
+          if (avail.has(id)) {
+            btn.classList.add("available");
+            btn.setAttribute("aria-label", `${name}, depth ${r + 1}, available`);
+            btn.onclick = () => onSelectNode(node);
+          } else if (id !== state.run.position) {
+            btn.disabled = true;
+          }
+          slot.appendChild(btn);
+        }
+        rowEl.appendChild(slot);
       }
-      rowEl.appendChild(slot);
+      rows.appendChild(rowEl);
     }
-    canvas.appendChild(rowEl);
+    section.appendChild(rows);
+    canvas.appendChild(section);
   }
-  if (typeof requestAnimationFrame === "function") requestAnimationFrame(renderMapEdges);
+  if (typeof requestAnimationFrame === "function") {
+    requestAnimationFrame(() => {
+      renderMapEdges();
+      focusActiveRoute();
+    });
+  }
 }
 
 function renderMapEdges() {
@@ -1030,6 +1136,7 @@ function renderMapEdges() {
   const NS = "http://www.w3.org/2000/svg";
   const svg = document.createElementNS(NS, "svg");
   svg.setAttribute("class", "map-edges");
+  svg.setAttribute("aria-hidden", "true");
   const crect = canvas.getBoundingClientRect();
   const center = (id) => {
     const b = canvas.querySelector(`[data-id="${id}"]`);
@@ -1037,19 +1144,47 @@ function renderMapEdges() {
     const r = b.getBoundingClientRect();
     return { x: r.left - crect.left + r.width / 2, y: r.top - crect.top + r.height / 2 + canvas.scrollTop };
   };
+  const visited = new Set(state.run.visited);
+  const available = new Set(availableNext(state.run).map((n) => n.id));
+  const addRoute = (a, b, className) => {
+    const path = document.createElementNS(NS, "path");
+    const midY = (a.y + b.y) / 2;
+    path.setAttribute("d", `M ${a.x} ${a.y} C ${a.x} ${midY}, ${b.x} ${midY}, ${b.x} ${b.y}`);
+    if (className) path.setAttribute("class", className);
+    svg.appendChild(path);
+  };
   for (const node of Object.values(state.run.map.nodes)) {
     const a = center(node.id);
     if (!a) continue;
     for (const e of node.edges) {
       const b = center(e);
       if (!b) continue;
-      const line = document.createElementNS(NS, "line");
-      line.setAttribute("x1", a.x); line.setAttribute("y1", a.y);
-      line.setAttribute("x2", b.x); line.setAttribute("y2", b.y);
-      svg.appendChild(line);
+      let className = "";
+      if (visited.has(node.id) && visited.has(e)) className = "route-travelled";
+      if (node.id === state.run.position && available.has(e)) className = "route-available";
+      addRoute(a, b, className);
+    }
+  }
+  if (!state.run.position) {
+    const start = { x: crect.width / 2, y: canvas.scrollHeight - 4 };
+    for (const id of available) {
+      const target = center(id);
+      if (target) addRoute(start, target, "route-available route-trailhead");
     }
   }
   canvas.insertBefore(svg, canvas.firstChild);
+}
+
+function focusActiveRoute() {
+  const scroll = $("#mapScroll");
+  const canvas = $("#mapCanvas");
+  if (!scroll || !canvas) return;
+  const target = canvas.querySelector(".map-node.available") || canvas.querySelector(".map-node.current");
+  if (!target) return;
+  const targetRect = target.getBoundingClientRect();
+  const scrollRect = scroll.getBoundingClientRect();
+  const top = scroll.scrollTop + targetRect.top - scrollRect.top - scroll.clientHeight * 0.58;
+  scroll.scrollTop = clamp(top, 0, Math.max(0, scroll.scrollHeight - scroll.clientHeight));
 }
 
 async function onSelectNode(node) {
@@ -1068,6 +1203,8 @@ function renderRunHud() {
   if (!hud || !state.run) return;
   const run = state.run;
   const region = (currentNode(run)?.region ?? 0) + 1;
+  const theme = REGION_THEME[region - 1] || REGION_THEME[0];
+  const progress = clamp(run.visited.length / run.map.totalRows, 0, 1);
   const sig = run.sigils
     .map((id) => `<span class="sig-chip" style="--rar:${RARITY_COLOR[SIGILS[id].rarity]}" title="${SIGILS[id].desc}">${SIGILS[id].name}</span>`)
     .join("");
@@ -1084,6 +1221,14 @@ function renderRunHud() {
     `</div>` +
     `<div class="run-sigils">${sig || '<span class="small">No sigils yet</span>'}</div>` +
     `<div class="run-team">${team}</div>`;
+  const title = $("#mapRegionTitle");
+  const note = $("#mapRegionNote");
+  const progressText = $("#mapProgressText");
+  const progressFill = $("#mapProgressFill");
+  if (title) title.textContent = theme.name;
+  if (note) note.textContent = theme.note;
+  if (progressText) progressText.textContent = `${run.visited.length} / ${run.map.totalRows}`;
+  if (progressFill) progressFill.style.width = `${progress * 100}%`;
 }
 
 // ---- node resolvers ----
@@ -1508,6 +1653,7 @@ async function swapTo(idx, forced = false) {
   if (idx === state.active) return;
   setBusy(true);
   const from = state.player, to = state.party[idx];
+  state.noSwitchTurns = 0;
   await say(`${from.name}, come back!`);
   const regen = switchOutHeal(from); // Regenerator mutation
   await faintOut("#playerSprite").catch(() => {});
@@ -1521,7 +1667,7 @@ async function swapTo(idx, forced = false) {
     // Fainted-switch: enemy already had its turn this round.
     await backToMenu();
   } else {
-    await enemyFreeTurn();
+    await enemyFreeTurn(false);
   }
 }
 
@@ -1933,6 +2079,11 @@ function boot() {
   initAudio();
   updateScore();
   refreshTitleButtons();
+  window.addEventListener("resize", () => {
+    if (state.run && state.mode === "map" && typeof requestAnimationFrame === "function") {
+      requestAnimationFrame(renderMapEdges);
+    }
+  });
   // Auto-play ticker: only acts during an active battle.
   setInterval(() => { if (state.auto && state.started && state.battle) maybeAuto(); }, 1100);
 }

@@ -113,6 +113,7 @@
 
         <!-- HUD -->
         <div class="hud">
+          <div id="weatherIndicator" class="weather-indicator hidden" role="status" aria-live="polite"></div>
           <div id="enemyCard" class="card statusbox enemy-box">
             <div class="statusbox-top">
               <span id="enemyName" class="mon-name">—</span>
@@ -196,12 +197,31 @@
         <!-- Expedition map overlay -->
         <div id="mapScreen" class="map-screen hidden">
           <div id="runHud" class="run-hud"></div>
-          <div class="map-scroll">
-            <div id="mapCanvas" class="map-canvas"></div>
+          <div class="map-route-bar">
+            <div class="map-route-copy">
+              <span class="map-eyebrow">Expedition route</span>
+              <strong id="mapRegionTitle">Viridian Wilds</strong>
+              <small id="mapRegionNote">Tall grass, old trails, and restless Pokémon</small>
+            </div>
+            <div class="map-progress" aria-label="Expedition progress">
+              <div class="map-progress-top"><span>Ascent</span><b id="mapProgressText">0 / 15</b></div>
+              <div class="map-progress-track"><i id="mapProgressFill"></i></div>
+            </div>
+          </div>
+          <div id="mapScroll" class="map-scroll">
+            <div class="map-world">
+              <div class="map-compass" aria-hidden="true"><i>N</i></div>
+              <div id="mapCanvas" class="map-canvas"></div>
+            </div>
           </div>
           <div class="map-legend small">
-            <span><b>W</b> Wild</span><span><b>E</b> Elite</span><span><b>$</b> Shop</span>
-            <span><b>+</b> Rest</span><span><b>?</b> Mystery</span><span><b>★</b> Champion</span>
+            <span class="legend-title">Landmarks</span>
+            <span><b class="legend-node type-battle">W</b> Wild</span>
+            <span><b class="legend-node type-elite">E</b> Elite</span>
+            <span><b class="legend-node type-shop">$</b> Shop</span>
+            <span><b class="legend-node type-rest">+</b> Rest</span>
+            <span><b class="legend-node type-mystery">?</b> Mystery</span>
+            <span><b class="legend-node type-champion">C</b> Champion</span>
           </div>
         </div>
       </section>

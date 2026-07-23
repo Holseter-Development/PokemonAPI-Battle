@@ -166,6 +166,14 @@ export function aggregateSigils(ids) {
   return out;
 }
 
+// Apply Ball Cache to the controller-owned item bag when an Expedition starts.
+export function applyStartingBallBonus(items, effects) {
+  if (!items) return 0;
+  const amount = Math.max(0, Math.floor(effects?.startingBalls || 0));
+  items["poke-ball"] = (items["poke-ball"] || 0) + amount;
+  return amount;
+}
+
 // ---- catalogue helpers (for reward pools / UI) -------------------------
 
 export function mutationList() {

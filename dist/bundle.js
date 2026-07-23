@@ -819,13 +819,13 @@
     const chance = move.accuracy * accMult(net);
     return rng() * 100 < chance;
   }
-  function rollCrit(attacker, move, rng = Math.random) {
+  function rollCrit(attacker, move, rng = Math.random, bonus = 0) {
     let base = clamp((attacker.stats.spe || attacker.stats.spd || 40) / 512, 0.02, 0.25);
     if (move.highCrit)
       base = clamp(base * 2, 0.02, 0.4);
-    return rng() < base;
+    return rng() < clamp(base + bonus, 0, 1);
   }
-  function calcDamage(attacker, defender, move, rng = Math.random, opts = {}) {
+  function calcDamage(attacker, defender, move, rng = Math.random, opts = {}, ctx = {}) {
     const level = attacker.level;
     const special = move.damage_class === "special";
     let atkStat = special ? effectiveStat(attacker, "spa") : effectiveStat(attacker, "atk");
@@ -850,12 +850,19 @@
     const randFactor = opts.avg ? 0.925 : 0.85 + rng() * 0.15;
     const stabMult = attacker.adaptive ? 2 : 1.5;
     const stab = attacker.types.includes(move.type) ? stabMult : 1;
-    let dmg = Math.max(1, Math.floor(base * randFactor * stab * eff));
-    const crit = opts.forceCrit || rollCrit(attacker, move, rng);
+    const fx2 = ctx.playerFx || {};
+    const globalMult = fx2.globalDamageMult ?? 1;
+    const playerMult = ctx.attackerIsPlayer ? (fx2.yourDamageMult ?? 1) * (fx2.typeMult?.[move.type] ?? 1) : 1;
+    let dmg = Math.max(1, Math.floor(base * randFactor * stab * eff * globalMult * playerMult));
+    const critBonus = ctx.attackerIsPlayer ? (fx2.critRampPerTurn || 0) * Math.max(0, ctx.noSwitchTurns || 0) : 0;
+    const crit = opts.forceCrit || rollCrit(attacker, move, rng, critBonus);
     if (crit)
       dmg = Math.floor(dmg * 1.8);
     if (hasAbility(defender, "multiscale") && defender.stats.hp >= defender.stats.maxHp) {
       dmg = Math.max(1, Math.floor(dmg * 0.5));
+    }
+    if (ctx.defenderIsPlayer && fx2.sturdyAtFull && defender.stats.hp >= defender.stats.maxHp) {
+      dmg = Math.min(dmg, Math.max(1, Math.floor(defender.stats.maxHp * 0.5)));
     }
     return { dmg, eff, crit };
   }
@@ -877,6 +884,17 @@
     if (cond === "slp")
       target.status.turns = 1 + Math.floor(rng() * 3);
     return { applied: true, cond };
+  }
+  function applyEntryStatus(target, statusCode, rng = Math.random) {
+    const ailment = {
+      brn: "burn",
+      par: "paralysis",
+      psn: "poison",
+      tox: "bad-poison",
+      slp: "sleep",
+      frz: "freeze"
+    }[statusCode];
+    return ailment ? applyAilment(target, ailment, rng) : { applied: false };
   }
   function canAct(mon, rng = Math.random) {
     const s = mon.status || (mon.status = { cond: "none", turns: 0, toxic: 0 });
@@ -918,7 +936,23 @@
     }
     return null;
   }
-  function useMove(attacker, defender, move, rng = Math.random) {
+  function applyWeatherChip(mon, weather) {
+    const immune = weather === "hail" && mon.types.includes("ice") || weather === "sand" && mon.types.some((t) => ["rock", "ground", "steel"].includes(t));
+    if (!["hail", "sand"].includes(weather) || immune || mon.stats.hp <= 0)
+      return null;
+    const dmg = Math.min(mon.stats.hp, Math.max(1, Math.floor(mon.stats.maxHp / 16)));
+    mon.stats.hp = clamp(mon.stats.hp - dmg, 0, mon.stats.maxHp);
+    return { dmg, kind: weather, fainted: mon.stats.hp <= 0 };
+  }
+  function applyDefeatHeal(mon, fraction) {
+    if (!mon || mon.stats.hp <= 0 || !(fraction > 0))
+      return 0;
+    const before = mon.stats.hp;
+    const heal = Math.max(1, Math.floor(mon.stats.maxHp * fraction));
+    mon.stats.hp = clamp(mon.stats.hp + heal, 0, mon.stats.maxHp);
+    return mon.stats.hp - before;
+  }
+  function useMove(attacker, defender, move, rng = Math.random, ctx = {}) {
     const res = {
       move,
       missed: false,
@@ -933,6 +967,7 @@
       drain: 0,
       recoil: 0,
       healed: 0,
+      endured: false,
       flinch: false,
       log: []
     };
@@ -942,12 +977,22 @@
         res.log.push("But it failed!");
         return res;
       }
-      const dmg = defender.stats.hp;
-      defender.stats.hp = 0;
-      res.hits.push({ dmg, crit: false, eff: 1 });
-      res.totalDmg = dmg;
-      res.targetFainted = true;
-      res.log.push("It's a one-hit KO!");
+      const fx2 = ctx.playerFx || {};
+      let dmg = defender.stats.hp;
+      if (ctx.defenderIsPlayer && fx2.sturdyAtFull && defender.stats.hp >= defender.stats.maxHp) {
+        dmg = Math.min(dmg, Math.max(1, Math.floor(defender.stats.maxHp * 0.5)));
+      }
+      const applied = applyHitDamage(defender, dmg, ctx);
+      res.hits.push({ dmg: applied.dmg, crit: false, eff: 1 });
+      res.totalDmg = applied.dmg;
+      res.endured = applied.endured;
+      res.targetFainted = defender.stats.hp <= 0;
+      if (res.targetFainted)
+        res.log.push("It's a one-hit KO!");
+      else if (res.endured)
+        res.log.push(`${defender.name} endured the hit!`);
+      else
+        res.log.push(`${defender.name} stood firm!`);
       return res;
     }
     if (!rollHit(move, attacker, defender, rng)) {
@@ -975,10 +1020,14 @@
       for (let i = 0; i < hitCount; i++) {
         if (defender.stats.hp <= 0)
           break;
-        const { dmg, crit } = calcDamage(attacker, defender, move, rng);
-        defender.stats.hp = clamp(defender.stats.hp - dmg, 0, defender.stats.maxHp);
-        res.hits.push({ dmg, crit, eff });
-        res.totalDmg += dmg;
+        const { dmg, crit } = calcDamage(attacker, defender, move, rng, {}, ctx);
+        const applied = applyHitDamage(defender, dmg, ctx);
+        res.hits.push({ dmg: applied.dmg, crit, eff });
+        res.totalDmg += applied.dmg;
+        if (applied.endured) {
+          res.endured = true;
+          res.log.push(`${defender.name} endured the hit!`);
+        }
       }
       if (hitCount > 1)
         res.log.push(`Hit ${res.hits.length} time(s)!`);
@@ -991,8 +1040,9 @@
         res.recoil = Math.max(1, Math.floor(res.totalDmg * -move.drain / 100));
         attacker.stats.hp = clamp(attacker.stats.hp - res.recoil, 0, attacker.stats.maxHp);
         res.log.push(`${attacker.name} is hit with recoil!`);
-      } else if (attacker.lifesteal > 0 && res.totalDmg > 0) {
-        const leech = Math.max(1, Math.floor(res.totalDmg * attacker.lifesteal));
+      } else if ((attacker.lifesteal || 0) + (ctx.attackerIsPlayer ? ctx.playerFx?.lifesteal || 0 : 0) > 0 && res.totalDmg > 0) {
+        const lifesteal = (attacker.lifesteal || 0) + (ctx.attackerIsPlayer ? ctx.playerFx?.lifesteal || 0 : 0);
+        const leech = Math.max(1, Math.floor(res.totalDmg * lifesteal));
         const before = attacker.stats.hp;
         attacker.stats.hp = clamp(attacker.stats.hp + leech, 0, attacker.stats.maxHp);
         res.drain = attacker.stats.hp - before;
@@ -1051,6 +1101,19 @@
     }
     return res;
   }
+  function applyHitDamage(defender, damage, ctx) {
+    const fx2 = ctx.playerFx || {};
+    let dmg = Math.min(Math.max(0, damage), defender.stats.hp);
+    let endured = false;
+    const endureFlag = ctx.endureUsed;
+    if (ctx.defenderIsPlayer && fx2.endureOnce && endureFlag && !endureFlag.used && dmg >= defender.stats.hp && defender.stats.hp > 0) {
+      dmg = Math.max(0, defender.stats.hp - 1);
+      endureFlag.used = true;
+      endured = true;
+    }
+    defender.stats.hp = clamp(defender.stats.hp - dmg, 0, defender.stats.maxHp);
+    return { dmg, endured };
+  }
   function changeStage(mon, key, change) {
     if (!mon.stages)
       mon.stages = { atk: 0, def: 0, spa: 0, spd: 0, spe: 0, acc: 0, eva: 0 };
@@ -1077,15 +1140,17 @@
       frz: "frozen solid"
     }[cond] || "afflicted";
   }
-  function firstMover(a, aMove, b, bMove, rng = Math.random) {
+  function firstMover(a, aMove, b, bMove, rng = Math.random, ctx = {}) {
     const pa = aMove ? aMove.priority || 0 : 0;
     const pb = bMove ? bMove.priority || 0 : 0;
     if (pa !== pb)
       return pa > pb ? "a" : "b";
     const sa = effectiveStat(a, "spe");
     const sb = effectiveStat(b, "spe");
-    if (sa !== sb)
-      return sa > sb ? "a" : "b";
+    if (sa !== sb) {
+      const faster = sa > sb ? "a" : "b";
+      return ctx.playerFx?.trickRoom ? faster === "a" ? "b" : "a" : faster;
+    }
     return rng() < 0.5 ? "a" : "b";
   }
   function moveScore(attacker, defender, move) {
@@ -1714,6 +1779,13 @@
     }
     return out;
   }
+  function applyStartingBallBonus(items, effects) {
+    if (!items)
+      return 0;
+    const amount = Math.max(0, Math.floor(effects?.startingBalls || 0));
+    items["poke-ball"] = (items["poke-ball"] || 0) + amount;
+    return amount;
+  }
   function mutationList() {
     return Object.keys(MUTATIONS).map((id) => ({ id, ...MUTATIONS[id] }));
   }
@@ -1851,7 +1923,7 @@
       box: [],
       gold: opts.gold || 0,
       balls: opts.balls != null ? opts.balls : 3,
-      sigils: [],
+      sigils: [...opts.sigils || []],
       // owned sigil ids
       fragments: 0,
       // meta-currency earned this run
@@ -2156,6 +2228,8 @@
     battle: null,
     // { kind, onWin, onLose, onFlee } for the current node battle
     sigilFx: emptyEffects(),
+    noSwitchTurns: 0,
+    endureUsed: { used: false },
     vault: [],
     // persistent ascended roster (for ranked)
     meta: { fragments: 0, expeditionsWon: 0 },
@@ -2374,6 +2448,13 @@
   }
   function updateHUD() {
     const ps = $("#playerSprite"), es = $("#enemySprite");
+    const weather = $("#weatherIndicator");
+    const weatherName = state.battle && state.sigilFx.weather;
+    if (weather) {
+      const labels = { sun: "Harsh Sunlight", rain: "Rain", hail: "Hail", sand: "Sandstorm" };
+      weather.textContent = labels[weatherName] || "";
+      weather.className = weatherName ? `weather-indicator weather-${weatherName}` : "weather-indicator hidden";
+    }
     if (state.player) {
       const p = state.player;
       $("#playerName").textContent = p.name;
@@ -2758,7 +2839,13 @@
     } else {
       playSfx(move);
     }
-    const res = useMove(attacker, defender, move);
+    const res = useMove(attacker, defender, move, Math.random, {
+      playerFx: state.sigilFx,
+      attackerIsPlayer,
+      defenderIsPlayer: !attackerIsPlayer,
+      noSwitchTurns: state.noSwitchTurns,
+      endureUsed: state.endureUsed
+    });
     if (res.missed) {
       await say(res.log[0] || "But it missed!");
       return { acted: true, defenderFainted: false, result: res };
@@ -2811,9 +2898,17 @@
   async function fightRound(playerMove) {
     setBusy(true);
     show("none");
+    state.noSwitchTurns++;
     const eIdx = chooseAIMove(state.enemy, state.player);
     const enemyMove = state.enemy.moves[eIdx] || { ...STRUGGLE };
-    const playerFirst = firstMover(state.player, playerMove, state.enemy, enemyMove) === "a";
+    const playerFirst = firstMover(
+      state.player,
+      playerMove,
+      state.enemy,
+      enemyMove,
+      Math.random,
+      { playerFx: state.sigilFx }
+    ) === "a";
     const order = playerFirst ? [["p", playerMove], ["e", enemyMove]] : [["e", enemyMove], ["p", playerMove]];
     const flinch = { p: false, e: false };
     for (const [who, move] of order) {
@@ -2845,7 +2940,9 @@
       return;
     await backToMenu();
   }
-  async function enemyFreeTurn() {
+  async function enemyFreeTurn(playerActed = true) {
+    if (playerActed)
+      state.noSwitchTurns++;
     const eIdx = chooseAIMove(state.enemy, state.player);
     const enemyMove = state.enemy.moves[eIdx] || { ...STRUGGLE };
     await performMove(state.enemy, state.player, enemyMove, false);
@@ -2877,6 +2974,28 @@
         }
       }
     }
+    const weather = state.sigilFx.weather;
+    for (const [mon, sel, isEnemy] of [
+      [state.player, "#playerSprite", false],
+      [state.enemy, "#enemySprite", true]
+    ]) {
+      if (!mon || mon.stats.hp <= 0)
+        continue;
+      const r = applyWeatherChip(mon, weather);
+      if (r && r.dmg) {
+        updateHUD();
+        floatTextNear(sel, `-${r.dmg}`, "bad");
+        await say(`${mon.name} is buffeted by the ${weather === "hail" ? "hail" : "sandstorm"}!`);
+        if (r.fainted) {
+          if (isEnemy) {
+            await onEnemyFaint();
+            return true;
+          }
+          await onPlayerFaint();
+          return true;
+        }
+      }
+    }
     return false;
   }
   async function backToMenu() {
@@ -2893,6 +3012,14 @@
     await playCry(state.enemy);
     await faintOut("#enemySprite");
     await say(`${labelFor(state.enemy, true)} fainted!`);
+    if (state.player.stats.hp > 0 && state.sigilFx.healOnKill > 0) {
+      const gained = applyDefeatHeal(state.player, state.sigilFx.healOnKill);
+      if (gained > 0) {
+        updateHUD();
+        floatTextNear("#playerSprite", `+${gained}`, "good");
+        await say(`${state.player.name} fed on the victory!`);
+      }
+    }
     await gainXP(state.player, Math.round(xpFor(state.enemy) * (state.sigilFx.xpMult || 1)));
     if (state.mode === "trainer") {
       state.trainerIdx++;
@@ -2938,6 +3065,11 @@
   }
   function beginBattleEffects() {
     state.sigilFx = aggregateSigils(state.run ? state.run.sigils : []);
+    state.noSwitchTurns = 0;
+    state.endureUsed = { used: false };
+  }
+  function applyEnemyEntryEffect(mon) {
+    return applyEntryStatus(mon, state.sigilFx.enemyEntryStatus).applied;
   }
   async function makeWildMon(level) {
     let mon = null, poke = null;
@@ -2981,10 +3113,13 @@
       state.trainer = null;
       state.trainerTeam = [];
       ensureRuntime(state.enemy);
+      const entryStatus = applyEnemyEntryEffect(state.enemy);
       updateHUD();
       setThemeByType(state.enemy.types);
       await fadeInSprite("#enemySprite");
       await say(`A wild ${state.enemy.name} appeared!`);
+      if (entryStatus)
+        await say(`${state.enemy.name} was poisoned by Toxic Spikes!`);
       await playCry(state.enemy);
     } else {
       state.trainer = spec.boss;
@@ -3000,10 +3135,13 @@
     const mon = state.trainerTeam[idx];
     ensureRuntime(mon);
     state.enemy = mon;
+    const entryStatus = applyEnemyEntryEffect(mon);
     updateHUD();
     setThemeByType(mon.types);
     await fadeInSprite("#enemySprite");
     await say(`${state.trainer.leader} sent out ${mon.name}!`);
+    if (entryStatus)
+      await say(`${mon.name} was poisoned by Toxic Spikes!`);
     await playCry(mon);
   }
   var DEFAULT_ITEMS = () => ({
@@ -3021,8 +3159,10 @@
   });
   async function startExpedition(starterMon) {
     const seed = randomSeedString();
-    const run = createRun(seed, {});
+    const run = createRun(seed, { sigils: state.meta.startingSigils || [] });
     run.items = DEFAULT_ITEMS();
+    const startingFx = aggregateSigils(run.sigils);
+    applyStartingBallBonus(run.items, startingFx);
     run.team = [starterMon];
     run.box = [];
     run.gyms = withRng(run, (rng) => sampleDistinct(rng, GYMS.map((_, i) => i), run.config.regions, () => 1));
@@ -3095,7 +3235,7 @@
     [NODE.SHOP]: "$",
     [NODE.REST]: "+",
     [NODE.MYSTERY]: "?",
-    [NODE.CHAMPION]: "\u2605"
+    [NODE.CHAMPION]: "C"
   };
   var NODE_NAME = {
     [NODE.BATTLE]: "Wild",
@@ -3105,6 +3245,19 @@
     [NODE.MYSTERY]: "Mystery",
     [NODE.CHAMPION]: "Champion"
   };
+  var NODE_COLOR = {
+    [NODE.BATTLE]: "#ef626c",
+    [NODE.ELITE]: "#a78bfa",
+    [NODE.SHOP]: "#f5c451",
+    [NODE.REST]: "#66d49a",
+    [NODE.MYSTERY]: "#55c9dc",
+    [NODE.CHAMPION]: "#ffd166"
+  };
+  var REGION_THEME = [
+    { key: "verdant", name: "Viridian Wilds", note: "Tall grass, old trails, and restless Pok\xE9mon" },
+    { key: "crimson", name: "Crimson Highlands", note: "A rugged climb through ember-lit ridges" },
+    { key: "indigo", name: "Indigo Summit", note: "The final ascent to the Champion" }
+  ];
   function renderMap() {
     const canvas = $("#mapCanvas");
     if (!canvas || !state.run)
@@ -3113,39 +3266,65 @@
     const map = state.run.map;
     const avail = new Set(availableNext(state.run).map((n) => n.id));
     const visited = new Set(state.run.visited);
-    for (let r = map.totalRows - 1; r >= 0; r--) {
-      const rowEl = el("div", { class: "map-row" });
-      rowEl.style.gridTemplateColumns = `repeat(${map.width}, 1fr)`;
-      const byCol = {};
-      map.rows[r].forEach((id) => {
-        byCol[map.nodes[id].col] = id;
-      });
-      for (let c = 0; c < map.width; c++) {
-        const slot = el("div", { class: "map-slot" });
-        const id = byCol[c];
-        if (id) {
-          const node = map.nodes[id];
-          const btn = el("button", { class: "map-node type-" + node.type, title: NODE_NAME[node.type] });
-          btn.dataset.id = id;
-          btn.style.setProperty("--type", TYPE_COLOR[node.type] || "#7a88a8");
-          btn.textContent = NODE_GLYPH[node.type] || "?";
-          if (id === state.run.position)
-            btn.classList.add("current");
-          else if (visited.has(id))
-            btn.classList.add("visited");
-          if (avail.has(id)) {
-            btn.classList.add("available");
-            btn.onclick = () => onSelectNode(node);
-          } else if (id !== state.run.position)
-            btn.disabled = true;
-          slot.appendChild(btn);
+    for (let region = map.regions - 1; region >= 0; region--) {
+      const theme = REGION_THEME[region] || REGION_THEME[REGION_THEME.length - 1];
+      const section = el("section", { class: `map-region biome-${theme.key}` });
+      section.dataset.region = String(region);
+      const heading = el("div", { class: "region-heading" });
+      heading.innerHTML = `<span>Region ${region + 1}</span><strong>${theme.name}</strong><small>${theme.note}</small>`;
+      section.appendChild(heading);
+      const rows = el("div", { class: "region-rows" });
+      const firstRow = region * map.rowsPerRegion;
+      const lastRow = Math.min(map.totalRows - 1, firstRow + map.rowsPerRegion - 1);
+      for (let r = lastRow; r >= firstRow; r--) {
+        const rowEl = el("div", { class: "map-row" });
+        rowEl.dataset.depth = String(r + 1);
+        rowEl.style.gridTemplateColumns = `repeat(${map.width}, 1fr)`;
+        const byCol = {};
+        map.rows[r].forEach((id) => {
+          byCol[map.nodes[id].col] = id;
+        });
+        for (let c = 0; c < map.width; c++) {
+          const slot = el("div", { class: "map-slot" });
+          const id = byCol[c];
+          if (id) {
+            const node = map.nodes[id];
+            const name = NODE_NAME[node.type] || "Unknown";
+            const btn = el("button", {
+              class: "map-node type-" + node.type,
+              title: `${name} \xB7 Depth ${r + 1}`,
+              "aria-label": `${name}, depth ${r + 1}`
+            });
+            btn.dataset.id = id;
+            btn.style.setProperty("--node-color", NODE_COLOR[node.type] || "#7a88a8");
+            btn.appendChild(el("span", { class: "node-mark", "aria-hidden": "true" }, NODE_GLYPH[node.type] || "?"));
+            btn.appendChild(el("span", { class: "node-name", "aria-hidden": "true" }, name));
+            if (id === state.run.position)
+              btn.classList.add("current");
+            else if (visited.has(id))
+              btn.classList.add("visited");
+            if (avail.has(id)) {
+              btn.classList.add("available");
+              btn.setAttribute("aria-label", `${name}, depth ${r + 1}, available`);
+              btn.onclick = () => onSelectNode(node);
+            } else if (id !== state.run.position) {
+              btn.disabled = true;
+            }
+            slot.appendChild(btn);
+          }
+          rowEl.appendChild(slot);
         }
-        rowEl.appendChild(slot);
+        rows.appendChild(rowEl);
       }
-      canvas.appendChild(rowEl);
+      section.appendChild(rows);
+      canvas.appendChild(section);
     }
-    if (typeof requestAnimationFrame === "function")
-      requestAnimationFrame(renderMapEdges);
+    if (typeof requestAnimationFrame === "function") {
+      requestAnimationFrame(() => {
+        renderMapEdges();
+        focusActiveRoute();
+      });
+    }
   }
   function renderMapEdges() {
     const canvas = $("#mapCanvas");
@@ -3157,6 +3336,7 @@
     const NS = "http://www.w3.org/2000/svg";
     const svg = document.createElementNS(NS, "svg");
     svg.setAttribute("class", "map-edges");
+    svg.setAttribute("aria-hidden", "true");
     const crect = canvas.getBoundingClientRect();
     const center = (id) => {
       const b = canvas.querySelector(`[data-id="${id}"]`);
@@ -3164,6 +3344,16 @@
         return null;
       const r = b.getBoundingClientRect();
       return { x: r.left - crect.left + r.width / 2, y: r.top - crect.top + r.height / 2 + canvas.scrollTop };
+    };
+    const visited = new Set(state.run.visited);
+    const available = new Set(availableNext(state.run).map((n) => n.id));
+    const addRoute = (a, b, className) => {
+      const path = document.createElementNS(NS, "path");
+      const midY = (a.y + b.y) / 2;
+      path.setAttribute("d", `M ${a.x} ${a.y} C ${a.x} ${midY}, ${b.x} ${midY}, ${b.x} ${b.y}`);
+      if (className)
+        path.setAttribute("class", className);
+      svg.appendChild(path);
     };
     for (const node of Object.values(state.run.map.nodes)) {
       const a = center(node.id);
@@ -3173,15 +3363,36 @@
         const b = center(e);
         if (!b)
           continue;
-        const line = document.createElementNS(NS, "line");
-        line.setAttribute("x1", a.x);
-        line.setAttribute("y1", a.y);
-        line.setAttribute("x2", b.x);
-        line.setAttribute("y2", b.y);
-        svg.appendChild(line);
+        let className = "";
+        if (visited.has(node.id) && visited.has(e))
+          className = "route-travelled";
+        if (node.id === state.run.position && available.has(e))
+          className = "route-available";
+        addRoute(a, b, className);
+      }
+    }
+    if (!state.run.position) {
+      const start = { x: crect.width / 2, y: canvas.scrollHeight - 4 };
+      for (const id of available) {
+        const target = center(id);
+        if (target)
+          addRoute(start, target, "route-available route-trailhead");
       }
     }
     canvas.insertBefore(svg, canvas.firstChild);
+  }
+  function focusActiveRoute() {
+    const scroll = $("#mapScroll");
+    const canvas = $("#mapCanvas");
+    if (!scroll || !canvas)
+      return;
+    const target = canvas.querySelector(".map-node.available") || canvas.querySelector(".map-node.current");
+    if (!target)
+      return;
+    const targetRect = target.getBoundingClientRect();
+    const scrollRect = scroll.getBoundingClientRect();
+    const top = scroll.scrollTop + targetRect.top - scrollRect.top - scroll.clientHeight * 0.58;
+    scroll.scrollTop = clamp(top, 0, Math.max(0, scroll.scrollHeight - scroll.clientHeight));
   }
   async function onSelectNode(node) {
     if (state.busy)
@@ -3198,9 +3409,23 @@
       return;
     const run = state.run;
     const region = (currentNode(run)?.region ?? 0) + 1;
+    const theme = REGION_THEME[region - 1] || REGION_THEME[0];
+    const progress = clamp(run.visited.length / run.map.totalRows, 0, 1);
     const sig = run.sigils.map((id) => `<span class="sig-chip" style="--rar:${RARITY_COLOR[SIGILS[id].rarity]}" title="${SIGILS[id].desc}">${SIGILS[id].name}</span>`).join("");
     const team = run.team.map((m) => `<span class="team-chip ${m.stats.hp > 0 ? "" : "ko"}">${m.name}<i>${m.stats.hp}/${m.stats.maxHp}</i></span>`).join("");
     hud.innerHTML = `<div class="run-stats"><span class="run-stat" title="Run seed">Seed <b>${run.seed}</b></span><span class="run-stat">Region <b>${region}/${run.config.regions}</b></span><span class="run-stat">Depth <b>${run.visited.length}</b></span><span class="run-stat">Gold <b>${run.gold}</b></span><span class="run-stat">Balls <b>${run.items["poke-ball"] || 0}</b></span></div><div class="run-sigils">${sig || '<span class="small">No sigils yet</span>'}</div><div class="run-team">${team}</div>`;
+    const title = $("#mapRegionTitle");
+    const note = $("#mapRegionNote");
+    const progressText = $("#mapProgressText");
+    const progressFill = $("#mapProgressFill");
+    if (title)
+      title.textContent = theme.name;
+    if (note)
+      note.textContent = theme.note;
+    if (progressText)
+      progressText.textContent = `${run.visited.length} / ${run.map.totalRows}`;
+    if (progressFill)
+      progressFill.style.width = `${progress * 100}%`;
   }
   async function resolveNode(node) {
     switch (node.type) {
@@ -3748,6 +3973,7 @@
       return;
     setBusy(true);
     const from = state.player, to = state.party[idx];
+    state.noSwitchTurns = 0;
     await say(`${from.name}, come back!`);
     const regen = switchOutHeal(from);
     await faintOut("#playerSprite").catch(() => {
@@ -3762,7 +3988,7 @@
     if (forced) {
       await backToMenu();
     } else {
-      await enemyFreeTurn();
+      await enemyFreeTurn(false);
     }
   }
   function openBag() {
@@ -4221,6 +4447,11 @@
     initAudio();
     updateScore();
     refreshTitleButtons();
+    window.addEventListener("resize", () => {
+      if (state.run && state.mode === "map" && typeof requestAnimationFrame === "function") {
+        requestAnimationFrame(renderMapEdges);
+      }
+    });
     setInterval(() => {
       if (state.auto && state.started && state.battle)
         maybeAuto();
