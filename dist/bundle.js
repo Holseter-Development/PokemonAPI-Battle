@@ -222,6 +222,98 @@
       reward: { money: 2500, ultraBalls: 3, hyperPotions: 2 }
     }
   ];
+  var WANDERING_TRAINERS = [
+    {
+      leader: "Bug Catcher",
+      title: "Wandering",
+      type: "bug",
+      sprite: "assets/sprites/ninjaboy.png",
+      team: [13, 48],
+      meta: "A challenger blocks the trail!",
+      intro: "A Bug Catcher springs from the tall grass, ready to battle!"
+    },
+    {
+      leader: "Biker",
+      title: "Wandering",
+      type: "poison",
+      sprite: "assets/sprites/biker-gen4.png",
+      team: [88, 109],
+      meta: "A challenger blocks the trail!",
+      intro: "A revving Biker cuts you off and challenges you!"
+    },
+    {
+      leader: "Swimmer",
+      title: "Wandering",
+      type: "water",
+      sprite: "assets/sprites/swimmerf.png",
+      team: [116, 118],
+      meta: "A challenger blocks the trail!",
+      intro: "A Swimmer surfaces and dares you to a battle!"
+    },
+    {
+      leader: "Psychic",
+      title: "Wandering",
+      type: "psychic",
+      sprite: "assets/sprites/psychicf.png",
+      team: [63, 96],
+      meta: "A challenger blocks the trail!",
+      intro: "A Psychic senses your approach and blocks the way!"
+    },
+    {
+      leader: "Lass",
+      title: "Wandering",
+      type: "normal",
+      sprite: "assets/sprites/beauty-gen3.png",
+      team: [35, 39],
+      meta: "A challenger blocks the trail!",
+      intro: "A cheerful Lass wants to battle!"
+    },
+    {
+      leader: "Scientist",
+      title: "Wandering",
+      type: "electric",
+      sprite: "assets/sprites/scientist.png",
+      team: [100, 81],
+      meta: "A challenger blocks the trail!",
+      intro: "A Scientist adjusts their goggles and challenges you!"
+    },
+    {
+      leader: "Street Thug",
+      title: "Wandering",
+      type: "fighting",
+      sprite: "assets/sprites/streetthug.png",
+      team: [66, 56],
+      meta: "A challenger blocks the trail!",
+      intro: "A Street Thug shoves forward, spoiling for a fight!"
+    },
+    {
+      leader: "Rocket Grunt",
+      title: "Wandering",
+      type: "poison",
+      sprite: "assets/sprites/teamrocketgruntm-gen3.png",
+      team: [23, 41],
+      meta: "A challenger blocks the trail!",
+      intro: "A Team Rocket Grunt ambushes you!"
+    },
+    {
+      leader: "Ace Trainer",
+      title: "Wandering",
+      type: "normal",
+      sprite: "assets/sprites/acetrainerf-gen4.png",
+      team: [58, 21],
+      meta: "A challenger blocks the trail!",
+      intro: "An Ace Trainer sizes up your team and challenges you!"
+    },
+    {
+      leader: "Veteran",
+      title: "Wandering",
+      type: "normal",
+      sprite: "assets/sprites/veteran.png",
+      team: [22, 20],
+      meta: "A challenger blocks the trail!",
+      intro: "A grizzled Veteran steps in for a battle!"
+    }
+  ];
   var CHAMPION = {
     leader: "Champion Blue",
     title: "Champion",
@@ -2111,16 +2203,53 @@
       ]
     }
   ];
-  function rollMysteryEvent(run) {
-    return withRng(run, (rng) => {
-      const entries = EVENTS.map((e) => ({ item: e, weight: e.weight }));
-      let t = rng() * entries.reduce((s, e) => s + e.weight, 0);
-      for (const e of entries) {
-        t -= e.weight;
-        if (t < 0)
-          return e.item;
+  function pickEventInline(rng) {
+    const entries = EVENTS.map((e) => ({ item: e, weight: e.weight }));
+    let t = rng() * entries.reduce((s, e) => s + e.weight, 0);
+    for (const e of entries) {
+      t -= e.weight;
+      if (t < 0)
+        return e.item;
+    }
+    return EVENTS[0];
+  }
+  var MYSTERY_TRAINER_CHANCE = 0.3;
+  var TRAINER_REWARDS = [
+    { weight: 24, reward: { kind: "gold", min: 40, max: 90 } },
+    { weight: 20, reward: { kind: "item", id: "poke-ball", amount: 2, label: "2 Pok\xE9 Balls" } },
+    { weight: 16, reward: { kind: "item", id: "potion", amount: 2, label: "2 Potions" } },
+    { weight: 12, reward: { kind: "item", id: "super-potion", amount: 1, label: "a Super Potion" } },
+    { weight: 10, reward: { kind: "item", id: "great-ball", amount: 1, label: "a Great Ball" } },
+    { weight: 8, reward: { kind: "egg", label: "a Mystery Egg" } }
+  ];
+  function pickTrainerReward(rng) {
+    const total = TRAINER_REWARDS.reduce((s, e) => s + e.weight, 0);
+    let t = rng() * total;
+    let chosen = TRAINER_REWARDS[TRAINER_REWARDS.length - 1].reward;
+    for (const e of TRAINER_REWARDS) {
+      t -= e.weight;
+      if (t < 0) {
+        chosen = e.reward;
+        break;
       }
-      return EVENTS[0];
+    }
+    const reward = { ...chosen };
+    if (reward.kind === "gold") {
+      reward.amount = randRange(rng, reward.min, reward.max);
+      reward.label = `${reward.amount} gold`;
+      delete reward.min;
+      delete reward.max;
+    }
+    return reward;
+  }
+  function rollMysteryEncounter(run) {
+    return withRng(run, (rng) => {
+      if (WANDERING_TRAINERS.length && rng() < MYSTERY_TRAINER_CHANCE) {
+        const trainer = pick(rng, WANDERING_TRAINERS);
+        const reward = pickTrainerReward(rng);
+        return { kind: "trainer", trainer, reward };
+      }
+      return { kind: "event", event: pickEventInline(rng) };
     });
   }
   function encounterLevel(run) {
@@ -3237,7 +3366,7 @@
       return;
     $("#trainerIntroKicker").textContent = trainer.title || "Trainer";
     $("#trainerIntroName").textContent = trainer.leader;
-    $("#trainerIntroMeta").textContent = champion ? `${trainer.town} \xB7 Final challenge` : `${trainer.town} Gym \xB7 ${trainer.badge} Badge`;
+    $("#trainerIntroMeta").textContent = trainer.meta ? trainer.meta : champion ? `${trainer.town} \xB7 Final challenge` : `${trainer.town} Gym \xB7 ${trainer.badge} Badge`;
     sprite.src = trainerSpritePath(trainer);
     sprite.alt = "";
     intro.style.setProperty("--trainer-accent", TYPE_COLOR[trainer.type] || TYPE_COLOR.normal);
@@ -4251,7 +4380,12 @@
     saveRun();
   }
   async function resolveMysteryNode(node) {
-    const ev = rollMysteryEvent(state.run);
+    const encounter = rollMysteryEncounter(state.run);
+    if (encounter.kind === "trainer") {
+      await resolveMysteryTrainer(node, encounter);
+      return;
+    }
+    const ev = encounter.event;
     const choice = await new Promise((resolve) => {
       openPanel(ev.title, (body, close) => {
         body.appendChild(el("p", { class: "small" }, ev.desc));
@@ -4267,6 +4401,65 @@
     });
     await applyEventEffect(choice.effect || { kind: "none" });
     goToMap();
+  }
+  async function buildTrainerTeam(trainer) {
+    const level = encounterLevel(state.run);
+    const team = [];
+    for (const id of trainer.team)
+      team.push(await buildMon(id, level));
+    return team;
+  }
+  async function resolveMysteryTrainer(node, encounter) {
+    setBusy(true);
+    const team = await buildTrainerTeam(encounter.trainer);
+    setBusy(false);
+    await startBattle({
+      kind: "trainer",
+      boss: encounter.trainer,
+      team,
+      onWin: () => afterMysteryTrainerWin(encounter),
+      onLose: () => runWipe()
+    });
+  }
+  async function afterMysteryTrainerWin(encounter) {
+    const gold = Math.round(
+      rollGold(state.run, NODE.BATTLE) * (state.sigilFx.goldMult || 1) * (state.run.progressionFx?.goldMult || 1)
+    );
+    state.run.gold += gold;
+    await say(`You beat the ${encounter.trainer.leader}!${gold ? ` +${gold} gold.` : ""}`, 400);
+    await grantTrainerReward(encounter.reward);
+    goToMap();
+  }
+  async function grantTrainerReward(reward) {
+    const run = state.run;
+    if (!reward)
+      return;
+    switch (reward.kind) {
+      case "gold":
+        run.gold += reward.amount || 0;
+        await say(`The trainer handed you ${reward.label || `${reward.amount || 0} gold`}!`);
+        break;
+      case "item": {
+        const amount = reward.amount || 1;
+        run.items[reward.id] = (run.items[reward.id] || 0) + amount;
+        await say(`The trainer gave you ${reward.label || "an item"}!`);
+        break;
+      }
+      case "egg": {
+        const mon = await makeWildMon(encounterLevel(run));
+        if (run.team.length < 6)
+          run.team.push(mon);
+        else
+          run.box.push(mon);
+        await say(`The trainer gave you ${reward.label || "an Egg"} \u2014 it hatched into ${mon.name}!`);
+        await announceCaughtProgress(registerPokemonProgress(mon, "caught", false));
+        break;
+      }
+      default:
+        break;
+    }
+    renderRunHud();
+    saveRun();
   }
   async function applyEventEffect(effect) {
     const run = state.run;

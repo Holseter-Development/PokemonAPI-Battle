@@ -46,7 +46,7 @@ import { arena, isArenaConfigured } from "./net.js";
 import { randomSeedString } from "./rng.js";
 import {
   NODE, createRun, availableNext, travelTo, markResolved, currentNode,
-  nodeById, offerSigils, offerMutations, rollShop, rollMysteryEvent, rollGold,
+  nodeById, offerSigils, offerMutations, rollShop, rollMysteryEncounter, rollGold,
   encounterLevel, bossMemberLevel, checkWipe, withRng,
 } from "./run.js";
 import {
@@ -679,9 +679,11 @@ async function showTrainerEntrance(trainer, champion = false) {
 
   $("#trainerIntroKicker").textContent = trainer.title || "Trainer";
   $("#trainerIntroName").textContent = trainer.leader;
-  $("#trainerIntroMeta").textContent = champion
-    ? `${trainer.town} · Final challenge`
-    : `${trainer.town} Gym · ${trainer.badge} Badge`;
+  $("#trainerIntroMeta").textContent = trainer.meta
+    ? trainer.meta
+    : champion
+      ? `${trainer.town} · Final challenge`
+      : `${trainer.town} Gym · ${trainer.badge} Badge`;
   sprite.src = trainerSpritePath(trainer);
   sprite.alt = "";
   intro.style.setProperty("--trainer-accent", TYPE_COLOR[trainer.type] || TYPE_COLOR.normal);
@@ -1629,7 +1631,12 @@ async function buyItem(it) {
 }
 
 async function resolveMysteryNode(node) {
-  const ev = rollMysteryEvent(state.run);
+  const encounter = rollMysteryEncounter(state.run);
+  if (encounter.kind === "trainer") {
+    await resolveMysteryTrainer(node, encounter);
+    return;
+  }
+  const ev = encounter.event;
   const choice = await new Promise((resolve) => {
     openPanel(ev.title, (body, close) => {
       body.appendChild(el("p", { class: "small" }, ev.desc));
@@ -1642,6 +1649,68 @@ async function resolveMysteryNode(node) {
   });
   await applyEventEffect(choice.effect || { kind: "none" });
   goToMap();
+}
+
+// Build a wandering trainer's team at the route's fair encounter level so the
+// ambush is a step up from a lone wild Pokémon without reaching boss scaling.
+async function buildTrainerTeam(trainer) {
+  const level = encounterLevel(state.run);
+  const team = [];
+  for (const id of trainer.team) team.push(await buildMon(id, level));
+  return team;
+}
+
+async function resolveMysteryTrainer(node, encounter) {
+  setBusy(true);
+  const team = await buildTrainerTeam(encounter.trainer);
+  setBusy(false);
+  await startBattle({
+    kind: "trainer", boss: encounter.trainer, team,
+    onWin: () => afterMysteryTrainerWin(encounter),
+    onLose: () => runWipe(),
+  });
+}
+
+async function afterMysteryTrainerWin(encounter) {
+  const gold = Math.round(
+    rollGold(state.run, NODE.BATTLE) *
+    (state.sigilFx.goldMult || 1) *
+    (state.run.progressionFx?.goldMult || 1)
+  );
+  state.run.gold += gold;
+  await say(`You beat the ${encounter.trainer.leader}!${gold ? ` +${gold} gold.` : ""}`, 400);
+  await grantTrainerReward(encounter.reward);
+  goToMap();
+}
+
+// Hand over the pre-rolled random reward for beating a wandering trainer.
+async function grantTrainerReward(reward) {
+  const run = state.run;
+  if (!reward) return;
+  switch (reward.kind) {
+    case "gold":
+      run.gold += reward.amount || 0;
+      await say(`The trainer handed you ${reward.label || `${reward.amount || 0} gold`}!`);
+      break;
+    case "item": {
+      const amount = reward.amount || 1;
+      run.items[reward.id] = (run.items[reward.id] || 0) + amount;
+      await say(`The trainer gave you ${reward.label || "an item"}!`);
+      break;
+    }
+    case "egg": {
+      const mon = await makeWildMon(encounterLevel(run));
+      if (run.team.length < 6) run.team.push(mon);
+      else run.box.push(mon);
+      await say(`The trainer gave you ${reward.label || "an Egg"} — it hatched into ${mon.name}!`);
+      await announceCaughtProgress(registerPokemonProgress(mon, "caught", false));
+      break;
+    }
+    default:
+      break;
+  }
+  renderRunHud();
+  saveRun();
 }
 
 async function applyEventEffect(effect) {
