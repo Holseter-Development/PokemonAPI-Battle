@@ -807,7 +807,12 @@
       v *= 0.25;
     return Math.max(1, Math.floor(v));
   }
+  function hasAbility(mon, tag) {
+    return !!(mon.abilities && mon.abilities.includes(tag));
+  }
   function rollHit(move, attacker, defender, rng = Math.random) {
+    if (attacker.trueStrike)
+      return true;
     if (move.accuracy == null)
       return true;
     const net = clamp(stage(attacker, "acc") - stage(defender, "eva"), -6, 6);
@@ -825,9 +830,15 @@
     const special = move.damage_class === "special";
     let atkStat = special ? effectiveStat(attacker, "spa") : effectiveStat(attacker, "atk");
     const defStat = special ? effectiveStat(defender, "spd") : effectiveStat(defender, "def");
-    if (!special && attacker.status && attacker.status.cond === "brn") {
+    const statused = attacker.status && attacker.status.cond !== "none";
+    const guts = hasAbility(attacker, "guts") && statused;
+    if (!special && attacker.status && attacker.status.cond === "brn" && !guts) {
       atkStat = Math.max(1, Math.floor(atkStat * 0.5));
     }
+    if (guts)
+      atkStat = Math.floor(atkStat * 1.5);
+    if (move.type === "ground" && hasAbility(defender, "levitate"))
+      return { dmg: 0, eff: 0, crit: false };
     const eff = typeEffect(move.type, defender.types);
     if (eff === 0)
       return { dmg: 0, eff: 0, crit: false };
@@ -837,11 +848,15 @@
       ) + 2
     );
     const randFactor = opts.avg ? 0.925 : 0.85 + rng() * 0.15;
-    const stab = attacker.types.includes(move.type) ? 1.5 : 1;
+    const stabMult = attacker.adaptive ? 2 : 1.5;
+    const stab = attacker.types.includes(move.type) ? stabMult : 1;
     let dmg = Math.max(1, Math.floor(base * randFactor * stab * eff));
     const crit = opts.forceCrit || rollCrit(attacker, move, rng);
     if (crit)
       dmg = Math.floor(dmg * 1.8);
+    if (hasAbility(defender, "multiscale") && defender.stats.hp >= defender.stats.maxHp) {
+      dmg = Math.max(1, Math.floor(dmg * 0.5));
+    }
     return { dmg, eff, crit };
   }
   function applyAilment(target, ailmentName, rng = Math.random, force = false) {
@@ -976,6 +991,13 @@
         res.recoil = Math.max(1, Math.floor(res.totalDmg * -move.drain / 100));
         attacker.stats.hp = clamp(attacker.stats.hp - res.recoil, 0, attacker.stats.maxHp);
         res.log.push(`${attacker.name} is hit with recoil!`);
+      } else if (attacker.lifesteal > 0 && res.totalDmg > 0) {
+        const leech = Math.max(1, Math.floor(res.totalDmg * attacker.lifesteal));
+        const before = attacker.stats.hp;
+        attacker.stats.hp = clamp(attacker.stats.hp + leech, 0, attacker.stats.maxHp);
+        res.drain = attacker.stats.hp - before;
+        if (res.drain > 0)
+          res.log.push(`${attacker.name} sapped health!`);
       }
       res.targetFainted = defender.stats.hp <= 0;
     }
@@ -1066,16 +1088,6 @@
       return sa > sb ? "a" : "b";
     return rng() < 0.5 ? "a" : "b";
   }
-  function catchSuccess(mon, ballBonus = 1, rng = Math.random) {
-    const maxHP = mon.stats.maxHp, curHP = mon.stats.hp, rate = mon.capture_rate || 45;
-    let a = (3 * maxHP - 2 * curHP) * rate / (3 * maxHP) * ballBonus;
-    const s = mon.status ? mon.status.cond : "none";
-    if (s === "slp" || s === "frz")
-      a *= 2;
-    else if (s === "par" || s === "psn" || s === "brn" || s === "tox")
-      a *= 1.5;
-    return rng() < a / 256;
-  }
   function moveScore(attacker, defender, move) {
     if (move.ppLeft <= 0)
       return -1;
@@ -1121,17 +1133,17 @@
     return bestIdx;
   }
   function bestMoveIndex(attacker, defender) {
-    let pick = -1, score = -Infinity;
+    let pick2 = -1, score = -Infinity;
     attacker.moves.forEach((m, i) => {
       if (m.ppLeft <= 0)
         return;
       const sc = moveScore(attacker, defender, m);
       if (sc > score) {
         score = sc;
-        pick = i;
+        pick2 = i;
       }
     });
-    return pick >= 0 ? pick : null;
+    return pick2 >= 0 ? pick2 : null;
   }
   function battleScore(mon, enemy) {
     let bestOff = 0, totalPP = 0, totalLeft = 0, hasDamage = false;
@@ -1185,6 +1197,14 @@
     if (mult <= 0.5)
       return "It's not very effective...";
     return "";
+  }
+  function switchOutHeal(mon) {
+    if (mon && mon.stats.hp > 0 && mon.abilities && mon.abilities.includes("regenerator")) {
+      const before = mon.stats.hp;
+      mon.stats.hp = clamp(mon.stats.hp + Math.floor(mon.stats.maxHp / 3), 0, mon.stats.maxHp);
+      return mon.stats.hp - before;
+    }
+    return 0;
   }
 
   // src/roster.js
@@ -1397,6 +1417,636 @@
   };
   var arena = new ArenaClient();
 
+  // src/rng.js
+  function makeRng(seed) {
+    let a = seed >>> 0 || 1;
+    const fn = () => {
+      a |= 0;
+      a = a + 1831565813 | 0;
+      let t = Math.imul(a ^ a >>> 15, 1 | a);
+      t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+      return ((t ^ t >>> 14) >>> 0) / 4294967296;
+    };
+    fn.getState = () => a >>> 0;
+    fn.setState = (s) => {
+      a = s >>> 0 || 1;
+    };
+    return fn;
+  }
+  function hashSeed(str) {
+    let h = 2166136261;
+    const s = String(str);
+    for (let i = 0; i < s.length; i++) {
+      h ^= s.charCodeAt(i);
+      h = Math.imul(h, 16777619);
+    }
+    return h >>> 0;
+  }
+  function randomSeedString() {
+    const alph = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+    let s = "";
+    for (let i = 0; i < 6; i++)
+      s += alph[Math.floor(Math.random() * alph.length)];
+    return "R-" + s;
+  }
+  function randRange(rng, lo, hi) {
+    return lo + Math.floor(rng() * (hi - lo + 1));
+  }
+  function pick(rng, arr) {
+    return arr[Math.floor(rng() * arr.length)];
+  }
+  function weightedPick(rng, entries) {
+    let total = 0;
+    for (const e of entries)
+      total += e.weight;
+    let r = rng() * total;
+    for (const e of entries) {
+      r -= e.weight;
+      if (r < 0)
+        return e.item;
+    }
+    return entries[entries.length - 1]?.item;
+  }
+  function sampleDistinct(rng, pool, n, weightOf = () => 1) {
+    const remaining = pool.slice();
+    const out = [];
+    while (out.length < n && remaining.length) {
+      const entries = remaining.map((item) => ({ item, weight: Math.max(1e-4, weightOf(item)) }));
+      const chosen = weightedPick(rng, entries);
+      out.push(chosen);
+      remaining.splice(remaining.indexOf(chosen), 1);
+    }
+    return out;
+  }
+
+  // src/mutations.js
+  var RARITY_WEIGHT = { common: 100, uncommon: 55, rare: 22, legendary: 6 };
+  var RARITY_COLOR = { common: "#b7c4d8", uncommon: "#5fd08a", rare: "#4db6ff", legendary: "#ffc23f" };
+  function addType(mon, t) {
+    if (!mon.types.includes(t)) {
+      if (mon.types.length >= 2)
+        mon.types[1] = t;
+      else
+        mon.types.push(t);
+    }
+  }
+  function scaleStats(mon, factors) {
+    for (const [k, f] of Object.entries(factors)) {
+      if (mon.stats[k] == null)
+        continue;
+      mon.stats[k] = Math.max(1, Math.floor(mon.stats[k] * f));
+    }
+    if (factors.maxHp) {
+      mon.stats.hp = Math.min(mon.stats.hp, mon.stats.maxHp);
+    }
+  }
+  function addAbility(mon, tag) {
+    if (!mon.abilities)
+      mon.abilities = [];
+    if (!mon.abilities.includes(tag))
+      mon.abilities.push(tag);
+  }
+  var MUTATIONS = {
+    // --- type grafts (uncommon): reshape offense (STAB) & defensive profile ---
+    draconic: { name: "Draconic", rarity: "uncommon", desc: "Grafts the Dragon type.", apply: (m) => addType(m, "dragon") },
+    infernal: { name: "Infernal", rarity: "uncommon", desc: "Grafts the Fire type.", apply: (m) => addType(m, "fire") },
+    tidal: { name: "Tidal", rarity: "uncommon", desc: "Grafts the Water type.", apply: (m) => addType(m, "water") },
+    verdant: { name: "Verdant", rarity: "uncommon", desc: "Grafts the Grass type.", apply: (m) => addType(m, "grass") },
+    voltaic: { name: "Voltaic", rarity: "uncommon", desc: "Grafts the Electric type.", apply: (m) => addType(m, "electric") },
+    spectral: { name: "Spectral", rarity: "uncommon", desc: "Grafts the Ghost type.", apply: (m) => addType(m, "ghost") },
+    toxic: { name: "Toxic", rarity: "uncommon", desc: "Grafts the Poison type.", apply: (m) => addType(m, "poison") },
+    frostbite: { name: "Frostbitten", rarity: "uncommon", desc: "Grafts the Ice type.", apply: (m) => addType(m, "ice") },
+    tectonic: { name: "Tectonic", rarity: "uncommon", desc: "Grafts the Ground type.", apply: (m) => addType(m, "ground") },
+    // --- stat grafts ---
+    titan: { name: "Titan", rarity: "uncommon", desc: "+25% max HP, +20% Attack.", apply: (m) => scaleStats(m, { maxHp: 1.25, atk: 1.2 }) },
+    bulwark: { name: "Bulwark", rarity: "uncommon", desc: "+30% Defense & Sp. Defense.", apply: (m) => scaleStats(m, { def: 1.3, spd: 1.3 }) },
+    sprinter: { name: "Sprinter", rarity: "uncommon", desc: "+35% Speed.", apply: (m) => scaleStats(m, { spe: 1.35 }) },
+    mystic: { name: "Mystic", rarity: "uncommon", desc: "+30% Sp. Attack.", apply: (m) => scaleStats(m, { spa: 1.3 }) },
+    glasscannon: {
+      name: "Glass Cannon",
+      rarity: "rare",
+      desc: "+40% Atk & Sp.Atk, \u221230% defenses.",
+      apply: (m) => scaleStats(m, { atk: 1.4, spa: 1.4, def: 0.7, spd: 0.7 })
+    },
+    // --- pseudo-abilities (rare): read by the battle engine in phase 2 ---
+    levitator: { name: "Levitator", rarity: "rare", desc: "Levitate: immune to Ground moves.", apply: (m) => addAbility(m, "levitate") },
+    regenerator: { name: "Regenerator", rarity: "rare", desc: "Heals 1/3 HP when switched out.", apply: (m) => addAbility(m, "regenerator") },
+    berserker: { name: "Berserker", rarity: "rare", desc: "Guts: +50% Attack while statused.", apply: (m) => addAbility(m, "guts") },
+    multiscale: { name: "Aegis", rarity: "rare", desc: "Takes half damage while at full HP.", apply: (m) => addAbility(m, "multiscale") },
+    vampiric: { name: "Vampiric", rarity: "rare", desc: "Damaging moves drain 25% of damage.", apply: (m) => {
+      m.lifesteal = Math.max(m.lifesteal || 0, 0.25);
+    } },
+    sharpshooter: { name: "Sharpshooter", rarity: "rare", desc: "This Pok\xE9mon's moves never miss.", apply: (m) => {
+      m.trueStrike = true;
+    } },
+    adaptive: { name: "Adaptive", rarity: "rare", desc: "STAB is doubled (2\xD7 instead of 1.5\xD7).", apply: (m) => {
+      m.adaptive = true;
+    } },
+    // --- legendary chase ---
+    primeval: {
+      name: "Primeval",
+      rarity: "legendary",
+      desc: "+15% to every stat and Adaptive STAB.",
+      apply: (m) => {
+        scaleStats(m, { maxHp: 1.15, atk: 1.15, def: 1.15, spa: 1.15, spd: 1.15, spe: 1.15 });
+        m.adaptive = true;
+      }
+    }
+  };
+  function applyMutation(mon, id) {
+    const mut = MUTATIONS[id];
+    if (!mut)
+      return false;
+    if (!mon.mutations)
+      mon.mutations = [];
+    if (mon.mutations.includes(id))
+      return false;
+    mut.apply(mon);
+    mon.mutations.push(id);
+    return true;
+  }
+  var SIGILS = {
+    solar_core: {
+      name: "Solar Core",
+      rarity: "uncommon",
+      desc: "Harsh sunlight: your Fire moves +30%, Water \u221230%.",
+      effects: { weather: "sun", typeMult: { fire: 1.3, water: 0.7 } }
+    },
+    monsoon: {
+      name: "Monsoon",
+      rarity: "uncommon",
+      desc: "Rain: your Water moves +30%, Fire \u221230%.",
+      effects: { weather: "rain", typeMult: { water: 1.3, fire: 0.7 } }
+    },
+    permafrost: {
+      name: "Permafrost",
+      rarity: "uncommon",
+      desc: "Hail: your Ice moves +30%.",
+      effects: { weather: "hail", typeMult: { ice: 1.3 } }
+    },
+    sand_totem: {
+      name: "Sand Totem",
+      rarity: "uncommon",
+      desc: "Sandstorm: your Rock & Ground moves surge.",
+      effects: { weather: "sand", typeMult: { rock: 1.3, ground: 1.15 } }
+    },
+    toxic_spikes: {
+      name: "Toxic Spikes",
+      rarity: "uncommon",
+      desc: "Foes are poisoned when they enter battle.",
+      effects: { enemyEntryStatus: "psn" }
+    },
+    trick_lens: {
+      name: "Trick Lens",
+      rarity: "rare",
+      desc: "Trick Room: slower Pok\xE9mon move first.",
+      effects: { trickRoom: true }
+    },
+    momentum: {
+      name: "Momentum Engine",
+      rarity: "rare",
+      desc: "+8% crit each turn you don't switch.",
+      effects: { critRampPerTurn: 0.08 }
+    },
+    vampire_pact: {
+      name: "Vampire Pact",
+      rarity: "rare",
+      desc: "Your moves heal 12% of the damage they deal.",
+      effects: { lifesteal: 0.12 }
+    },
+    glass_armory: {
+      name: "Glass Armory",
+      rarity: "rare",
+      desc: "ALL damage dealt (yours and foes') +30%.",
+      effects: { globalDamageMult: 1.3 }
+    },
+    second_wind: {
+      name: "Second Wind",
+      rarity: "rare",
+      desc: "Once per battle, a lethal hit leaves you at 1 HP.",
+      effects: { endureOnce: true }
+    },
+    sturdy_banner: {
+      name: "Sturdy Banner",
+      rarity: "uncommon",
+      desc: "At full HP, no single hit takes more than half.",
+      effects: { sturdyAtFull: true }
+    },
+    lucky_egg: {
+      name: "Lucky Egg",
+      rarity: "common",
+      desc: "+50% XP from battles.",
+      effects: { xpMult: 1.5 }
+    },
+    merchants_charm: {
+      name: "Merchant's Charm",
+      rarity: "common",
+      desc: "+50% gold from battles.",
+      effects: { goldMult: 1.5 }
+    },
+    ball_cache: {
+      name: "Ball Cache",
+      rarity: "common",
+      desc: "Start the run with 2 extra Pok\xE9 Balls.",
+      effects: { startingBalls: 2 }
+    },
+    apex: {
+      name: "Apex Predator",
+      rarity: "legendary",
+      desc: "Your damage +10%, and KOs heal 25% HP.",
+      effects: { yourDamageMult: 1.1, healOnKill: 0.25 }
+    }
+  };
+  function emptyEffects() {
+    return {
+      weather: null,
+      typeMult: {},
+      globalDamageMult: 1,
+      yourDamageMult: 1,
+      lifesteal: 0,
+      enemyEntryStatus: null,
+      trickRoom: false,
+      critRampPerTurn: 0,
+      xpMult: 1,
+      goldMult: 1,
+      startingBalls: 0,
+      endureOnce: false,
+      sturdyAtFull: false,
+      healOnKill: 0
+    };
+  }
+  function aggregateSigils(ids) {
+    const out = emptyEffects();
+    for (const id of ids || []) {
+      const s = SIGILS[id];
+      if (!s)
+        continue;
+      const e = s.effects;
+      if (e.weather)
+        out.weather = e.weather;
+      if (e.typeMult)
+        for (const [t, m] of Object.entries(e.typeMult))
+          out.typeMult[t] = (out.typeMult[t] || 1) * m;
+      if (e.globalDamageMult)
+        out.globalDamageMult *= e.globalDamageMult;
+      if (e.yourDamageMult)
+        out.yourDamageMult *= e.yourDamageMult;
+      if (e.lifesteal)
+        out.lifesteal += e.lifesteal;
+      if (e.enemyEntryStatus)
+        out.enemyEntryStatus = e.enemyEntryStatus;
+      if (e.trickRoom)
+        out.trickRoom = true;
+      if (e.critRampPerTurn)
+        out.critRampPerTurn += e.critRampPerTurn;
+      if (e.xpMult)
+        out.xpMult *= e.xpMult;
+      if (e.goldMult)
+        out.goldMult *= e.goldMult;
+      if (e.startingBalls)
+        out.startingBalls += e.startingBalls;
+      if (e.endureOnce)
+        out.endureOnce = true;
+      if (e.sturdyAtFull)
+        out.sturdyAtFull = true;
+      if (e.healOnKill)
+        out.healOnKill = Math.max(out.healOnKill, e.healOnKill);
+    }
+    return out;
+  }
+  function mutationList() {
+    return Object.keys(MUTATIONS).map((id) => ({ id, ...MUTATIONS[id] }));
+  }
+  function sigilList() {
+    return Object.keys(SIGILS).map((id) => ({ id, ...SIGILS[id] }));
+  }
+  function rarityWeightOf(def) {
+    return RARITY_WEIGHT[def.rarity] || 1;
+  }
+
+  // src/run.js
+  var NODE = {
+    BATTLE: "battle",
+    // wild encounter (catchable)
+    ELITE: "elite",
+    // Gym-Leader boss
+    CHAMPION: "champion",
+    SHOP: "shop",
+    REST: "rest",
+    MYSTERY: "mystery"
+  };
+  var RUN_CONFIG = { regions: 3, rowsPerRegion: 5, width: 4, paths: 6 };
+  function generateMap(rng, cfg = RUN_CONFIG) {
+    const { regions, rowsPerRegion, width, paths } = cfg;
+    const totalRows = regions * rowsPerRegion;
+    const nodes = {};
+    const key = (r, c) => `${r}-${c}`;
+    const regionOf = (r) => Math.floor(r / rowsPerRegion);
+    const isBossRow = (r) => (r + 1) % rowsPerRegion === 0;
+    const ensure = (r, c) => {
+      const id = key(r, c);
+      if (!nodes[id])
+        nodes[id] = { id, row: r, col: c, region: regionOf(r), type: null, edges: [] };
+      return nodes[id];
+    };
+    const link = (a, b) => {
+      if (!a.edges.includes(b.id))
+        a.edges.push(b.id);
+    };
+    for (let p = 0; p < paths; p++) {
+      let col = Math.floor(rng() * width);
+      ensure(0, col);
+      for (let r = 0; r < totalRows - 1; r++) {
+        const opts = [col - 1, col, col + 1].filter((c) => c >= 0 && c < width);
+        const nc = pick(rng, opts);
+        link(ensure(r, col), ensure(r + 1, nc));
+        col = nc;
+      }
+    }
+    const centerCol = Math.floor(width / 2);
+    for (let R = rowsPerRegion - 1; R < totalRows; R += rowsPerRegion) {
+      const rowNodes = Object.values(nodes).filter((n) => n.row === R);
+      const outward = /* @__PURE__ */ new Set();
+      rowNodes.forEach((n) => n.edges.forEach((e) => outward.add(e)));
+      rowNodes.forEach((n) => delete nodes[n.id]);
+      const boss = {
+        id: `${R}-boss`,
+        row: R,
+        col: centerCol,
+        region: regionOf(R),
+        type: R === totalRows - 1 ? NODE.CHAMPION : NODE.ELITE,
+        edges: [...outward]
+      };
+      nodes[boss.id] = boss;
+      Object.values(nodes).filter((n) => n.row === R - 1).forEach((n) => {
+        n.edges = [boss.id];
+      });
+    }
+    const preBoss = (r) => isBossRow(r + 1);
+    const rest = Object.values(nodes).filter((n) => !n.type).sort((a, b) => a.row - b.row || a.col - b.col);
+    for (const n of rest) {
+      if (n.row === 0) {
+        n.type = NODE.BATTLE;
+        continue;
+      }
+      if (preBoss(n.row)) {
+        n.type = NODE.REST;
+        continue;
+      }
+      const local = n.row % rowsPerRegion;
+      const pool = local <= 1 ? [{ item: NODE.BATTLE, weight: 78 }, { item: NODE.MYSTERY, weight: 22 }] : [
+        { item: NODE.BATTLE, weight: 58 },
+        { item: NODE.MYSTERY, weight: 24 },
+        { item: NODE.SHOP, weight: 10 },
+        { item: NODE.REST, weight: 8 }
+      ];
+      let t = rng() * pool.reduce((s, e) => s + e.weight, 0);
+      for (const e of pool) {
+        t -= e.weight;
+        if (t < 0) {
+          n.type = e.item;
+          break;
+        }
+      }
+      if (!n.type)
+        n.type = NODE.BATTLE;
+    }
+    for (let reg = 0; reg < regions; reg++) {
+      const inReg = Object.values(nodes).filter((n) => n.region === reg && n.type !== NODE.CHAMPION && n.type !== NODE.ELITE);
+      if (!inReg.some((n) => n.type === NODE.SHOP)) {
+        const cand = inReg.filter((n) => n.type === NODE.BATTLE && !preBoss(n.row) && n.row % rowsPerRegion !== 0);
+        if (cand.length)
+          pick(rng, cand).type = NODE.SHOP;
+      }
+    }
+    const rows = [];
+    for (let r = 0; r < totalRows; r++) {
+      rows.push(Object.values(nodes).filter((n) => n.row === r).sort((a, b) => a.col - b.col).map((n) => n.id));
+    }
+    return { nodes, rows, totalRows, regions, rowsPerRegion, width };
+  }
+  var RUN_ID = 0;
+  function createRun(seedString, opts = {}) {
+    const seed = hashSeed(seedString);
+    const rng = makeRng(seed);
+    const cfg = { ...RUN_CONFIG, ...opts.config || {} };
+    const map = generateMap(rng, cfg);
+    return {
+      id: ++RUN_ID,
+      seed: seedString,
+      seedNum: seed,
+      rngState: rng.getState(),
+      // continue the same stream for reward rolls
+      config: cfg,
+      ascension: opts.ascension || 0,
+      map,
+      position: null,
+      // current node id; null = choosing a row-0 node
+      resolved: false,
+      // has the current node been completed?
+      visited: [],
+      // node ids, in order
+      team: [],
+      // filled in by the controller
+      box: [],
+      gold: opts.gold || 0,
+      balls: opts.balls != null ? opts.balls : 3,
+      sigils: [],
+      // owned sigil ids
+      fragments: 0,
+      // meta-currency earned this run
+      over: false,
+      won: false
+    };
+  }
+  function withRng(run, fn) {
+    const rng = makeRng(run.seedNum);
+    rng.setState(run.rngState);
+    const result = fn(rng);
+    run.rngState = rng.getState();
+    return result;
+  }
+  function nodeById(run, id) {
+    return run.map.nodes[id] || null;
+  }
+  function currentNode(run) {
+    return run.position ? nodeById(run, run.position) : null;
+  }
+  function availableNext(run) {
+    if (run.over)
+      return [];
+    if (run.position == null)
+      return run.map.rows[0].map((id) => run.map.nodes[id]);
+    if (!run.resolved)
+      return [];
+    const node = nodeById(run, run.position);
+    return (node.edges || []).map((id) => run.map.nodes[id]);
+  }
+  function travelTo(run, nodeId) {
+    const options = availableNext(run);
+    const target = options.find((n) => n.id === nodeId);
+    if (!target)
+      return null;
+    if (run.position != null)
+      run.visited.push(run.position);
+    run.position = target.id;
+    run.resolved = false;
+    return target;
+  }
+  function markResolved(run, outcome = {}) {
+    run.resolved = true;
+    const node = currentNode(run);
+    if (node && node.type === NODE.CHAMPION && outcome.won) {
+      run.over = true;
+      run.won = true;
+    }
+    return run;
+  }
+  function rollGold(run, kind) {
+    return withRng(run, (rng) => {
+      switch (kind) {
+        case NODE.BATTLE:
+          return randRange(rng, 12, 26) + run.ascension * 3;
+        case NODE.ELITE:
+          return randRange(rng, 55, 90) + run.ascension * 10;
+        case NODE.CHAMPION:
+          return 220 + run.ascension * 25;
+        default:
+          return 0;
+      }
+    });
+  }
+  function offerSigils(run, n = 3) {
+    return withRng(run, (rng) => {
+      const pool = sigilList().filter((s) => !run.sigils.includes(s.id));
+      return sampleDistinct(rng, pool, Math.min(n, pool.length), rarityWeightOf);
+    });
+  }
+  function offerMutations(run, n = 3) {
+    return withRng(run, (rng) => {
+      const pool = mutationList();
+      return sampleDistinct(rng, pool, Math.min(n, pool.length), rarityWeightOf);
+    });
+  }
+  function rollShop(run) {
+    return withRng(run, (rng) => {
+      const depth = 1 + run.visited.length / 8;
+      const priceMut = (r) => Math.round(({ common: 90, uncommon: 150, rare: 260, legendary: 500 }[r] || 120) * depth);
+      const muts = sampleDistinct(rng, mutationList(), 2, rarityWeightOf).map((m) => ({ kind: "mutation", id: m.id, name: m.name, rarity: m.rarity, price: priceMut(m.rarity) }));
+      const items = [
+        { kind: "item", id: "potion", name: "Potion", price: 60 },
+        { kind: "item", id: "super-potion", name: "Super Potion", price: 140 },
+        { kind: "item", id: "poke-ball", name: "Pok\xE9 Ball", price: 120 },
+        { kind: "item", id: "heal", name: "Full Heal (team)", price: Math.round(180 * depth) }
+      ];
+      const stock = [...items, ...muts];
+      if (rng() < 0.5) {
+        const s = offerSigilsInline(rng, run, 1)[0];
+        if (s)
+          stock.push({ kind: "sigil", id: s.id, name: s.name, rarity: s.rarity, price: Math.round(320 * depth) });
+      }
+      return stock;
+    });
+  }
+  function offerSigilsInline(rng, run, n) {
+    const pool = sigilList().filter((s) => !run.sigils.includes(s.id));
+    return sampleDistinct(rng, pool, Math.min(n, pool.length), rarityWeightOf);
+  }
+  var EVENTS = [
+    {
+      id: "wishing_well",
+      title: "Wishing Well",
+      weight: 10,
+      desc: "A shimmering well hums with promise.",
+      choices: [
+        { label: "Toss in 40 gold", effect: { kind: "gamble", cost: 40, outcomes: ["gold", "mutation", "nothing"] } },
+        { label: "Leave it be", effect: { kind: "none" } }
+      ]
+    },
+    {
+      id: "berry_grove",
+      title: "Berry Grove",
+      weight: 12,
+      desc: "Wild berries grow thick here.",
+      choices: [
+        { label: "Rest and eat", effect: { kind: "heal", amount: "full" } }
+      ]
+    },
+    {
+      id: "abandoned_ball",
+      title: "Abandoned Pok\xE9 Ball",
+      weight: 10,
+      desc: "A dented ball lies in the grass.",
+      choices: [
+        { label: "Pocket it", effect: { kind: "balls", amount: 1 } }
+      ]
+    },
+    {
+      id: "cursed_shrine",
+      title: "Cursed Shrine",
+      weight: 8,
+      desc: "Power radiates \u2014 at a price.",
+      choices: [
+        { label: "Accept the gift", effect: { kind: "mutationThenScar" } },
+        { label: "Back away", effect: { kind: "none" } }
+      ]
+    },
+    {
+      id: "mysterious_egg",
+      title: "Mysterious Egg",
+      weight: 7,
+      desc: "A warm egg trembles. Something's inside\u2026",
+      choices: [
+        { label: "Take the egg", effect: { kind: "recruit" } }
+      ]
+    },
+    {
+      id: "move_tutor",
+      title: "Move Tutor",
+      weight: 8,
+      desc: "An old master offers to teach a move.",
+      choices: [
+        { label: "Learn (100 gold)", effect: { kind: "tutor", cost: 100 } },
+        { label: "Decline", effect: { kind: "none" } }
+      ]
+    },
+    {
+      id: "gambler",
+      title: "The Gambler",
+      weight: 8,
+      desc: '"Double or nothing on that gold, kid."',
+      choices: [
+        { label: "Bet 60 gold", effect: { kind: "coinflip", stake: 60 } },
+        { label: "Walk on", effect: { kind: "none" } }
+      ]
+    },
+    {
+      id: "sigil_altar",
+      title: "Sigil Altar",
+      weight: 6,
+      desc: "An altar hums with run-shaping power.",
+      choices: [
+        { label: "Attune", effect: { kind: "sigil" } }
+      ]
+    }
+  ];
+  function rollMysteryEvent(run) {
+    return withRng(run, (rng) => {
+      const entries = EVENTS.map((e) => ({ item: e, weight: e.weight }));
+      let t = rng() * entries.reduce((s, e) => s + e.weight, 0);
+      for (const e of entries) {
+        t -= e.weight;
+        if (t < 0)
+          return e.item;
+      }
+      return EVENTS[0];
+    });
+  }
+  function encounterLevel(run) {
+    const depth = run.visited.length;
+    return Math.min(100, 5 + Math.floor(depth * 1.6) + run.ascension * 6);
+  }
+
   // src/ui.js
   var $ = (sel) => document.querySelector(sel);
   function el(tag, attrs = {}, txt = "") {
@@ -1480,44 +2130,37 @@
     if (hold)
       await sleep(hold);
   }
-  var SAVE_KEY = "pkbattle:save:v2";
-  var GYM_EVERY = 3;
+  var RUN_KEY = "pkbattle:run:v1";
+  var VAULT_KEY = "pkbattle:vault:v1";
+  var META_KEY = "pkbattle:meta:v1";
   var state = {
     party: [],
+    // === run.team while an expedition is active
     box: [],
+    // === run.box
     active: 0,
     player: null,
     enemy: null,
     busy: false,
     auto: false,
     started: false,
-    mode: "wild",
-    // "wild" | "trainer"
+    mode: "map",
+    // "map" | "wild" | "trainer"
     trainer: null,
-    // active Gym / Champion object
+    // active Elite / Champion boss
     trainerTeam: [],
     trainerIdx: 0,
     isChampion: false,
-    gymsBeaten: 0,
-    championBeaten: false,
-    championsCleared: 0,
-    ngPlus: 0,
-    wins: 0,
-    money: 0,
-    badges: [],
-    items: {
-      "poke-ball": 10,
-      "great-ball": 2,
-      "ultra-ball": 0,
-      potion: 3,
-      "super-potion": 1,
-      "hyper-potion": 0,
-      antidote: 1,
-      "parlyz-heal": 1,
-      awakening: 1,
-      "burn-heal": 1,
-      "ice-heal": 1
-    }
+    run: null,
+    // the active Expedition (see run.js)
+    battle: null,
+    // { kind, onWin, onLose, onFlee } for the current node battle
+    sigilFx: emptyEffects(),
+    vault: [],
+    // persistent ascended roster (for ranked)
+    meta: { fragments: 0, expeditionsWon: 0 },
+    items: null
+    // aliased to run.items during a run
   };
   function setBusy(v) {
     state.busy = v;
@@ -1785,13 +2428,11 @@
   function updateScore() {
     const w = $("#winCount"), m = $("#moneyCount"), bs = $("#badgeStrip");
     if (w)
-      w.textContent = state.wins;
+      w.textContent = state.meta.fragments;
     if (m)
-      m.textContent = state.money;
-    if (bs) {
+      m.textContent = state.run ? state.run.gold : 0;
+    if (bs)
       bs.innerHTML = "";
-      state.badges.forEach((b) => bs.appendChild(el("span", { class: "gym-badge" }, b)));
-    }
     updateObjective();
   }
   function updateObjective() {
@@ -1799,16 +2440,13 @@
     if (!obj)
       return;
     let text;
-    if (state.gymsBeaten < GYMS.length) {
-      const next = GYMS[state.gymsBeaten];
-      text = `Badges ${state.badges.length}/${GYMS.length} \xB7 Next: ${next.town} Gym (${cap(next.type)})`;
-    } else if (!state.championBeaten) {
-      text = `All ${GYMS.length} badges! \xB7 Challenge the Champion`;
+    if (state.run && state.started) {
+      const region = (currentNode(state.run)?.region ?? 0) + 1;
+      text = `Expedition \xB7 Region ${region}/${state.run.config.regions} \xB7 Depth ${state.run.visited.length}`;
     } else {
-      text = `Champion \xB7 New Game+ ${state.ngPlus}`;
+      text = `Vault: ${state.vault.length} \xB7 Expeditions won: ${state.meta.expeditionsWon}`;
     }
-    const ng = state.ngPlus > 0 && state.gymsBeaten < GYMS.length ? ` \xB7 NG+${state.ngPlus}` : "";
-    obj.innerHTML = `<svg class="ico"><use href="#i-medal" /></svg> <span>${text}${ng}</span>`;
+    obj.innerHTML = `<svg class="ico"><use href="#i-medal" /></svg> <span>${text}</span>`;
   }
   function ensureVfx() {
     return document.getElementById("vfx");
@@ -2255,7 +2893,7 @@
     await playCry(state.enemy);
     await faintOut("#enemySprite");
     await say(`${labelFor(state.enemy, true)} fainted!`);
-    await gainXP(state.player, xpFor(state.enemy));
+    await gainXP(state.player, Math.round(xpFor(state.enemy) * (state.sigilFx.xpMult || 1)));
     if (state.mode === "trainer") {
       state.trainerIdx++;
       if (state.trainerIdx < state.trainerTeam.length) {
@@ -2264,16 +2902,13 @@
         await backToMenu();
         return;
       }
-      await onTrainerDefeated();
-      return;
     }
-    state.wins++;
-    maybeAwardDrops();
-    updateScore();
-    save();
-    await sleep(500);
-    await startEncounter();
-    setBusy(false);
+    const cb = state.battle && state.battle.onWin;
+    state.battle = null;
+    if (cb)
+      await cb({ defeated: true });
+    else
+      goToMap();
   }
   async function onPlayerFaint() {
     await playCry(state.player);
@@ -2282,10 +2917,9 @@
     const healthyIdx = state.party.map((m, i) => ({ m, i })).filter(({ m, i }) => m.stats.hp > 0 && i !== state.active).map(({ i }) => i);
     if (healthyIdx.length) {
       if (state.auto) {
-        const cur = battleScore(state.player, state.enemy);
-        const pick = bestSwitch(state.party, state.active, state.enemy, 0, 0) ?? healthyIdx[0];
+        const pick2 = bestSwitch(state.party, state.active, state.enemy, 0, 0) ?? healthyIdx[0];
         await say("Choose your next Pok\xE9mon!");
-        await swapTo(pick, true);
+        await swapTo(pick2, true);
         return;
       }
       await say("Choose your next Pok\xE9mon!");
@@ -2294,48 +2928,18 @@
       setBusy(false);
       return;
     }
-    await say("You have no Pok\xE9mon left to fight...", 400);
-    await say("You scurry back to the Pok\xE9mon Center.");
-    state.party.forEach((m) => {
-      m.stats.hp = m.stats.maxHp;
-      m.status = { cond: "none", turns: 0, toxic: 0 };
-      resetStages(m);
-      m.moves.forEach((mv) => mv.ppLeft = mv.pp);
-    });
-    state.money = Math.max(0, Math.floor(state.money * 0.5));
-    state.mode = "wild";
-    state.trainer = null;
-    state.wins = Math.max(0, state.wins - 1);
-    setActive(0);
-    save();
-    await sleep(700);
-    await startEncounter();
-    setBusy(false);
+    await say("Your whole team has fainted...", 500);
+    const cb = state.battle && state.battle.onLose;
+    state.battle = null;
+    if (cb)
+      await cb();
+    else
+      await backToTitle();
   }
-  function wildLevel() {
-    return clamp(4 + Math.floor(state.wins / 2.5), 4, 55);
+  function beginBattleEffects() {
+    state.sigilFx = aggregateSigils(state.run ? state.run.sigils : []);
   }
-  async function startEncounter() {
-    resetStages(state.player);
-    const ps = $("#playerSprite");
-    if (ps) {
-      ps.style.opacity = "1";
-      ps.style.transform = "none";
-    }
-    if (state.mode !== "trainer") {
-      const g = state.gymsBeaten;
-      if (g < GYMS.length && state.wins >= (g + 1) * GYM_EVERY) {
-        return startGymBattle(GYMS[g], false);
-      }
-      if (g >= GYMS.length && !state.championBeaten && state.wins >= (GYMS.length + 1) * GYM_EVERY) {
-        return startGymBattle(CHAMPION, true);
-      }
-    }
-    state.mode = "wild";
-    state.trainer = null;
-    state.trainerTeam = [];
-    show("menu");
-    const level = wildLevel();
+  async function makeWildMon(level) {
     let mon = null, poke = null;
     for (let tries = 0; tries < 12; tries++) {
       const eid = 1 + Math.floor(Math.random() * GEN1_MAX_ID);
@@ -2353,31 +2957,43 @@
     mon.moves = await fetchMoveset(poke, mon.level);
     if (!mon.moves.length)
       mon.moves = [{ ...STRUGGLE, name: "Tackle", key: "tackle", power: 40, pp: 35, ppLeft: 35, drain: 0 }];
-    state.enemy = mon;
-    updateHUD();
-    setThemeByType(mon.types);
-    await fadeInSprite("#enemySprite");
-    await say(`A wild ${mon.name} appeared!`);
-    await playCry(mon);
-    await backToMenu();
+    return mon;
   }
-  async function startGymBattle(gym, isChampion) {
-    state.mode = "trainer";
-    state.trainer = gym;
-    state.isChampion = isChampion;
-    state.trainerIdx = 0;
-    setBusy(true);
-    show("none");
-    const anchor = Math.max(wildLevel(), gym.floor) + state.ngPlus * 10;
-    state.trainerTeam = [];
-    for (let i = 0; i < gym.team.length; i++) {
-      const lvl = clamp(anchor + i, 4, 100);
-      const mon = await buildMon(gym.team[i], lvl);
-      state.trainerTeam.push(mon);
+  async function startBattle(spec) {
+    state.battle = spec;
+    state.mode = spec.kind === "battle" ? "wild" : "trainer";
+    state.isChampion = spec.kind === "champion";
+    beginBattleEffects();
+    hideMapScreen();
+    if (!state.player || state.player.stats.hp <= 0) {
+      const idx = state.party.findIndex((m) => m.stats.hp > 0);
+      if (idx >= 0)
+        setActive(idx);
     }
-    await showBanner(`${gym.title} ${gym.leader}`, 1400);
-    await say(gym.intro, 500);
-    await sendTrainerMon(0);
+    resetStages(state.player);
+    const ps = $("#playerSprite");
+    if (ps) {
+      ps.style.opacity = "1";
+      ps.style.transform = "none";
+    }
+    if (spec.kind === "battle") {
+      state.enemy = spec.enemy;
+      state.trainer = null;
+      state.trainerTeam = [];
+      ensureRuntime(state.enemy);
+      updateHUD();
+      setThemeByType(state.enemy.types);
+      await fadeInSprite("#enemySprite");
+      await say(`A wild ${state.enemy.name} appeared!`);
+      await playCry(state.enemy);
+    } else {
+      state.trainer = spec.boss;
+      state.trainerTeam = spec.team;
+      state.trainerIdx = 0;
+      await showBanner(`${spec.boss.title} ${spec.boss.leader}`, 1300);
+      await say(spec.boss.intro, 400);
+      await sendTrainerMon(0);
+    }
     await backToMenu();
   }
   async function sendTrainerMon(idx) {
@@ -2390,97 +3006,680 @@
     await say(`${state.trainer.leader} sent out ${mon.name}!`);
     await playCry(mon);
   }
-  function grantRewards(r) {
-    if (!r)
-      return;
-    if (r.money)
-      state.money += r.money;
-    if (r.balls)
-      state.items["poke-ball"] += r.balls;
-    if (r.potions)
-      state.items["potion"] += r.potions;
-    if (r.superPotions)
-      state.items["super-potion"] += r.superPotions;
-    if (r.hyperPotions)
-      state.items["hyper-potion"] += r.hyperPotions;
-    if (r.ultraBalls)
-      state.items["ultra-ball"] += r.ultraBalls;
+  var DEFAULT_ITEMS = () => ({
+    "poke-ball": 3,
+    "great-ball": 0,
+    "ultra-ball": 0,
+    potion: 1,
+    "super-potion": 0,
+    "hyper-potion": 0,
+    antidote: 0,
+    "parlyz-heal": 0,
+    awakening: 0,
+    "burn-heal": 0,
+    "ice-heal": 0
+  });
+  async function startExpedition(starterMon) {
+    const seed = randomSeedString();
+    const run = createRun(seed, {});
+    run.items = DEFAULT_ITEMS();
+    run.team = [starterMon];
+    run.box = [];
+    run.gyms = withRng(run, (rng) => sampleDistinct(rng, GYMS.map((_, i) => i), run.config.regions, () => 1));
+    state.run = run;
+    state.party = run.team;
+    state.box = run.box;
+    state.items = run.items;
+    state.active = 0;
+    state.player = run.team[0];
+    state.started = true;
+    state.battle = null;
+    saveRun();
+    await say("Your Expedition begins! Chart a path to the Champion.", 400);
+    showMap();
   }
-  async function onTrainerDefeated() {
-    const g = state.trainer;
-    const champ = state.isChampion;
-    await say(`You defeated ${g.leader}!`, 400);
-    grantRewards(g.reward);
-    if (g.reward?.money)
-      await say(`You received \u20BD${g.reward.money} prize money!`);
-    if (g.badge && !state.badges.includes(g.badge)) {
-      state.badges.push(g.badge);
-      if (!champ)
-        await showBanner(`You earned the ${g.badge} Badge!`, 1500);
-    }
-    state.wins++;
-    state.mode = "wild";
-    state.trainer = null;
-    state.trainerTeam = [];
-    state.isChampion = false;
-    if (champ) {
-      await onChampionDefeated();
-      return;
-    }
-    state.gymsBeaten++;
-    updateScore();
-    save();
-    await sleep(400);
-    await startEncounter();
+  function bindRun(run) {
+    run.team = (run.team || []).map(ensureRuntime);
+    run.box = (run.box || []).map(ensureRuntime);
+    if (!run.items)
+      run.items = DEFAULT_ITEMS();
+    if (!run.sigils)
+      run.sigils = [];
+    state.run = run;
+    state.party = run.team;
+    state.box = run.box;
+    state.items = run.items;
+    state.active = clamp(run.active || 0, 0, run.team.length - 1);
+    state.player = run.team[state.active];
+    state.started = true;
+    state.battle = null;
+  }
+  async function continueExpedition() {
+    const run = loadRun();
+    if (!run || !run.team || !run.team.length)
+      return beginNewGame();
+    bindRun(run);
+    hideTitle();
+    setActive(state.active);
+    showMap();
+  }
+  function showMapScreen() {
+    const m = $("#mapScreen");
+    if (m)
+      m.classList.remove("hidden");
+  }
+  function hideMapScreen() {
+    const m = $("#mapScreen");
+    if (m)
+      m.classList.add("hidden");
+  }
+  function showMap() {
+    state.mode = "map";
+    state.battle = null;
     setBusy(false);
-  }
-  async function onChampionDefeated() {
-    state.championBeaten = true;
-    state.championsCleared++;
+    renderRunHud();
+    renderMap();
     updateScore();
-    save();
-    await flashWhite("#enemySprite");
-    await openModal({
-      title: "Champion!",
-      bodyHTML: `<p>You stormed the Indigo Plateau and became the <b>Champion</b>!</p><p class="small">Hall of Fame entries: <b>${state.championsCleared}</b> \xB7 New Game+ ${state.ngPlus + 1} unlocks tougher Gyms and higher-level foes. Your team, items and money carry over.</p>`,
-      actions: [
-        { label: "Enter New Game+", primary: true, onClick: () => startNewGamePlus() }
-      ],
-      dismissable: false
+    showMapScreen();
+  }
+  function goToMap() {
+    if (state.run) {
+      markResolved(state.run, { won: false });
+      saveRun();
+    }
+    showMap();
+  }
+  var NODE_GLYPH = {
+    [NODE.BATTLE]: "W",
+    [NODE.ELITE]: "E",
+    [NODE.SHOP]: "$",
+    [NODE.REST]: "+",
+    [NODE.MYSTERY]: "?",
+    [NODE.CHAMPION]: "\u2605"
+  };
+  var NODE_NAME = {
+    [NODE.BATTLE]: "Wild",
+    [NODE.ELITE]: "Elite",
+    [NODE.SHOP]: "Shop",
+    [NODE.REST]: "Rest",
+    [NODE.MYSTERY]: "Mystery",
+    [NODE.CHAMPION]: "Champion"
+  };
+  function renderMap() {
+    const canvas = $("#mapCanvas");
+    if (!canvas || !state.run)
+      return;
+    canvas.innerHTML = "";
+    const map = state.run.map;
+    const avail = new Set(availableNext(state.run).map((n) => n.id));
+    const visited = new Set(state.run.visited);
+    for (let r = map.totalRows - 1; r >= 0; r--) {
+      const rowEl = el("div", { class: "map-row" });
+      rowEl.style.gridTemplateColumns = `repeat(${map.width}, 1fr)`;
+      const byCol = {};
+      map.rows[r].forEach((id) => {
+        byCol[map.nodes[id].col] = id;
+      });
+      for (let c = 0; c < map.width; c++) {
+        const slot = el("div", { class: "map-slot" });
+        const id = byCol[c];
+        if (id) {
+          const node = map.nodes[id];
+          const btn = el("button", { class: "map-node type-" + node.type, title: NODE_NAME[node.type] });
+          btn.dataset.id = id;
+          btn.style.setProperty("--type", TYPE_COLOR[node.type] || "#7a88a8");
+          btn.textContent = NODE_GLYPH[node.type] || "?";
+          if (id === state.run.position)
+            btn.classList.add("current");
+          else if (visited.has(id))
+            btn.classList.add("visited");
+          if (avail.has(id)) {
+            btn.classList.add("available");
+            btn.onclick = () => onSelectNode(node);
+          } else if (id !== state.run.position)
+            btn.disabled = true;
+          slot.appendChild(btn);
+        }
+        rowEl.appendChild(slot);
+      }
+      canvas.appendChild(rowEl);
+    }
+    if (typeof requestAnimationFrame === "function")
+      requestAnimationFrame(renderMapEdges);
+  }
+  function renderMapEdges() {
+    const canvas = $("#mapCanvas");
+    if (!canvas || !state.run)
+      return;
+    const old = canvas.querySelector("svg.map-edges");
+    if (old)
+      old.remove();
+    const NS = "http://www.w3.org/2000/svg";
+    const svg = document.createElementNS(NS, "svg");
+    svg.setAttribute("class", "map-edges");
+    const crect = canvas.getBoundingClientRect();
+    const center = (id) => {
+      const b = canvas.querySelector(`[data-id="${id}"]`);
+      if (!b)
+        return null;
+      const r = b.getBoundingClientRect();
+      return { x: r.left - crect.left + r.width / 2, y: r.top - crect.top + r.height / 2 + canvas.scrollTop };
+    };
+    for (const node of Object.values(state.run.map.nodes)) {
+      const a = center(node.id);
+      if (!a)
+        continue;
+      for (const e of node.edges) {
+        const b = center(e);
+        if (!b)
+          continue;
+        const line = document.createElementNS(NS, "line");
+        line.setAttribute("x1", a.x);
+        line.setAttribute("y1", a.y);
+        line.setAttribute("x2", b.x);
+        line.setAttribute("y2", b.y);
+        svg.appendChild(line);
+      }
+    }
+    canvas.insertBefore(svg, canvas.firstChild);
+  }
+  async function onSelectNode(node) {
+    if (state.busy)
+      return;
+    if (!availableNext(state.run).some((n) => n.id === node.id))
+      return;
+    travelTo(state.run, node.id);
+    hideMapScreen();
+    await resolveNode(node);
+  }
+  function renderRunHud() {
+    const hud = $("#runHud");
+    if (!hud || !state.run)
+      return;
+    const run = state.run;
+    const region = (currentNode(run)?.region ?? 0) + 1;
+    const sig = run.sigils.map((id) => `<span class="sig-chip" style="--rar:${RARITY_COLOR[SIGILS[id].rarity]}" title="${SIGILS[id].desc}">${SIGILS[id].name}</span>`).join("");
+    const team = run.team.map((m) => `<span class="team-chip ${m.stats.hp > 0 ? "" : "ko"}">${m.name}<i>${m.stats.hp}/${m.stats.maxHp}</i></span>`).join("");
+    hud.innerHTML = `<div class="run-stats"><span class="run-stat" title="Run seed">Seed <b>${run.seed}</b></span><span class="run-stat">Region <b>${region}/${run.config.regions}</b></span><span class="run-stat">Depth <b>${run.visited.length}</b></span><span class="run-stat">Gold <b>${run.gold}</b></span><span class="run-stat">Balls <b>${run.items["poke-ball"] || 0}</b></span></div><div class="run-sigils">${sig || '<span class="small">No sigils yet</span>'}</div><div class="run-team">${team}</div>`;
+  }
+  async function resolveNode(node) {
+    switch (node.type) {
+      case NODE.BATTLE:
+        return resolveBattleNode(node);
+      case NODE.ELITE:
+        return resolveEliteNode(node);
+      case NODE.CHAMPION:
+        return resolveChampionNode(node);
+      case NODE.SHOP:
+        return resolveShopNode(node);
+      case NODE.REST:
+        return resolveRestNode(node);
+      case NODE.MYSTERY:
+        return resolveMysteryNode(node);
+      default:
+        return goToMap();
+    }
+  }
+  async function resolveBattleNode(node) {
+    setBusy(true);
+    const mon = await makeWildMon(encounterLevel(state.run));
+    setBusy(false);
+    await startBattle({
+      kind: "battle",
+      enemy: mon,
+      onWin: (info) => afterBattleWin(info),
+      onLose: () => runWipe(),
+      onFlee: () => goToMap()
     });
   }
-  async function startNewGamePlus() {
-    closeModal();
-    state.ngPlus++;
-    state.gymsBeaten = 0;
-    state.championBeaten = false;
-    state.badges = [];
-    state.party.forEach((m) => {
+  async function afterBattleWin(info = {}) {
+    if (info.caught) {
+      ensureRuntime(info.caught);
+      if (state.run.team.length < 6)
+        state.run.team.push(info.caught);
+      else {
+        state.run.box.push(info.caught);
+        await say(`${info.caught.name} was sent to storage.`);
+      }
+    }
+    const gold = Math.round(rollGold(state.run, NODE.BATTLE) * (state.sigilFx.goldMult || 1));
+    state.run.gold += gold;
+    if (gold)
+      floatToast(`+${gold} gold`);
+    goToMap();
+  }
+  async function buildBossTeam(boss) {
+    const anchor = Math.max(encounterLevel(state.run), boss.floor) + state.run.ascension * 10;
+    const team = [];
+    for (let i = 0; i < boss.team.length; i++) {
+      team.push(await buildMon(boss.team[i], clamp(anchor + i, 4, 100)));
+    }
+    return team;
+  }
+  async function resolveEliteNode(node) {
+    setBusy(true);
+    const gymIdx = state.run.gyms && state.run.gyms[node.region] != null ? state.run.gyms[node.region] : node.region % GYMS.length;
+    const gym = GYMS[gymIdx];
+    const team = await buildBossTeam(gym);
+    setBusy(false);
+    await startBattle({
+      kind: "elite",
+      boss: gym,
+      team,
+      onWin: () => afterEliteWin(gym),
+      onLose: () => runWipe()
+    });
+  }
+  async function afterEliteWin(gym) {
+    const gold = Math.round(rollGold(state.run, NODE.ELITE) * (state.sigilFx.goldMult || 1));
+    state.run.gold += gold;
+    await say(`You defeated ${gym.leader}! +${gold} gold.`, 400);
+    const sig = await offerDraft("sigil");
+    if (sig) {
+      if (!state.run.sigils.includes(sig.id))
+        state.run.sigils.push(sig.id);
+      await say(`Attuned the ${sig.name} Sigil!`);
+    }
+    goToMap();
+  }
+  async function resolveChampionNode(node) {
+    setBusy(true);
+    const team = await buildBossTeam(CHAMPION);
+    setBusy(false);
+    await startBattle({
+      kind: "champion",
+      boss: CHAMPION,
+      team,
+      onWin: () => runVictory(),
+      onLose: () => runWipe()
+    });
+  }
+  function healTeam() {
+    state.run.team.forEach((m) => {
       m.stats.hp = m.stats.maxHp;
       m.status = { cond: "none", turns: 0, toxic: 0 };
       resetStages(m);
       m.moves.forEach((mv) => mv.ppLeft = mv.pp);
     });
-    setActive(0);
-    updateScore();
-    save();
-    await say(`New Game+ ${state.ngPlus} begins! The Gyms await, stronger than ever.`, 600);
-    await startEncounter();
-    setBusy(false);
+    if (state.player)
+      updateHUD();
   }
-  function maybeAwardDrops() {
-    if (Math.random() < 0.22) {
-      const g = Math.random() < 0.5 ? 1 : 2;
-      state.items["poke-ball"] += g;
-      floatToast(`Found ${g} Pok\xE9 Ball${g > 1 ? "s" : ""}!`);
+  async function resolveRestNode(node) {
+    const choice = await new Promise((resolve) => {
+      openPanel("Rest Site", (body, close) => {
+        body.appendChild(el("p", { class: "small" }, "A safe place to recover or reshape your team."));
+        const heal = el("button", { class: "title-btn primary" }, "Heal team fully");
+        heal.onclick = () => {
+          close();
+          resolve("heal");
+        };
+        const mut = el("button", { class: "title-btn" }, "Graft a Mutation");
+        mut.onclick = () => {
+          close();
+          resolve("mutate");
+        };
+        body.appendChild(heal);
+        body.appendChild(mut);
+      });
+    });
+    if (choice === "heal") {
+      healTeam();
+      await say("Your team is fully rested.");
+    } else if (choice === "mutate")
+      await graftMutationFlow();
+    goToMap();
+  }
+  async function graftMutationFlow() {
+    const opt = await offerDraft("mutation");
+    if (!opt)
+      return;
+    const mon = await pickTeamMember(`Graft ${opt.name} onto\u2026`);
+    if (!mon)
+      return;
+    applyMutation(mon, opt.id);
+    if (mon === state.player)
+      updateHUD();
+    await say(`${mon.name} gained the ${opt.name} mutation!`);
+  }
+  async function resolveShopNode(node) {
+    const stock = rollShop(state.run);
+    await openShop(stock);
+    goToMap();
+  }
+  function openShop(stock) {
+    return new Promise((resolve) => {
+      openPanel("Pok\xE9 Mart", (body, close) => {
+        const render = () => {
+          body.innerHTML = "";
+          body.appendChild(el("div", { class: "small shop-gold" }, `Gold: ${state.run.gold}`));
+          stock.forEach((it) => {
+            if (it.sold)
+              return;
+            const row = el("div", { class: "shop-row" });
+            const label = it.rarity ? `${it.name} (${it.rarity})` : it.name;
+            row.appendChild(el("span", {}, `${label} \u2014 ${it.price}g`));
+            const buy = el("button", { class: "use-btn" }, "Buy");
+            buy.disabled = state.run.gold < it.price;
+            buy.onclick = async () => {
+              await buyItem(it);
+              it.sold = true;
+              render();
+            };
+            row.appendChild(buy);
+            body.appendChild(row);
+          });
+          const leave = el("button", { class: "title-btn" }, "Leave");
+          leave.onclick = () => {
+            close();
+            resolve();
+          };
+          body.appendChild(leave);
+        };
+        render();
+      });
+    });
+  }
+  async function buyItem(it) {
+    if (state.run.gold < it.price)
+      return;
+    state.run.gold -= it.price;
+    if (it.kind === "item") {
+      if (it.id === "heal")
+        healTeam();
+      else
+        state.run.items[it.id] = (state.run.items[it.id] || 0) + 1;
+    } else if (it.kind === "mutation") {
+      applyMutation(state.player, it.id);
+      updateHUD();
+    } else if (it.kind === "sigil") {
+      if (!state.run.sigils.includes(it.id))
+        state.run.sigils.push(it.id);
     }
-    if (Math.random() < 0.12) {
-      const r = Math.random();
-      const key = r < 0.6 ? "potion" : r < 0.9 ? "super-potion" : "hyper-potion";
-      state.items[key]++;
+    renderRunHud();
+    saveRun();
+  }
+  async function resolveMysteryNode(node) {
+    const ev = rollMysteryEvent(state.run);
+    const choice = await new Promise((resolve) => {
+      openPanel(ev.title, (body, close) => {
+        body.appendChild(el("p", { class: "small" }, ev.desc));
+        ev.choices.forEach((ch) => {
+          const b = el("button", { class: "title-btn" }, ch.label);
+          b.onclick = () => {
+            close();
+            resolve(ch);
+          };
+          body.appendChild(b);
+        });
+      });
+    });
+    await applyEventEffect(choice.effect || { kind: "none" });
+    goToMap();
+  }
+  async function applyEventEffect(effect) {
+    const run = state.run;
+    switch (effect.kind) {
+      case "heal":
+        healTeam();
+        await say("Your team recovered fully.");
+        break;
+      case "balls":
+        run.items["poke-ball"] = (run.items["poke-ball"] || 0) + (effect.amount || 1);
+        await say(`You found ${effect.amount || 1} Pok\xE9 Ball!`);
+        break;
+      case "gold":
+        run.gold += effect.amount || 0;
+        await say(`You found ${effect.amount || 0} gold!`);
+        break;
+      case "sigil": {
+        const s = await offerDraft("sigil");
+        if (s && !run.sigils.includes(s.id)) {
+          run.sigils.push(s.id);
+          await say(`Attuned the ${s.name} Sigil!`);
+        }
+        break;
+      }
+      case "recruit": {
+        const mon = await makeWildMon(encounterLevel(run));
+        if (run.team.length < 6)
+          run.team.push(mon);
+        else
+          run.box.push(mon);
+        await say(`The egg hatched into ${mon.name}!`);
+        break;
+      }
+      case "tutor": {
+        if (run.gold >= (effect.cost || 0)) {
+          run.gold -= effect.cost || 0;
+          state.player.moves.forEach((mv) => mv.ppLeft = mv.pp);
+          await say("Your Pok\xE9mon's moves were honed. (PP restored)");
+        } else
+          await say("You can't afford it.");
+        break;
+      }
+      case "coinflip": {
+        if (run.gold >= (effect.stake || 0)) {
+          if (Math.random() < 0.5) {
+            run.gold += effect.stake;
+            await say(`You won ${effect.stake} gold!`);
+          } else {
+            run.gold -= effect.stake;
+            await say(`You lost ${effect.stake} gold...`);
+          }
+        } else
+          await say("Not enough gold to bet.");
+        break;
+      }
+      case "gamble": {
+        if (run.gold >= (effect.cost || 0)) {
+          run.gold -= effect.cost || 0;
+          const roll = Math.random();
+          if (roll < 0.4) {
+            const g = 80 + Math.floor(Math.random() * 80);
+            run.gold += g;
+            await say(`The well rewards you with ${g} gold!`);
+          } else if (roll < 0.7) {
+            await graftMutationFlow();
+          } else
+            await say("The well stays silent...");
+        } else
+          await say("You can't spare the gold.");
+        break;
+      }
+      case "mutationThenScar": {
+        await graftMutationFlow();
+        const victim = state.run.team[Math.floor(Math.random() * state.run.team.length)];
+        const statKeys = ["atk", "def", "spa", "spd", "spe"];
+        const k = statKeys[Math.floor(Math.random() * statKeys.length)];
+        victim.stats[k] = Math.max(1, Math.floor(victim.stats[k] * 0.85));
+        await say(`...but the shrine's curse weakened ${victim.name}.`);
+        break;
+      }
+      default:
+        break;
     }
-    if (Math.random() < 0.1)
-      state.money += 20 + Math.floor(Math.random() * 40);
+    renderRunHud();
+    saveRun();
+  }
+  function offerDraft(kind) {
+    const options = kind === "sigil" ? offerSigils(state.run, 3) : offerMutations(state.run, 3);
+    return new Promise((resolve) => {
+      openPanel(kind === "sigil" ? "Choose a Sigil" : "Choose a Mutation", (body, close) => {
+        const grid = el("div", { class: "draft-grid" });
+        options.forEach((opt) => {
+          const card = el("div", { class: "draft-card" });
+          card.style.setProperty("--rar", RARITY_COLOR[opt.rarity] || "#888");
+          card.innerHTML = `<div class="draft-name">${opt.name}</div><div class="draft-rar">${opt.rarity}</div><div class="draft-desc small">${opt.desc}</div>`;
+          card.onclick = () => {
+            close();
+            resolve(opt);
+          };
+          grid.appendChild(card);
+        });
+        body.appendChild(grid);
+        const skip = el("button", { class: "title-btn" }, "Skip");
+        skip.onclick = () => {
+          close();
+          resolve(null);
+        };
+        body.appendChild(skip);
+      });
+    });
+  }
+  function pickTeamMember(title) {
+    const team = state.run.team;
+    return new Promise((resolve) => {
+      openPanel(title, (body, close) => {
+        team.forEach((m) => {
+          const b = el("button", { class: "title-btn" }, `${m.name} \xB7 Lv ${m.level} \xB7 ${m.stats.hp}/${m.stats.maxHp} HP`);
+          b.onclick = () => {
+            close();
+            resolve(m);
+          };
+          body.appendChild(b);
+        });
+        if (!team.length) {
+          const c = el("button", { class: "title-btn" }, "OK");
+          c.onclick = () => {
+            close();
+            resolve(null);
+          };
+          body.appendChild(c);
+        }
+      });
+    });
+  }
+  async function runVictory() {
+    markResolved(state.run, { won: true });
+    state.meta.expeditionsWon++;
+    const frags = 60 + state.run.visited.length * 4 + state.run.ascension * 30;
+    state.meta.fragments += frags;
+    saveMeta();
+    await flashWhite("#enemySprite");
+    await new Promise((resolve) => {
+      openPanel("Champion!", (body, close) => {
+        body.appendChild(el("p", {}, "You conquered the Expedition and became Champion!"));
+        body.appendChild(el("p", { class: "small" }, `+${frags} Fragments. Choose one Pok\xE9mon to ascend into your Vault for ranked play:`));
+        state.run.team.forEach((m) => {
+          const b = el("button", { class: "title-btn primary" }, `Ascend ${m.name} (Lv ${m.level})`);
+          b.onclick = () => {
+            ascendToVault(m);
+            close();
+            resolve();
+          };
+          body.appendChild(b);
+        });
+        const skip = el("button", { class: "title-btn" }, "Ascend none");
+        skip.onclick = () => {
+          close();
+          resolve();
+        };
+        body.appendChild(skip);
+      });
+    });
+    clearRun();
+    await backToTitle();
+  }
+  async function runWipe() {
+    if (state.run) {
+      state.run.over = true;
+      state.run.won = false;
+    }
+    const frags = 15 + (state.run ? state.run.visited.length : 0) * 3;
+    state.meta.fragments += frags;
+    saveMeta();
+    await openModal({
+      title: "Expedition Ended",
+      bodyHTML: `<p>Your team was defeated.</p><p class="small">You reached ${state.run ? state.run.visited.length : 0} nodes and earned ${frags} Fragments toward permanent unlocks.</p>`,
+      actions: [{ label: "Return to Title", primary: true, onClick: () => {
+      } }],
+      dismissable: false
+    });
+    clearRun();
+    await backToTitle();
+  }
+  async function backToTitle() {
+    state.started = false;
+    state.mode = "map";
+    state.battle = null;
+    hideMapScreen();
+    closeModal();
+    const t = $("#titleScreen");
+    if (t)
+      t.classList.remove("hidden");
+    refreshTitleButtons();
+    updateScore();
+  }
+  function refreshTitleButtons() {
+    const cont = $("#continueBtn");
+    if (cont)
+      cont.classList.toggle("hidden", !hasRun());
+  }
+  function saveRun() {
+    try {
+      if (state.run) {
+        state.run.active = state.active;
+        localStorage.setItem(RUN_KEY, JSON.stringify(state.run));
+      }
+    } catch (_) {
+    }
+    saveVault();
+    saveMeta();
+  }
+  var save = saveRun;
+  function hasRun() {
+    try {
+      return !!localStorage.getItem(RUN_KEY);
+    } catch (_) {
+      return false;
+    }
+  }
+  function loadRun() {
+    try {
+      const raw = localStorage.getItem(RUN_KEY);
+      return raw ? JSON.parse(raw) : null;
+    } catch (_) {
+      return null;
+    }
+  }
+  function clearRun() {
+    try {
+      localStorage.removeItem(RUN_KEY);
+    } catch (_) {
+    }
+    state.run = null;
+    state.battle = null;
+    state.started = false;
+  }
+  function loadVault() {
+    try {
+      return JSON.parse(localStorage.getItem(VAULT_KEY) || "[]");
+    } catch (_) {
+      return [];
+    }
+  }
+  function saveVault() {
+    try {
+      localStorage.setItem(VAULT_KEY, JSON.stringify(state.vault || []));
+    } catch (_) {
+    }
+  }
+  function loadMeta() {
+    try {
+      return Object.assign({ fragments: 0, expeditionsWon: 0 }, JSON.parse(localStorage.getItem(META_KEY) || "{}"));
+    } catch (_) {
+      return { fragments: 0, expeditionsWon: 0 };
+    }
+  }
+  function saveMeta() {
+    try {
+      localStorage.setItem(META_KEY, JSON.stringify(state.meta));
+    } catch (_) {
+    }
+  }
+  function ascendToVault(mon) {
+    state.vault.push(snapshotMon(mon));
+    saveVault();
   }
   function floatToast(txt) {
     showBanner(txt, 900);
@@ -2550,9 +3749,12 @@
     setBusy(true);
     const from = state.player, to = state.party[idx];
     await say(`${from.name}, come back!`);
+    const regen = switchOutHeal(from);
     await faintOut("#playerSprite").catch(() => {
     });
     setActive(idx);
+    if (regen > 0)
+      floatToast(`${from.name} regenerated ${regen} HP`);
     await fadeInSprite("#playerSprite");
     await say(`Go, ${to.name}!`);
     await playCry(to);
@@ -2662,21 +3864,21 @@
     save();
     await enemyFreeTurn();
   }
-  var BALL_BONUS = { "poke-ball": 1, "great-ball": 1.5, "ultra-ball": 2 };
   async function throwBall(key = "poke-ball") {
     if (state.busy)
       return;
     if (state.mode === "trainer") {
-      await say("You can't catch a trainer's Pok\xE9mon!");
+      await say("You can't catch a boss's Pok\xE9mon!");
       return;
     }
     if ((state.items[key] || 0) <= 0) {
-      await say("None left!");
+      await say("You're out of Pok\xE9 Balls!");
       return;
     }
     setBusy(true);
     show("none");
     state.items[key]--;
+    renderRunHud();
     await say(`You threw a ${cap(key.replace(/-/g, " "))}!`, 120);
     const canvas = $("#fxCanvas");
     const cRect = canvas.getBoundingClientRect();
@@ -2689,7 +3891,7 @@
       const handle = await fx.throwAndWobble(sx, sy, tx, ty, () => {
         enemyImg.style.opacity = "0";
       });
-      const success = catchSuccess(state.enemy, BALL_BONUS[key] || 1);
+      const success = Math.random() < 0.92;
       await handle.shake(success ? 3 : Math.floor(Math.random() * 2) + 1);
       if (success) {
         handle.clear();
@@ -2698,18 +3900,13 @@
         mon.stats.hp = state.enemy.stats.hp;
         mon.status = state.enemy.status;
         mon.sprite = mon.spriteFront;
-        if (state.party.length < 6)
-          state.party.push(mon);
-        else {
-          state.box.push(mon);
-          await say(`${mon.name} was sent to the PC Box!`);
-        }
-        maybeAwardDrops();
-        state.wins++;
-        updateScore();
-        save();
-        await sleep(700);
-        await startEncounter();
+        const cb = state.battle && state.battle.onWin;
+        state.battle = null;
+        await sleep(500);
+        if (cb)
+          await cb({ caught: mon });
+        else
+          goToMap();
         setBusy(false);
       } else {
         handle.clear();
@@ -2790,12 +3987,12 @@
     return null;
   }
   async function maybeAuto() {
-    if (!state.auto || state.busy || !state.started)
+    if (!state.auto || state.busy || !state.started || !state.battle)
       return;
     if (!state.player || !state.enemy || state.player.stats.hp <= 0)
       return;
     await sleep(420);
-    if (state.busy || state.player.stats.hp <= 0)
+    if (state.busy || !state.battle || state.player.stats.hp <= 0)
       return;
     const hpF = state.player.stats.hp / state.player.stats.maxHp;
     const enemyHpF = state.enemy.stats.hp / state.enemy.stats.maxHp;
@@ -2824,81 +4021,15 @@
       if (m)
         return fightRound(m);
     }
-    await say("Got away safely!");
-    await sleep(300);
-    await startEncounter();
-  }
-  function save() {
-    try {
-      const data = {
-        party: state.party,
-        box: state.box,
-        active: state.active,
-        items: state.items,
-        money: state.money,
-        wins: state.wins,
-        badges: state.badges,
-        gymsBeaten: state.gymsBeaten,
-        championBeaten: state.championBeaten,
-        championsCleared: state.championsCleared,
-        ngPlus: state.ngPlus,
-        v: 3
-      };
-      localStorage.setItem(SAVE_KEY, JSON.stringify(data));
-    } catch (_) {
-    }
-  }
-  function hasSave() {
-    try {
-      return !!localStorage.getItem(SAVE_KEY);
-    } catch (_) {
-      return false;
-    }
-  }
-  function loadSave() {
-    try {
-      const raw = localStorage.getItem(SAVE_KEY);
-      if (!raw)
-        return false;
-      const d = JSON.parse(raw);
-      if (!d.party || !d.party.length)
-        return false;
-      state.party = d.party.map(ensureRuntime);
-      state.box = (d.box || []).map(ensureRuntime);
-      state.active = clamp(d.active || 0, 0, state.party.length - 1);
-      state.items = Object.assign(state.items, d.items || {});
-      state.money = d.money || 0;
-      state.wins = d.wins || 0;
-      state.badges = d.badges || [];
-      state.gymsBeaten = d.gymsBeaten ?? d.trainersBeaten ?? 0;
-      state.championBeaten = !!d.championBeaten;
-      state.championsCleared = d.championsCleared || 0;
-      state.ngPlus = d.ngPlus || 0;
-      return true;
-    } catch (_) {
-      return false;
-    }
+    await fleeBattle();
   }
   async function chooseStarter(id) {
     setBusy(true);
     const mon = await buildMon(id, 5);
     mon.sprite = mon.spriteBack || mon.spriteFront;
-    state.party = [mon];
-    state.box = [];
-    state.wins = 0;
-    state.money = 500;
-    state.badges = [];
-    state.gymsBeaten = 0;
-    state.championBeaten = false;
-    state.championsCleared = 0;
-    state.ngPlus = 0;
-    state.mode = "wild";
-    setActive(0);
-    await fadeInSprite("#playerSprite");
-    await say(`You chose ${mon.name}! Your journey begins.`, 500);
+    await say(`You chose ${mon.name}!`, 300);
     await playCry(mon);
-    save();
-    await startEncounter();
+    await startExpedition(mon);
     setBusy(false);
   }
   function showStarterPicker() {
@@ -2926,34 +4057,19 @@
     ["#menu", "#movesView", "#swapView"].forEach((sel) => $(sel) && $(sel).classList.add("hidden"));
   }
   async function beginNewGame() {
-    try {
-      localStorage.removeItem(SAVE_KEY);
-    } catch (_) {
-    }
+    clearRun();
     state.party = [];
     state.box = [];
-    state.wins = 0;
-    state.badges = [];
-    state.gymsBeaten = 0;
-    state.championBeaten = false;
-    state.championsCleared = 0;
-    state.ngPlus = 0;
-    state.money = 0;
-    state.mode = "wild";
     hideTitle();
     state.started = true;
     updateScore();
-    await say("Welcome! Choose your starter to begin.", 200);
+    await say("A new Expedition awaits. Choose your partner.", 200);
     showStarterPicker();
   }
   async function continueGame() {
-    if (!loadSave())
+    if (!hasRun())
       return beginNewGame();
-    hideTitle();
-    state.started = true;
-    setActive(state.active);
-    updateScore();
-    await startEncounter();
+    await continueExpedition();
   }
   function hideTitle() {
     const t = $("#titleScreen");
@@ -2994,20 +4110,22 @@
     if (modal)
       modal.classList.add("hidden");
   }
-  function currentRoster() {
-    const party = state.party && state.party.length ? state.party : savedParty();
-    return buildRoster(party);
+  function openPanel(title, build) {
+    const modal = $("#modal");
+    if (!modal)
+      return;
+    $("#modalTitle").textContent = title || "";
+    const body = $("#modalBody");
+    body.innerHTML = "";
+    $("#modalActions").innerHTML = "";
+    const close = () => modal.classList.add("hidden");
+    build(body, close);
+    modal.classList.remove("hidden");
   }
-  function savedParty() {
-    try {
-      const raw = localStorage.getItem(SAVE_KEY);
-      if (!raw)
-        return [];
-      const d = JSON.parse(raw);
-      return (d.party || []).map(ensureRuntime);
-    } catch (_) {
-      return [];
-    }
+  function currentRoster() {
+    if (state.vault && state.vault.length)
+      return buildRoster(state.vault);
+    return buildRoster(loadVault());
   }
   function openArena() {
     const roster = currentRoster();
@@ -3015,7 +4133,7 @@
     if (!v.ok) {
       return openModal({
         title: "Ranked Arena",
-        bodyHTML: `<p>${v.reason}</p><p class="small">Grind, catch and level a team in singleplayer, then bring it here for ranked PvP.</p>`,
+        bodyHTML: `<p>Your Vault is empty.</p><p class="small">Win an Expedition and <b>ascend</b> a Pok\xE9mon into your Vault \u2014 that's the team you bring to 1v1 ranked PvP.</p>`,
         actions: []
       });
     }
@@ -3058,19 +4176,16 @@
         show("swap");
       }
     });
-    $("#runBtn").addEventListener("click", async () => {
-      if (state.busy)
-        return;
-      if (state.mode === "trainer") {
-        await say("You can't run from a trainer battle!");
-        return;
-      }
-      setBusy(true);
-      await say("Got away safely!");
-      await sleep(300);
-      await startEncounter();
-      setBusy(false);
+    $("#runBtn").addEventListener("click", () => {
+      if (!state.busy)
+        fleeBattle();
     });
+    const mapBtn = $("#mapBtn");
+    if (mapBtn)
+      mapBtn.addEventListener("click", () => {
+        if (!state.busy && state.run)
+          showMap();
+      });
     $("#backBtn").addEventListener("click", async () => {
       if (!state.busy) {
         show("menu");
@@ -3100,16 +4215,14 @@
       arenaBtn.addEventListener("click", () => openArena());
   }
   function boot() {
+    state.vault = loadVault();
+    state.meta = loadMeta();
     wireUI();
     initAudio();
     updateScore();
-    if (hasSave()) {
-      const cont = $("#continueBtn");
-      if (cont)
-        cont.classList.remove("hidden");
-    }
+    refreshTitleButtons();
     setInterval(() => {
-      if (state.auto && state.started)
+      if (state.auto && state.started && state.battle)
         maybeAuto();
     }, 1100);
   }

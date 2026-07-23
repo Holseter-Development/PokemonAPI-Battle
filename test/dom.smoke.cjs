@@ -66,7 +66,13 @@ setTimeout(() => {
     assert.ok(starter, "starter picker created");
     const btns = starter.querySelectorAll("button.move-btn");
     assert.strictEqual(btns.length, 3, "three starter buttons");
-    console.log("  ✓ new game reveals 3-starter picker");
+    console.log("  ✓ new expedition reveals 3-starter picker");
+
+    // Expedition map overlay exists and starts hidden.
+    const map = doc.getElementById("mapScreen");
+    assert.ok(map && doc.getElementById("mapCanvas") && doc.getElementById("runHud"), "map screen present");
+    assert.ok(map.classList.contains("hidden"), "map hidden pre-run");
+    console.log("  ✓ expedition map overlay present");
 
     // Menu command buttons are wired and use SVG icons (no emoji).
     ["fightBtn", "ballInfoBtn", "swapBtn", "runBtn"].forEach((id) => {

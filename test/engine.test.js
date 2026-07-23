@@ -6,6 +6,7 @@ import assert from "node:assert";
 import {
   typeEffect, calcDamage, useMove, applyAilment, canAct, endOfTurn,
   firstMover, effectiveStat, chooseAIMove, bestMoveIndex, catchSuccess,
+  rollHit, switchOutHeal,
 } from "../src/battle.js";
 import { selectMoves, spriteSet } from "../src/api.js";
 import { buildMove, GYMS, CHAMPION } from "../src/data.js";
@@ -246,6 +247,56 @@ test("simulated battles terminate and keep HP in range", () => {
     }
     assert.ok(turns < 300, "battle failed to terminate");
   }
+});
+
+// ---- mutation / ability hooks ----
+test("adaptive mutation doubles STAB", () => {
+  const base = mon({ types: ["normal"] });
+  const adap = mon({ types: ["normal"], stats: {} }); adap.adaptive = true;
+  const d = mon({ types: ["bug"] });
+  const b = calcDamage(base, d, dmgMove(), makeRng(), { avg: true });
+  const a = calcDamage(adap, d, dmgMove(), makeRng(), { avg: true });
+  assert.ok(a.dmg > b.dmg, "adaptive should out-damage normal STAB");
+});
+
+test("levitate mutation grants Ground immunity", () => {
+  const a = mon();
+  const lev = mon({ stats: { def: 60 } }); lev.abilities = ["levitate"];
+  const { dmg, eff } = calcDamage(a, lev, dmgMove({ type: "ground", power: 80 }), makeRng());
+  assert.strictEqual(eff, 0);
+  assert.strictEqual(dmg, 0);
+});
+
+test("guts ignores burn drop and boosts Attack; trueStrike never misses", () => {
+  const burned = mon({ status: { cond: "brn", turns: 0, toxic: 0 } }); burned.abilities = ["guts"];
+  const plain = mon({ status: { cond: "brn", turns: 0, toxic: 0 } });
+  const d = mon();
+  const g = calcDamage(burned, d, dmgMove(), makeRng(), { avg: true });
+  const p = calcDamage(plain, d, dmgMove(), makeRng(), { avg: true });
+  assert.ok(g.dmg > p.dmg, "guts should hit harder while burned");
+  const sniper = mon(); sniper.trueStrike = true;
+  let hits = 0;
+  const rng = makeRng(5);
+  for (let i = 0; i < 50; i++) if (rollHit(dmgMove({ accuracy: 30 }), sniper, mon(), rng)) hits++;
+  assert.strictEqual(hits, 50, "trueStrike always hits");
+});
+
+test("multiscale halves damage at full HP; vampiric heals; regen on switch", () => {
+  const atk = mon();
+  const full = mon({ stats: { maxHp: 100, hp: 100, def: 60 } }); full.abilities = ["multiscale"];
+  const hurt = mon({ stats: { maxHp: 100, hp: 60, def: 60 } }); hurt.abilities = ["multiscale"];
+  const dFull = calcDamage(atk, full, dmgMove({ power: 80 }), makeRng(), { avg: true, forceCrit: false });
+  const dHurt = calcDamage(atk, hurt, dmgMove({ power: 80 }), makeRng(), { avg: true, forceCrit: false });
+  assert.ok(dFull.dmg < dHurt.dmg, "multiscale reduces damage at full HP");
+
+  const vamp = mon({ stats: { maxHp: 200, hp: 50 } }); vamp.lifesteal = 0.25;
+  const prey = mon({ stats: { maxHp: 300, hp: 300 } });
+  useMove(vamp, prey, dmgMove({ power: 60 }), makeRng(3));
+  assert.ok(vamp.stats.hp > 50, "vampiric heals attacker");
+
+  const regen = mon({ stats: { maxHp: 90, hp: 30 } }); regen.abilities = ["regenerator"];
+  const healed = switchOutHeal(regen);
+  assert.ok(healed > 0 && regen.stats.hp === 60);
 });
 
 // ---- roster (multiplayer bridge) ----

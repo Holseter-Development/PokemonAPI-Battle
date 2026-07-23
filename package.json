@@ -4,7 +4,7 @@
   "scripts": {
     "build": "esbuild src/main.js --bundle --outfile=dist/bundle.js",
     "pretest": "esbuild test/engine.test.js --bundle --platform=node --format=esm --outfile=test/engine.build.mjs && esbuild test/rogue.test.js --bundle --platform=node --format=esm --outfile=test/rogue.build.mjs && esbuild src/main.js --bundle --outfile=dist/bundle.js",
-    "test": "node test/engine.build.mjs && node test/rogue.build.mjs && node test/dom.smoke.cjs"
+    "test": "node test/engine.build.mjs && node test/rogue.build.mjs && node test/dom.smoke.cjs && node test/run.smoke.cjs"
   },
   "devDependencies": {
     "esbuild": "^0.19.2",
