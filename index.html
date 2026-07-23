@@ -2,42 +2,42 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Gen 1 Pokémon Battle v0.8</title>
-    <link
-      rel="preconnect"
-      href="https://raw.githubusercontent.com"
-      crossorigin
-    />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#0a0e1a" />
+    <title>PokéBattle Arena</title>
+    <link rel="preconnect" href="https://raw.githubusercontent.com" crossorigin />
+    <link rel="preconnect" href="https://pokeapi.co" crossorigin />
     <link rel="stylesheet" href="style.css" />
   </head>
   <body>
     <div class="wrapper">
-      <header class="row between" style="margin-bottom: 8px">
-        <h1 style="margin: 0; font-size: 20px">
-          Gen 1 Pokémon Battle <span class="small">v0.8</span>
-        </h1>
-        <!-- Audio controls are now here -->
-        <div class="audio-controls">
-          <span class="small">Powered by PokéAPI</span>
-          <button id="muteBtn">Mute</button>
-          <input
-            type="range"
-            id="volumeSlider"
-            min="0"
-            max="1"
-            step="0.1"
-            value="0.2"
-          />
+      <header class="topbar">
+        <div class="brand">
+          <span class="logo-mark" aria-hidden="true"></span>
+          <div class="brand-text">
+            <h1>PokéBattle <span class="brand-accent">Arena</span></h1>
+            <span class="small tagline">Gen I · powered by PokéAPI</span>
+          </div>
+        </div>
+        <div class="topbar-right">
+          <div id="scoreboard" class="scoreboard">
+            <span class="chip" title="Battles won">🏆 <b id="winCount">0</b></span>
+            <span class="chip" title="Money">₽ <b id="moneyCount">0</b></span>
+            <span id="badgeStrip" class="badge-strip" title="Badges"></span>
+          </div>
+          <div class="audio-controls">
+            <button id="muteBtn" class="icon-btn" title="Mute">🔊</button>
+            <input type="range" id="volumeSlider" min="0" max="1" step="0.05" value="0.2" aria-label="Volume" />
+          </div>
         </div>
       </header>
 
       <section class="screen">
+        <div class="themefx" id="themefx" aria-hidden="true"></div>
         <div id="vfx" class="vfx" aria-hidden="true"></div>
-        <!-- FX canvas (ball flight/wobble etc.) -->
         <canvas id="fxCanvas"></canvas>
 
-        <!-- Arena (sprites + plates) -->
+        <!-- Arena -->
         <div class="arena">
           <div class="enemy">
             <div class="plate"></div>
@@ -51,103 +51,110 @@
 
         <!-- HUD -->
         <div class="hud">
-          <div id="enemyCard" class="card">
-            <div class="row between">
-              <div>
-                <span id="enemyName" class="name">Enemy —</span>
-                <span class="small">Lv.</span
-                ><span id="enemyLevel" class="level">—</span>
-              </div>
+          <div id="enemyCard" class="card statusbox enemy-box">
+            <div class="statusbox-top">
+              <span id="enemyName" class="mon-name">—</span>
+              <span class="lv-badge">Lv<span id="enemyLevel">—</span></span>
+              <span id="enemyTypes" class="type-badges"></span>
+              <span id="enemyStatus" class="status-pill hidden"></span>
             </div>
-            <div class="hpbar">
-              <div id="enemyHpFill" class="fill"></div>
+            <div class="bar-row">
+              <span class="bar-label">HP</span>
+              <div class="hpbar"><div id="enemyHpFill" class="fill"></div></div>
             </div>
-            <div id="enemyHpText" class="small" style="text-align: right"></div>
+            <div class="statusbox-bottom">
+              <span id="enemyParty" class="poke-dots"></span>
+              <span id="enemyHpText" class="small hp-text"></span>
+            </div>
           </div>
-          <div id="playerCard" class="card">
-            <div class="row between">
-              <div>
-                <span id="playerName" class="name">You —</span>
-                <span class="small">Lv.</span
-                ><span id="playerLevel" class="level">—</span>
-              </div>
+
+          <div id="playerCard" class="card statusbox player-box">
+            <div class="statusbox-top">
+              <span id="playerName" class="mon-name">—</span>
+              <span class="lv-badge">Lv<span id="playerLevel">—</span></span>
+              <span id="playerTypes" class="type-badges"></span>
+              <span id="playerStatus" class="status-pill hidden"></span>
             </div>
-            <div class="hpbar">
-              <div id="playerHpFill" class="fill"></div>
+            <div class="bar-row">
+              <span class="bar-label">HP</span>
+              <div class="hpbar"><div id="playerHpFill" class="fill"></div></div>
             </div>
-            <div
-              id="playerHpText"
-              class="small"
-              style="text-align: right"
-            ></div>
-            <div class="xpbar">
-              <div id="playerXpFill" class="fill"></div>
+            <div class="statusbox-bottom">
+              <span id="playerParty" class="poke-dots"></span>
+              <span id="playerHpText" class="small hp-text"></span>
+            </div>
+            <div class="bar-row xp-row">
+              <span class="bar-label">XP</span>
+              <div class="xpbar"><div id="playerXpFill" class="fill"></div></div>
             </div>
           </div>
         </div>
 
-        <!-- Message box and menus -->
-        <div id="msgBox">
-          <div id="textLine">Choose your starter!</div>
+        <!-- Banner for level-up / evolution / victory flourishes -->
+        <div id="banner" class="banner hidden"></div>
 
-          <!-- Starter Picker -->
-          <div id="starterPick">
-            <div class="row between">
-              <h3 style="margin: 0">Choose a starter:</h3>
-            </div>
-            <div class="choices">
-              <button data-starter="1">Bulbasaur</button>
-              <button data-starter="4">Charmander</button>
-              <button data-starter="7">Squirtle</button>
-            </div>
+        <!-- Message + menus -->
+        <div id="msgBox" class="msgbox">
+          <div id="textLine" class="textline">
+            <span id="textContent"></span><span class="caret"></span>
           </div>
 
-          <div id="menu" class="hidden">
-            <div class="choices">
-              <div class="menu-row">
-                <button id="fightBtn">FIGHT</button>
-                <button id="ballInfoBtn">BAG</button>
+          <div id="menu" class="panel hidden">
+            <div class="menu-grid">
+              <button id="fightBtn" class="cmd cmd-fight"><span class="cmd-ico">⚔</span>FIGHT</button>
+              <button id="ballInfoBtn" class="cmd cmd-bag"><span class="cmd-ico">🎒</span>BAG</button>
+              <button id="swapBtn" class="cmd cmd-pkmn"><span class="cmd-ico">🐾</span>PKMN</button>
+              <button id="runBtn" class="cmd cmd-run"><span class="cmd-ico">🏃</span>RUN</button>
+            </div>
+            <label class="auto-toggle small">
+              <input type="checkbox" id="autoToggle" /> <span>Auto-play</span>
+            </label>
+          </div>
+
+          <div id="movesView" class="panel hidden">
+            <div class="panel-head">
+              <h3>Choose a move</h3>
+              <button id="backBtn" class="small ghost">◂ Back</button>
+            </div>
+            <div id="movesGrid" class="moves-grid"></div>
+          </div>
+
+          <div id="swapView" class="panel hidden">
+            <div class="panel-head">
+              <h3>Your team</h3>
+              <div class="panel-head-actions">
+                <button id="boxOpenBtn" class="small ghost">PC Box</button>
+                <button id="swapBackBtn" class="small ghost">◂ Back</button>
               </div>
-              <div class="menu-row">
-                <button id="swapBtn">PKMN</button>
-                <button id="runBtn">RUN</button>
-              </div>
             </div>
+            <div id="partyList" class="party-list"></div>
           </div>
-
-          <!-- Moves -->
-          <div id="movesView" class="hidden card">
-            <div class="row between">
-              <h3 style="margin: 0">Choose a move:</h3>
-              <button id="backBtn" class="small">Back</button>
-            </div>
-            <div id="movesGrid" style="margin-top: 8px"></div>
-          </div>
-
-          <!-- Swap / Party -->
-          <div id="swapView" class="hidden card">
-            <div class="row between">
-              <h3 style="margin: 0">Choose a Pokémon:</h3>
-              <button id="swapBackBtn" class="small">Back</button>
-            </div>
-            <div
-              id="partyList"
-              style="margin-top: 8px; display: grid; gap: 8px"
-            ></div>
-          </div>
-          <!-- Bag (#bagView) and Boxes (#boxView) are injected by JS -->
         </div>
       </section>
 
-      <footer class="small" style="margin-top: 8px; opacity: 0.8">
-        Only Gen 1 Pokémon & moves are used. Sprites from PokéAPI. This is a
-        fan‑made demo.
+      <footer class="small foot">
+        Fan-made demo. Only Gen I Pokémon &amp; moves. Sprites &amp; data from PokéAPI.
       </footer>
     </div>
 
-    <!-- Audio elements can live here, outside the main visual structure -->
-    <audio id="battleMusic" loop src="assets/sfx/music/wild-battle.ogg"></audio>
+    <!-- Title screen -->
+    <div id="titleScreen" class="title-screen">
+      <div class="title-inner">
+        <div class="title-logo">
+          <span class="title-poke">Poké</span><span class="title-battle">Battle</span>
+          <span class="title-arena">ARENA</span>
+        </div>
+        <p class="title-sub">A Generation I battle experience</p>
+        <div class="title-actions">
+          <button id="newGameBtn" class="title-btn primary">New Adventure</button>
+          <button id="continueBtn" class="title-btn hidden">Continue</button>
+        </div>
+        <p class="title-hint small">Choose a starter, battle wild Pokémon &amp; trainers, evolve your team.</p>
+      </div>
+      <div class="title-orbs" aria-hidden="true"></div>
+    </div>
 
-      <script src="dist/bundle.js"></script>
-    </body>
-  </html>
+    <audio id="battleMusic" loop src="assets/sfx/music/wild-battle.ogg"></audio>
+    <script src="dist/bundle.js"></script>
+  </body>
+</html>

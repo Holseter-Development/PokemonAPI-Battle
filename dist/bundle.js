@@ -1,8 +1,241 @@
 (() => {
+  // src/data.js
+  var VERSION_GROUPS_GEN1 = ["red-blue", "yellow"];
+  var CHART = {
+    normal: { rock: 0.5, ghost: 0 },
+    fire: { fire: 0.5, water: 0.5, grass: 2, ice: 2, bug: 2, rock: 0.5, dragon: 0.5 },
+    water: { fire: 2, water: 0.5, grass: 0.5, ground: 2, rock: 2, dragon: 0.5 },
+    electric: { water: 2, electric: 0.5, grass: 0.5, ground: 0, flying: 2, dragon: 0.5 },
+    grass: {
+      fire: 0.5,
+      water: 2,
+      grass: 0.5,
+      poison: 0.5,
+      ground: 2,
+      flying: 0.5,
+      bug: 0.5,
+      rock: 2,
+      dragon: 0.5
+    },
+    ice: { fire: 0.5, water: 0.5, ice: 0.5, grass: 2, ground: 2, flying: 2, dragon: 2 },
+    fighting: {
+      normal: 2,
+      ice: 2,
+      rock: 2,
+      poison: 0.5,
+      flying: 0.5,
+      psychic: 0.5,
+      bug: 0.5,
+      ghost: 0
+    },
+    poison: { grass: 2, poison: 0.5, ground: 0.5, rock: 0.5, ghost: 0.5 },
+    ground: { fire: 2, electric: 2, poison: 2, rock: 2, bug: 0.5, flying: 0 },
+    flying: { grass: 2, fighting: 2, bug: 2, electric: 0.5, rock: 0.5 },
+    psychic: { fighting: 2, poison: 2, psychic: 0.5 },
+    bug: {
+      grass: 2,
+      psychic: 2,
+      fire: 0.5,
+      fighting: 0.5,
+      poison: 0.5,
+      flying: 0.5,
+      ghost: 0.5
+    },
+    rock: { fire: 2, ice: 2, flying: 2, bug: 2, fighting: 0.5, ground: 0.5 },
+    ghost: { ghost: 2, normal: 0, psychic: 0 },
+    dragon: { dragon: 2 }
+  };
+  var TYPES = Object.keys(CHART);
+  var TYPE_COLOR = {
+    normal: "#a8a878",
+    fire: "#f0803c",
+    water: "#4d90d5",
+    grass: "#5fbd58",
+    electric: "#f6c744",
+    ice: "#74cec0",
+    fighting: "#d3425f",
+    poison: "#b763cf",
+    ground: "#dd7748",
+    flying: "#8cadf0",
+    psychic: "#f65888",
+    bug: "#93b900",
+    rock: "#c2ae6e",
+    ghost: "#6c5a94",
+    dragon: "#7266d8"
+  };
+  var STATUS_LABEL = {
+    brn: "BRN",
+    par: "PAR",
+    psn: "PSN",
+    tox: "TOX",
+    slp: "SLP",
+    frz: "FRZ"
+  };
+  var STATUS_COLOR = {
+    brn: "#f08030",
+    par: "#f8d030",
+    psn: "#a040a0",
+    tox: "#a040a0",
+    slp: "#8898a8",
+    frz: "#98d8d8"
+  };
+  var AILMENT_MAP = {
+    burn: "brn",
+    paralysis: "par",
+    poison: "psn",
+    "bad-poison": "tox",
+    sleep: "slp",
+    freeze: "frz"
+  };
+  var STAT_KEY = {
+    attack: "atk",
+    defense: "def",
+    "special-attack": "spa",
+    "special-defense": "spd",
+    "special": "spa",
+    // Gen-1 lumps special together; map to spa
+    speed: "spe",
+    accuracy: "acc",
+    evasion: "eva"
+  };
+  var PRIORITY_STATUS_MOVES = /* @__PURE__ */ new Set([
+    "swords-dance",
+    "amnesia",
+    "growth",
+    "sharpen",
+    "meditate",
+    "agility",
+    "recover",
+    "soft-boiled",
+    "rest",
+    "thunder-wave",
+    "toxic",
+    "sleep-powder",
+    "spore",
+    "stun-spore",
+    "hypnosis",
+    "sing",
+    "lovely-kiss",
+    "glare",
+    "confuse-ray",
+    "double-team",
+    "minimize",
+    "reflect",
+    "light-screen",
+    "leech-seed"
+  ]);
+  var TRAINERS = [
+    {
+      name: "Youngster Joey",
+      title: "Youngster",
+      intro: "Youngster Joey wants to battle!",
+      team: [16, 19, 21],
+      // Pidgey, Rattata, Spearow
+      reward: { money: 200, balls: 2 },
+      badge: null
+    },
+    {
+      name: "Lass Dana",
+      title: "Lass",
+      intro: "Lass Dana challenges you!",
+      team: [43, 69, 63],
+      // Oddish, Bellsprout, Abra
+      reward: { money: 320, potions: 2 },
+      badge: null
+    },
+    {
+      name: "Bug Catcher Rick",
+      title: "Bug Catcher",
+      intro: "Bug Catcher Rick sends out his swarm!",
+      team: [13, 48, 123, 127],
+      // Weedle, Venonat, Scyther, Pinsir
+      reward: { money: 400, balls: 3 },
+      badge: null
+    },
+    {
+      name: "Hiker Bruno",
+      title: "Hiker",
+      intro: "Hiker Bruno blocks the path!",
+      team: [74, 95, 111, 106],
+      // Geodude, Onix, Rhyhorn, Hitmonlee
+      reward: { money: 500, potions: 3 },
+      badge: "Boulder"
+    },
+    {
+      name: "Ace Trainer Iris",
+      title: "Ace Trainer",
+      intro: "Ace Trainer Iris means business!",
+      team: [59, 65, 130, 149],
+      // Arcanine, Alakazam, Gyarados, Dragonite
+      reward: { money: 900, hyperPotions: 1, balls: 5 },
+      badge: "Champion"
+    }
+  ];
+  var STRUGGLE = {
+    name: "Struggle",
+    key: "struggle",
+    power: 50,
+    accuracy: 100,
+    type: "normal",
+    damage_class: "physical",
+    pp: 1,
+    ppLeft: 1,
+    priority: 0,
+    category: "damage",
+    drain: -25,
+    // recoil
+    healing: 0,
+    minHits: 1,
+    maxHits: 1,
+    statChanges: [],
+    statChance: 0,
+    flinchChance: 0,
+    ailment: "none",
+    ailmentChance: 0,
+    highCrit: false,
+    target: "opponent"
+  };
+  function buildMove(md) {
+    const meta = md.meta || {};
+    const cat = meta.category?.name || (md.power ? "damage" : "net-good-stats");
+    const dmgClass = md.damage_class?.name || "status";
+    const statChanges = (md.stat_changes || []).map((s) => ({ stat: STAT_KEY[s.stat.name] || null, change: s.change })).filter((s) => s.stat);
+    const tgt = md.target?.name || "selected-pokemon";
+    const selfTarget = tgt === "user" || tgt === "users-field";
+    return {
+      name: cap(md.name.replace(/-/g, " ")),
+      key: md.name,
+      power: md.power || 0,
+      accuracy: md.accuracy == null ? 100 : md.accuracy,
+      type: md.type?.name || "normal",
+      damage_class: dmgClass,
+      pp: md.pp || 20,
+      ppLeft: md.pp || 20,
+      priority: md.priority || 0,
+      category: cat,
+      drain: meta.drain || 0,
+      // + heals attacker, - is recoil
+      healing: meta.healing || 0,
+      // % of max hp healed (recover etc.)
+      minHits: meta.min_hits || 1,
+      maxHits: meta.max_hits || 1,
+      statChanges,
+      statChance: meta.stat_chance || 0,
+      flinchChance: meta.flinch_chance || 0,
+      ailment: meta.ailment?.name || "none",
+      ailmentChance: meta.ailment_chance || 0,
+      highCrit: !!(meta.crit_rate && meta.crit_rate > 0),
+      selfTarget,
+      isOHKO: cat === "ohko"
+    };
+  }
+  function cap(s) {
+    return s ? s.charAt(0).toUpperCase() + s.slice(1) : s;
+  }
+
   // src/api.js
   var API = "https://pokeapi.co/api/v2";
   var GEN1_MAX_ID = 151;
-  var VERSION_GROUPS_GEN1 = ["red-blue", "yellow"];
   var MOVE_CACHE = /* @__PURE__ */ new Map();
   var GROWTH_CACHE = /* @__PURE__ */ new Map();
   var EVO_CACHE = /* @__PURE__ */ new Map();
@@ -20,7 +253,10 @@
       if (!r.ok)
         throw new Error("net");
       const v = await r.json();
-      localStorage.setItem("cache:" + url, JSON.stringify({ t: now, v }));
+      try {
+        localStorage.setItem("cache:" + url, JSON.stringify({ t: now, v }));
+      } catch (_) {
+      }
       return v;
     } catch (e) {
       const r = await fetch(url);
@@ -44,6 +280,72 @@
     if (!EVO_CACHE.has(url))
       EVO_CACHE.set(url, fetchCachedJSON(url));
     return EVO_CACHE.get(url);
+  }
+  function spriteSet(data) {
+    const s = data.sprites || {};
+    const bw = s.versions?.["generation-v"]?.["black-white"]?.animated || {};
+    const artwork = s.other?.["official-artwork"]?.front_default || null;
+    const home = s.other?.home?.front_default || null;
+    return {
+      front: bw.front_default || s.front_default || artwork || home || "",
+      back: bw.back_default || s.back_default || bw.front_default || s.front_default || "",
+      artwork: artwork || s.front_default || "",
+      animated: !!bw.front_default
+    };
+  }
+  async function fetchMoveset(poke, level) {
+    const seen = /* @__PURE__ */ new Set();
+    const entries = [];
+    for (const m of poke.moves) {
+      for (const vg of m.version_group_details) {
+        if (!VERSION_GROUPS_GEN1.includes(vg.version_group.name))
+          continue;
+        if (vg.move_learn_method?.name !== "level-up")
+          continue;
+        const learnLv = vg.level_learned_at ?? 0;
+        if (learnLv <= level && !seen.has(m.move.url)) {
+          seen.add(m.move.url);
+          if (!MOVE_CACHE.has(m.move.url))
+            MOVE_CACHE.set(m.move.url, fetchCachedJSON(m.move.url));
+          entries.push({ url: m.move.url, level: learnLv });
+        }
+      }
+    }
+    const moveDatas = await Promise.all(entries.map((x) => MOVE_CACHE.get(x.url)));
+    const gen1 = moveDatas.map((md, i) => ({ md, level: entries[i].level })).filter((x) => x.md && x.md.generation?.name === "generation-i");
+    return selectMoves(gen1);
+  }
+  function selectMoves(gen1) {
+    const damaging = [];
+    const status = [];
+    const nameSeen = /* @__PURE__ */ new Set();
+    const sorted = gen1.slice().sort((a, b) => b.level - a.level);
+    for (const { md } of sorted) {
+      if (nameSeen.has(md.name))
+        continue;
+      nameSeen.add(md.name);
+      const dmgClass = md.damage_class?.name;
+      if ((dmgClass === "physical" || dmgClass === "special") && md.power) {
+        damaging.push(buildMove(md));
+      } else if (dmgClass === "status") {
+        status.push({ move: buildMove(md), priority: PRIORITY_STATUS_MOVES.has(md.name) });
+      }
+    }
+    damaging.sort((a, b) => b.power * b.accuracy - a.power * a.accuracy);
+    status.sort((a, b) => (b.priority ? 1 : 0) - (a.priority ? 1 : 0));
+    const out = [];
+    const utility = status.find((s) => s.priority) || status[0];
+    const dmgSlots = utility && damaging.length >= 3 ? 3 : 4;
+    for (const m of damaging.slice(0, dmgSlots))
+      out.push(m);
+    if (utility && out.length < 4)
+      out.push(utility.move);
+    for (const m of damaging.slice(dmgSlots)) {
+      if (out.length >= 4)
+        break;
+      out.push(m);
+    }
+    return out.slice(0, 4);
   }
 
   // src/audio.js
@@ -308,290 +610,577 @@
   function clamp(v, a, b) {
     return Math.max(a, Math.min(b, v));
   }
-  var CHART = {
-    normal: { rock: 0.5, ghost: 0 },
-    fire: {
-      fire: 0.5,
-      water: 0.5,
-      grass: 2,
-      ice: 2,
-      bug: 2,
-      rock: 0.5,
-      dragon: 0.5
-    },
-    water: { fire: 2, water: 0.5, grass: 0.5, ground: 2, rock: 2, dragon: 0.5 },
-    electric: {
-      water: 2,
-      electric: 0.5,
-      grass: 0.5,
-      ground: 0,
-      flying: 2,
-      dragon: 0.5
-    },
-    grass: {
-      fire: 0.5,
-      water: 2,
-      grass: 0.5,
-      poison: 0.5,
-      ground: 2,
-      flying: 0.5,
-      bug: 0.5,
-      rock: 2,
-      dragon: 0.5
-    },
-    ice: {
-      fire: 0.5,
-      water: 0.5,
-      ice: 0.5,
-      grass: 2,
-      ground: 2,
-      flying: 2,
-      dragon: 2
-    },
-    fighting: {
-      normal: 2,
-      ice: 2,
-      rock: 2,
-      poison: 0.5,
-      flying: 0.5,
-      psychic: 0.5,
-      bug: 0.5,
-      ghost: 0
-    },
-    poison: { grass: 2, poison: 0.5, ground: 0.5, rock: 0.5, ghost: 0.5 },
-    ground: { fire: 2, electric: 2, poison: 2, rock: 2, bug: 0.5, flying: 0 },
-    flying: { grass: 2, fighting: 2, bug: 2, electric: 0.5, rock: 0.5 },
-    psychic: { fighting: 2, poison: 2, psychic: 0.5 },
-    bug: {
-      grass: 2,
-      psychic: 2,
-      fire: 0.5,
-      fighting: 0.5,
-      poison: 0.5,
-      flying: 0.5,
-      ghost: 0.5
-    },
-    rock: { fire: 2, ice: 2, flying: 2, bug: 2, fighting: 0.5, ground: 0.5 },
-    ghost: { ghost: 2, normal: 0, psychic: 0 },
-    dragon: { dragon: 2 }
+  var STAT_NAMES = {
+    atk: "Attack",
+    def: "Defense",
+    spa: "Special Attack",
+    spd: "Special Defense",
+    spe: "Speed",
+    acc: "accuracy",
+    eva: "evasiveness"
   };
   function typeEffect(moveType, targetTypes) {
     let mult = 1;
     const row = CHART[moveType] || {};
-    for (const t of targetTypes) {
+    for (const t of targetTypes)
       mult *= row[t] ?? 1;
-    }
     return mult;
   }
-  function rollHit(acc) {
-    const a = acc ?? 100;
-    return Math.random() * 100 < a;
+  function stage(mon, key) {
+    return mon.stages && mon.stages[key] || 0;
   }
-  function rollCrit(attacker, move) {
-    let base = clamp(attacker.stats.spd / 512, 0.02, 0.25);
+  function statMult(s) {
+    s = clamp(s, -6, 6);
+    return s >= 0 ? (2 + s) / 2 : 2 / (2 - s);
+  }
+  function accMult(s) {
+    s = clamp(s, -6, 6);
+    return s >= 0 ? (3 + s) / 3 : 3 / (3 - s);
+  }
+  function effectiveStat(mon, key) {
+    const base = mon.stats[key] || 1;
+    let v = base * statMult(stage(mon, key));
+    if (key === "spe" && mon.status && mon.status.cond === "par")
+      v *= 0.25;
+    return Math.max(1, Math.floor(v));
+  }
+  function rollHit(move, attacker, defender, rng = Math.random) {
+    if (move.accuracy == null)
+      return true;
+    const net = clamp(stage(attacker, "acc") - stage(defender, "eva"), -6, 6);
+    const chance = move.accuracy * accMult(net);
+    return rng() * 100 < chance;
+  }
+  function rollCrit(attacker, move, rng = Math.random) {
+    let base = clamp((attacker.stats.spe || attacker.stats.spd || 40) / 512, 0.02, 0.25);
     if (move.highCrit)
-      base = clamp(base * 2, 0.02, 0.33);
-    return Math.random() < base;
+      base = clamp(base * 2, 0.02, 0.4);
+    return rng() < base;
   }
-  function calcDamage(attacker, defender, move) {
+  function calcDamage(attacker, defender, move, rng = Math.random, opts = {}) {
     const level = attacker.level;
-    let atkStat = move.damage_class === "special" ? attacker.stats.spa : attacker.stats.atk;
-    const defStat = move.damage_class === "special" ? defender.stats.spd : defender.stats.def;
-    if (move.damage_class !== "special" && attacker.status.cond === "brn") {
+    const special = move.damage_class === "special";
+    let atkStat = special ? effectiveStat(attacker, "spa") : effectiveStat(attacker, "atk");
+    const defStat = special ? effectiveStat(defender, "spd") : effectiveStat(defender, "def");
+    if (!special && attacker.status && attacker.status.cond === "brn") {
       atkStat = Math.max(1, Math.floor(atkStat * 0.5));
     }
     const eff = typeEffect(move.type, defender.types);
+    if (eff === 0)
+      return { dmg: 0, eff: 0, crit: false };
     const base = Math.floor(
       Math.floor(
         Math.floor(2 * level / 5 + 2) * move.power * (atkStat / Math.max(1, defStat)) / 50
       ) + 2
     );
-    const rand = 0.85 + Math.random() * 0.15;
-    const stab = attacker.types.includes(move.type) ? 1.2 : 1;
-    let dmg = Math.max(1, Math.floor(base * rand * stab * eff));
-    const crit = rollCrit(attacker, move);
+    const randFactor = opts.avg ? 0.925 : 0.85 + rng() * 0.15;
+    const stab = attacker.types.includes(move.type) ? 1.5 : 1;
+    let dmg = Math.max(1, Math.floor(base * randFactor * stab * eff));
+    const crit = opts.forceCrit || rollCrit(attacker, move, rng);
     if (crit)
-      dmg = Math.floor(dmg * 2);
+      dmg = Math.floor(dmg * 1.8);
     return { dmg, eff, crit };
   }
-  function catchSuccess(mon) {
+  function applyAilment(target, ailmentName, rng = Math.random, force = false) {
+    const cond = AILMENT_MAP[ailmentName];
+    if (!cond)
+      return { applied: false };
+    if (target.status && target.status.cond !== "none") {
+      return { applied: false, reason: "already" };
+    }
+    if (cond === "brn" && target.types.includes("fire"))
+      return { applied: false, reason: "immune" };
+    if (cond === "frz" && target.types.includes("ice"))
+      return { applied: false, reason: "immune" };
+    if ((cond === "psn" || cond === "tox") && (target.types.includes("poison") || target.types.includes("steel"))) {
+      return { applied: false, reason: "immune" };
+    }
+    target.status = { cond, turns: 0, toxic: cond === "tox" ? 1 : 0 };
+    if (cond === "slp")
+      target.status.turns = 1 + Math.floor(rng() * 3);
+    return { applied: true, cond };
+  }
+  function canAct(mon, rng = Math.random) {
+    const s = mon.status || (mon.status = { cond: "none", turns: 0, toxic: 0 });
+    if (s.cond === "slp") {
+      if (s.turns > 0) {
+        s.turns--;
+        return { canAct: false, message: `${mon.name} is fast asleep...` };
+      }
+      s.cond = "none";
+      return { canAct: true, message: `${mon.name} woke up!` };
+    }
+    if (s.cond === "frz") {
+      if (rng() < 0.2) {
+        s.cond = "none";
+        return { canAct: true, message: `${mon.name} thawed out!` };
+      }
+      return { canAct: false, message: `${mon.name} is frozen solid!` };
+    }
+    if (s.cond === "par" && rng() < 0.25) {
+      return { canAct: false, message: `${mon.name} is paralyzed! It can't move!` };
+    }
+    return { canAct: true, message: null };
+  }
+  function endOfTurn(mon) {
+    const s = mon.status;
+    if (!s)
+      return null;
+    if (s.cond === "brn" || s.cond === "psn") {
+      const dmg = Math.max(1, Math.floor(mon.stats.maxHp / 16));
+      mon.stats.hp = clamp(mon.stats.hp - dmg, 0, mon.stats.maxHp);
+      return { dmg, kind: s.cond, fainted: mon.stats.hp <= 0 };
+    }
+    if (s.cond === "tox") {
+      const n = s.toxic || 1;
+      const dmg = Math.max(1, Math.floor(mon.stats.maxHp * n / 16));
+      s.toxic = n + 1;
+      mon.stats.hp = clamp(mon.stats.hp - dmg, 0, mon.stats.maxHp);
+      return { dmg, kind: "tox", fainted: mon.stats.hp <= 0 };
+    }
+    return null;
+  }
+  function useMove(attacker, defender, move, rng = Math.random) {
+    const res = {
+      move,
+      missed: false,
+      immune: false,
+      hits: [],
+      totalDmg: 0,
+      targetFainted: false,
+      ailment: null,
+      // { who, cond }
+      statEvents: [],
+      // { who, stat, change, applied }
+      drain: 0,
+      recoil: 0,
+      healed: 0,
+      flinch: false,
+      log: []
+    };
+    if (move.isOHKO) {
+      if (attacker.level < defender.level || rng() >= 0.3) {
+        res.missed = true;
+        res.log.push("But it failed!");
+        return res;
+      }
+      const dmg = defender.stats.hp;
+      defender.stats.hp = 0;
+      res.hits.push({ dmg, crit: false, eff: 1 });
+      res.totalDmg = dmg;
+      res.targetFainted = true;
+      res.log.push("It's a one-hit KO!");
+      return res;
+    }
+    if (!rollHit(move, attacker, defender, rng)) {
+      res.missed = true;
+      res.log.push(`${attacker.name}'s attack missed!`);
+      return res;
+    }
+    const isDamaging = move.power > 0 && move.category !== "net-good-stats" && move.category !== "ailment" && move.category !== "heal";
+    if (isDamaging) {
+      const eff = typeEffect(move.type, defender.types);
+      if (eff === 0) {
+        res.immune = true;
+        res.log.push(`It doesn't affect ${defender.name}...`);
+        return res;
+      }
+      let hitCount = 1;
+      if (move.maxHits > 1) {
+        if (move.maxHits === move.minHits)
+          hitCount = move.maxHits;
+        else {
+          const r = rng();
+          hitCount = r < 0.375 ? 2 : r < 0.75 ? 3 : r < 0.875 ? 4 : 5;
+        }
+      }
+      for (let i = 0; i < hitCount; i++) {
+        if (defender.stats.hp <= 0)
+          break;
+        const { dmg, crit } = calcDamage(attacker, defender, move, rng);
+        defender.stats.hp = clamp(defender.stats.hp - dmg, 0, defender.stats.maxHp);
+        res.hits.push({ dmg, crit, eff });
+        res.totalDmg += dmg;
+      }
+      if (hitCount > 1)
+        res.log.push(`Hit ${res.hits.length} time(s)!`);
+      res.effMult = eff;
+      if (move.drain > 0) {
+        res.drain = Math.max(1, Math.floor(res.totalDmg * move.drain / 100));
+        attacker.stats.hp = clamp(attacker.stats.hp + res.drain, 0, attacker.stats.maxHp);
+        res.log.push(`${attacker.name} drained energy!`);
+      } else if (move.drain < 0) {
+        res.recoil = Math.max(1, Math.floor(res.totalDmg * -move.drain / 100));
+        attacker.stats.hp = clamp(attacker.stats.hp - res.recoil, 0, attacker.stats.maxHp);
+        res.log.push(`${attacker.name} is hit with recoil!`);
+      }
+      res.targetFainted = defender.stats.hp <= 0;
+    }
+    if (move.healing > 0 || move.key === "rest") {
+      const before = attacker.stats.hp;
+      if (move.key === "rest") {
+        attacker.stats.hp = attacker.stats.maxHp;
+        attacker.status = { cond: "slp", turns: 2, toxic: 0 };
+        res.log.push(`${attacker.name} slept and became healthy!`);
+      } else {
+        const heal = Math.floor(attacker.stats.maxHp * move.healing / 100);
+        attacker.stats.hp = clamp(attacker.stats.hp + heal, 0, attacker.stats.maxHp);
+        res.log.push(`${attacker.name} regained health!`);
+      }
+      res.healed = attacker.stats.hp - before;
+    }
+    if (!res.targetFainted && move.ailment && move.ailment !== "none") {
+      const guaranteed = !isDamaging;
+      const roll = guaranteed || rng() * 100 < (move.ailmentChance || 0);
+      if (roll) {
+        const target = move.selfTarget ? attacker : defender;
+        const out = applyAilment(target, move.ailment, rng);
+        if (out.applied) {
+          res.ailment = { who: move.selfTarget ? "self" : "target", cond: out.cond };
+          res.log.push(`${target.name} was ${statusVerb(out.cond)}!`);
+        } else if (guaranteed) {
+          res.log.push("But it failed!");
+        }
+      }
+    }
+    if (!res.targetFainted && move.statChanges && move.statChanges.length) {
+      const guaranteed = !isDamaging || move.statChance === 0;
+      const roll = guaranteed || rng() * 100 < move.statChance;
+      if (roll) {
+        const target = move.selfTarget ? attacker : defender;
+        const who = move.selfTarget ? "self" : "target";
+        for (const sc of move.statChanges) {
+          const applied = changeStage(target, sc.stat, sc.change);
+          res.statEvents.push({ who, stat: sc.stat, change: sc.change, applied });
+          if (applied) {
+            res.log.push(statChangeMessage(target.name, sc.stat, sc.change));
+          } else {
+            res.log.push(`${target.name}'s ${STAT_NAMES[sc.stat] || sc.stat} won't go ${sc.change > 0 ? "higher" : "lower"}!`);
+          }
+        }
+      }
+    }
+    if (!res.targetFainted && isDamaging && move.flinchChance > 0) {
+      if (rng() * 100 < move.flinchChance)
+        res.flinch = true;
+    }
+    return res;
+  }
+  function changeStage(mon, key, change) {
+    if (!mon.stages)
+      mon.stages = { atk: 0, def: 0, spa: 0, spd: 0, spe: 0, acc: 0, eva: 0 };
+    const cur = mon.stages[key] || 0;
+    const next = clamp(cur + change, -6, 6);
+    if (next === cur)
+      return false;
+    mon.stages[key] = next;
+    return true;
+  }
+  function statChangeMessage(name, stat, change) {
+    const label = STAT_NAMES[stat] || stat;
+    const mag = Math.abs(change);
+    const dir = change > 0 ? mag >= 2 ? "sharply rose" : "rose" : mag >= 2 ? "harshly fell" : "fell";
+    return `${name}'s ${label} ${dir}!`;
+  }
+  function statusVerb(cond) {
+    return {
+      brn: "burned",
+      par: "paralyzed",
+      psn: "poisoned",
+      tox: "badly poisoned",
+      slp: "put to sleep",
+      frz: "frozen solid"
+    }[cond] || "afflicted";
+  }
+  function firstMover(a, aMove, b, bMove, rng = Math.random) {
+    const pa = aMove ? aMove.priority || 0 : 0;
+    const pb = bMove ? bMove.priority || 0 : 0;
+    if (pa !== pb)
+      return pa > pb ? "a" : "b";
+    const sa = effectiveStat(a, "spe");
+    const sb = effectiveStat(b, "spe");
+    if (sa !== sb)
+      return sa > sb ? "a" : "b";
+    return rng() < 0.5 ? "a" : "b";
+  }
+  function catchSuccess(mon, ballBonus = 1, rng = Math.random) {
     const maxHP = mon.stats.maxHp, curHP = mon.stats.hp, rate = mon.capture_rate || 45;
-    let a = (3 * maxHP - 2 * curHP) * rate / (3 * maxHP);
-    const s = mon.status.cond;
+    let a = (3 * maxHP - 2 * curHP) * rate / (3 * maxHP) * ballBonus;
+    const s = mon.status ? mon.status.cond : "none";
     if (s === "slp" || s === "frz")
       a *= 2;
-    else if (s === "par" || s === "psn" || s === "brn")
+    else if (s === "par" || s === "psn" || s === "brn" || s === "tox")
       a *= 1.5;
-    const chance = a / 256;
-    return Math.random() < chance;
+    return rng() < a / 256;
+  }
+  function moveScore(attacker, defender, move) {
+    if (move.ppLeft <= 0)
+      return -1;
+    const isDamaging = move.power > 0 && move.category !== "net-good-stats";
+    if (isDamaging) {
+      const { dmg, eff } = calcDamage(attacker, defender, move, Math.random, { avg: true });
+      const frac = Math.min(1.2, dmg / Math.max(1, defender.stats.hp));
+      let bonus = 0;
+      if (move.ailment !== "none" && defender.status && defender.status.cond === "none") {
+        bonus += 0.15 * (move.ailmentChance / 100);
+      }
+      return frac * (move.accuracy / 100) + bonus + eff * 1e-3;
+    }
+    let s = 0;
+    const hpFrac = attacker.stats.hp / attacker.stats.maxHp;
+    if ((move.healing > 0 || move.key === "rest") && hpFrac < 0.6)
+      s += (0.6 - hpFrac) * 1.2;
+    if (move.ailment !== "none" && defender.status && defender.status.cond === "none") {
+      s += 0.35 * ((move.accuracy || 100) / 100);
+    }
+    if (move.statChanges && move.statChanges.length && move.selfTarget && hpFrac > 0.5) {
+      s += 0.2;
+    }
+    if (move.statChanges && move.statChanges.length && !move.selfTarget)
+      s += 0.15;
+    return s;
+  }
+  function chooseAIMove(attacker, defender, rng = Math.random) {
+    const usable = attacker.moves.filter((m) => m.ppLeft > 0);
+    if (!usable.length)
+      return -1;
+    let bestIdx = -1, best = -Infinity;
+    attacker.moves.forEach((m, i) => {
+      if (m.ppLeft <= 0)
+        return;
+      let sc = moveScore(attacker, defender, m);
+      sc += rng() * 0.05;
+      if (sc > best) {
+        best = sc;
+        bestIdx = i;
+      }
+    });
+    return bestIdx;
+  }
+  function bestMoveIndex(attacker, defender) {
+    let pick = -1, score = -Infinity;
+    attacker.moves.forEach((m, i) => {
+      if (m.ppLeft <= 0)
+        return;
+      const sc = moveScore(attacker, defender, m);
+      if (sc > score) {
+        score = sc;
+        pick = i;
+      }
+    });
+    return pick >= 0 ? pick : null;
+  }
+  function battleScore(mon, enemy) {
+    let bestOff = 0, totalPP = 0, totalLeft = 0, hasDamage = false;
+    mon.moves.forEach((m) => {
+      totalPP += m.pp || 0;
+      totalLeft += m.ppLeft || 0;
+      if (m.ppLeft <= 0 || !(m.power > 0))
+        return;
+      hasDamage = true;
+      const eff = typeEffect(m.type, enemy.types);
+      const stab = mon.types.includes(m.type) ? 1.5 : 1;
+      const sc = (m.power || 0) * eff * stab * (m.accuracy || 100) / 100;
+      if (sc > bestOff)
+        bestOff = sc;
+    });
+    if (!hasDamage)
+      return 0;
+    const ppFactor = totalPP > 0 ? totalLeft / totalPP : 0;
+    let defScore = 0, count = 0;
+    enemy.moves.forEach((em) => {
+      if (em.ppLeft <= 0 || !(em.power > 0))
+        return;
+      defScore += typeEffect(em.type, mon.types);
+      count++;
+    });
+    defScore = count > 0 ? defScore / count : 1;
+    const defFactor = 1 / Math.max(0.25, defScore);
+    const hpFactor = mon.stats.hp / mon.stats.maxHp;
+    const levelFactor = enemy.level ? clamp(mon.level / enemy.level, 0.5, 2) : 1;
+    return bestOff * defFactor * hpFactor * (0.5 + 0.5 * ppFactor) * levelFactor;
+  }
+  function bestSwitch(party, activeIdx, enemy, currentScore, threshold = 1.5) {
+    let bestIdx = null;
+    let bestScore = currentScore * threshold;
+    party.forEach((mon, idx) => {
+      if (mon.stats.hp <= 0 || idx === activeIdx)
+        return;
+      const score = battleScore(mon, enemy);
+      if (score > bestScore) {
+        bestScore = score;
+        bestIdx = idx;
+      }
+    });
+    return bestIdx;
+  }
+  function effText(mult) {
+    if (mult === 0)
+      return "It doesn't affect the foe...";
+    if (mult >= 2)
+      return "It's super effective!";
+    if (mult <= 0.5)
+      return "It's not very effective...";
+    return "";
   }
 
   // src/ui.js
   var $ = (sel) => document.querySelector(sel);
-  function show(view) {
-    $("#starterPick").classList.toggle("hidden", view !== "starter");
-    $("#menu").classList.toggle("hidden", view !== "menu");
-    $("#movesView").classList.toggle("hidden", view !== "moves");
-    $("#swapView").classList.toggle("hidden", view !== "swap");
-    const bv = $("#bagView");
-    if (bv)
-      bv.classList.toggle("hidden", view !== "bag");
-    const bxv = $("#boxView");
-    if (bxv)
-      bxv.classList.toggle("hidden", view !== "box");
+  function el(tag, attrs = {}, txt = "") {
+    const x = document.createElement(tag);
+    for (const [k, v] of Object.entries(attrs)) {
+      if (k === "class")
+        x.className = v;
+      else if (k === "html")
+        x.innerHTML = v;
+      else
+        x.setAttribute(k, v);
+    }
+    if (txt)
+      x.textContent = txt;
+    return x;
   }
-  function text(t) {
-    const el2 = document.getElementById("textLine");
-    if (el2)
-      el2.textContent = t;
+  function show(view) {
+    const map = {
+      menu: "#menu",
+      moves: "#movesView",
+      swap: "#swapView",
+      bag: "#bagView",
+      box: "#boxView"
+    };
+    for (const [name, sel] of Object.entries(map)) {
+      const node = $(sel);
+      if (node)
+        node.classList.toggle("hidden", view !== name);
+    }
+  }
+  var reduceMotion = typeof window !== "undefined" && window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  var typeToken = 0;
+  function typeText(str, opts = {}) {
+    const target = document.getElementById("textContent");
+    const caret = document.querySelector("#textLine .caret");
+    if (!target)
+      return Promise.resolve();
+    const token = ++typeToken;
+    const speed = opts.speed ?? 16;
+    if (caret)
+      caret.classList.remove("on");
+    if (reduceMotion || opts.instant) {
+      target.textContent = str;
+      if (caret)
+        caret.classList.add("on");
+      return Promise.resolve();
+    }
+    return new Promise((resolve) => {
+      target.textContent = "";
+      let i = 0;
+      const step = () => {
+        if (token !== typeToken)
+          return resolve();
+        target.textContent = str.slice(0, i);
+        i++;
+        if (i <= str.length)
+          setTimeout(step, speed);
+        else {
+          if (caret)
+            caret.classList.add("on");
+          resolve();
+        }
+      };
+      step();
+    });
   }
 
   // src/main.js
-  console.info("Gen1 Battle build v0.8");
-  var TRIMMED_SPRITE_CACHE = /* @__PURE__ */ new Map();
-  var wins = 0;
-  async function getTrimmedSprite(url) {
-    if (!url)
-      return "";
-    if (TRIMMED_SPRITE_CACHE.has(url)) {
-      return TRIMMED_SPRITE_CACHE.get(url);
-    }
-    const proxyUrl = `https://corsproxy.io/?${encodeURIComponent(url)}`;
-    const promise = new Promise((resolve, reject) => {
-      const img = new Image();
-      img.crossOrigin = "Anonymous";
-      img.onload = () => {
-        const canvas = document.createElement("canvas");
-        const ctx = canvas.getContext("2d", { willReadFrequently: true });
-        canvas.width = img.width;
-        canvas.height = img.height;
-        ctx.drawImage(img, 0, 0);
-        let lastY = canvas.height - 1;
-        let foundPixelInImage = false;
-        for (let y = canvas.height - 1; y >= 0; y--) {
-          const pixelData = ctx.getImageData(0, y, canvas.width, 1).data;
-          for (let i = 3; i < pixelData.length; i += 4) {
-            if (pixelData[i] > 0) {
-              lastY = y;
-              foundPixelInImage = true;
-              break;
-            }
-          }
-          if (foundPixelInImage)
-            break;
-        }
-        const newHeight = lastY + 1;
-        const trimmedCanvas = document.createElement("canvas");
-        trimmedCanvas.width = canvas.width;
-        trimmedCanvas.height = newHeight;
-        const trimmedCtx = trimmedCanvas.getContext("2d");
-        trimmedCtx.drawImage(canvas, 0, 0);
-        resolve(trimmedCanvas.toDataURL());
-      };
-      img.onerror = () => resolve(url);
-      img.src = proxyUrl;
-    });
-    TRIMMED_SPRITE_CACHE.set(url, promise);
-    return promise;
-  }
-  var THEMES = [
-    "normal",
-    "fire",
-    "water",
-    "grass",
-    "electric",
-    "ice",
-    "fighting",
-    "poison",
-    "ground",
-    "flying",
-    "psychic",
-    "bug",
-    "rock",
-    "ghost",
-    "dragon"
-  ];
-  function setThemeByType(types) {
-    const t = types && types[0] || "normal";
-    const el2 = document.querySelector(".screen");
-    if (!el2)
-      return;
-    THEMES.forEach((x) => el2.classList.remove("type-" + x));
-    el2.classList.add("type-" + t);
-    try {
-      ThemeFX.set(t);
-    } catch (e) {
-      console.error("ThemeFX failed to set:", e);
-    }
-  }
-  var $2 = (sel) => document.querySelector(sel);
+  console.info("Pok\xE9Battle Arena \u2014 build v1.0");
   var sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-  function clamp2(v, a, b) {
-    return Math.max(a, Math.min(b, v));
-  }
-  function hpColor(frac) {
-    return frac > 0.5 ? "var(--hp-green)" : frac > 0.2 ? "var(--hp-yellow)" : "var(--hp-red)";
-  }
-  function cap(s) {
-    return s.charAt(0).toUpperCase() + s.slice(1);
-  }
-  function el(tag, attrs = {}, text2 = "") {
-    const x = document.createElement(tag);
-    for (const [k, v] of Object.entries(attrs))
-      x.setAttribute(k, v);
-    if (text2)
-      x.textContent = text2;
-    return x;
-  }
-  function cssNum(varName, fallback) {
-    const v = parseFloat(
-      getComputedStyle(document.documentElement).getPropertyValue(varName)
-    );
+  function cssNum(name, fallback) {
+    const v = parseFloat(getComputedStyle(document.documentElement).getPropertyValue(name));
     return isNaN(v) ? fallback : v;
   }
+  function hpColor(f) {
+    return f > 0.5 ? "var(--hp-green)" : f > 0.2 ? "var(--hp-yellow)" : "var(--hp-red)";
+  }
+  var ITEM_ICON = (name) => `https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/${name}.png`;
+  async function say(str, hold = 260) {
+    await typeText(str);
+    if (hold)
+      await sleep(hold);
+  }
+  var SAVE_KEY = "pkbattle:save:v2";
+  var TRAINER_EVERY = 4;
   var state = {
     party: [],
+    box: [],
     active: 0,
     player: null,
     enemy: null,
-    turn: "player",
     busy: false,
+    auto: false,
+    started: false,
+    mode: "wild",
+    // "wild" | "trainer"
+    trainer: null,
+    trainerTeam: [],
+    trainerIdx: 0,
+    trainersBeaten: 0,
+    wins: 0,
+    money: 0,
+    badges: [],
     items: {
       "poke-ball": 10,
-      potion: 2,
-      "super-potion": 0,
+      "great-ball": 2,
+      "ultra-ball": 0,
+      potion: 3,
+      "super-potion": 1,
       "hyper-potion": 0,
-      antidote: 0,
-      "parlyz-heal": 0,
-      awakening: 0,
-      "burn-heal": 0,
-      "ice-heal": 0
-    },
-    box: [],
-    auto: false
+      antidote: 1,
+      "parlyz-heal": 1,
+      awakening: 1,
+      "burn-heal": 1,
+      "ice-heal": 1
+    }
   };
   function setBusy(v) {
     state.busy = v;
-    document.querySelectorAll("button").forEach((b) => b.disabled = v);
+    document.querySelectorAll(".msgbox button, #menu button").forEach((b) => b.disabled = v);
   }
-  var ITEM_ICON = (name) => `https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/${name}.png`;
+  function zeroStages() {
+    return { atk: 0, def: 0, spa: 0, spd: 0, spe: 0, acc: 0, eva: 0 };
+  }
+  function resetStages(mon) {
+    if (mon)
+      mon.stages = zeroStages();
+  }
+  function ensureRuntime(mon) {
+    if (!mon.stages)
+      mon.stages = zeroStages();
+    if (!mon.status)
+      mon.status = { cond: "none", turns: 0, toxic: 0 };
+    return mon;
+  }
   function makeMon(data, level = 5) {
-    const stats = Object.fromEntries(
-      data.stats.map((s) => [s.stat.name, s.base_stat])
-    );
-    const maxHp = Math.floor(stats.hp * 2 * level / 100 + level + 10);
-    const atk = Math.floor(stats.attack * 2 * level / 100 + 5);
-    const def = Math.floor(stats.defense * 2 * level / 100 + 5);
-    const spa = Math.floor(stats["special-attack"] * 2 * level / 100 + 5);
-    const spd = Math.floor(stats["special-defense"] * 2 * level / 100 + 5);
+    const b = Object.fromEntries(data.stats.map((s) => [s.stat.name, s.base_stat]));
+    const maxHp = Math.floor(b.hp * 2 * level / 100 + level + 10);
+    const st = (base) => Math.floor(base * 2 * level / 100 + 5);
+    const sp = spriteSet(data);
     return {
       id: data.id,
       name: cap(data.name),
-      spriteFront: data.sprites.front_default,
-      spriteBack: data.sprites.back_default,
-      sprite: data.sprites.front_default,
+      spriteFront: sp.front,
+      spriteBack: sp.back,
+      artwork: sp.artwork,
+      sprite: sp.front,
       level,
-      stats: { maxHp, hp: maxHp, atk, def, spa, spd },
+      stats: {
+        maxHp,
+        hp: maxHp,
+        atk: st(b.attack),
+        def: st(b.defense),
+        spa: st(b["special-attack"]),
+        spd: st(b["special-defense"]),
+        spe: st(b.speed)
+      },
       base_exp: data.base_experience || 64,
       moves: [],
       capture_rate: 45,
@@ -601,16 +1190,30 @@
       speciesId: null,
       xp: 0,
       xpNext: 10,
-      status: { cond: "none", turns: 0, toxic: false }
+      stages: zeroStages(),
+      status: { cond: "none", turns: 0, toxic: 0 }
     };
+  }
+  async function buildMon(idOrName, level) {
+    const data = await fetchPokemon(idOrName);
+    const species = await fetchSpecies(data.id);
+    const mon = makeMon(data, level);
+    mon.capture_rate = species.capture_rate;
+    mon.moves = await fetchMoveset(data, level);
+    if (!mon.moves.length)
+      mon.moves = [{ ...STRUGGLE, name: "Tackle", key: "tackle", power: 40, pp: 35, ppLeft: 35, drain: 0 }];
+    await setupGrowthAndEvo(mon, species);
+    return mon;
   }
   function setActive(i) {
     state.active = i;
     state.player = state.party[i];
-    if (state.player)
+    if (state.player) {
+      ensureRuntime(state.player);
+      resetStages(state.player);
       state.player.sprite = state.player.spriteBack || state.player.spriteFront;
+    }
     updateHUD();
-    playCry(state.player);
   }
   async function setupGrowthAndEvo(mon, species) {
     mon.speciesId = species.id;
@@ -628,6 +1231,7 @@
   async function gainXP(mon, amount) {
     if (!mon.growth)
       return;
+    await animateXP(mon, amount);
     mon.xp += amount;
     while (mon.xp >= mon.xpNext) {
       mon.xp -= mon.xpNext;
@@ -635,400 +1239,335 @@
     }
     updateHUD();
   }
+  async function animateXP(mon, amount) {
+    const fill = $("#playerXpFill");
+    if (!fill || mon !== state.player)
+      return;
+    const start = clamp(mon.xp / mon.xpNext, 0, 1);
+    const end = clamp((mon.xp + amount) / mon.xpNext, 0, 1);
+    fill.style.width = `${100 * clamp(Math.min(end, 1), 0, 1)}%`;
+    await sleep(320);
+  }
   async function levelUp(mon) {
     const oldMax = mon.stats.maxHp;
     const frac = mon.stats.hp / Math.max(1, oldMax);
     mon.level++;
     const data = await fetchPokemon(mon.id);
     const tmp = makeMon(data, mon.level);
+    const stages = mon.stages, status = mon.status;
     mon.stats = tmp.stats;
     mon.stats.hp = Math.max(1, Math.floor(mon.stats.maxHp * frac));
-    mon.moves = await getGen1DamageMovesForPokemon(data, mon.level);
+    mon.stages = stages;
+    mon.status = status;
+    mon.moves = mergeMoves(mon.moves, await fetchMoveset(data, mon.level));
     if (mon.growth) {
       const levels = mon.growth.table;
       const cur = levels.find((x) => x.level === mon.level)?.experience ?? 0;
       const next = levels.find((x) => x.level === mon.level + 1)?.experience ?? cur + 50;
       mon.xpNext = Math.max(1, next - cur);
     }
+    updateHUD();
+    await showBanner(`${mon.name} grew to Lv ${mon.level}!`);
+    playSparkle("#playerSprite");
     await maybeEvolve(mon);
+    save();
+  }
+  function mergeMoves(oldMoves, freshMoves) {
+    const byKey = new Map(oldMoves.map((m) => [m.key, m]));
+    const result = freshMoves.map((m) => {
+      const prev = byKey.get(m.key);
+      return prev ? { ...m, ppLeft: Math.min(prev.ppLeft, m.pp) } : m;
+    });
+    return result.length ? result : oldMoves;
   }
   async function maybeEvolve(mon) {
     if (!mon.evoChainUrl)
       return;
     const chain = await fetchEvo(mon.evoChainUrl);
-    function findNode(node2) {
+    const find = (node2) => {
       if (node2.species.name.toLowerCase() === mon.name.toLowerCase())
         return node2;
       for (const c of node2.evolves_to) {
-        const r = findNode(c);
+        const r = find(c);
         if (r)
           return r;
       }
       return null;
-    }
-    const node = findNode(chain.chain);
+    };
+    const node = find(chain.chain);
     if (!node)
       return;
     const candidate = node.evolves_to?.find(
-      (e) => e.evolution_details?.some((d) => (d.min_level || 0) <= mon.level)
+      (e) => e.evolution_details?.some((d) => (d.min_level || 0) <= mon.level && d.min_level)
     );
     if (!candidate)
       return;
-    const nextName = candidate.species.name;
-    const data = await fetchPokemon(nextName);
+    const data = await fetchPokemon(candidate.species.name);
     const species = await fetchSpecies(data.id);
     const evolved = makeMon(data, mon.level);
-    evolved.moves = await getGen1DamageMovesForPokemon(data, mon.level);
+    evolved.moves = mergeMoves(mon.moves, await fetchMoveset(data, mon.level));
     await setupGrowthAndEvo(evolved, species);
-    const frac = mon.stats.hp / mon.stats.maxHp;
-    evolved.stats.hp = Math.max(1, Math.floor(evolved.stats.maxHp * frac));
+    evolved.stats.hp = Math.max(1, Math.floor(evolved.stats.maxHp * (mon.stats.hp / mon.stats.maxHp)));
     evolved.xp = mon.xp;
     evolved.xpNext = mon.xpNext;
+    evolved.status = mon.status;
     evolved.sprite = evolved.spriteBack || evolved.spriteFront;
+    const oldName = mon.name;
     const idx = state.party.indexOf(mon);
+    await flashWhite("#playerSprite");
     if (idx >= 0) {
       state.party[idx] = evolved;
       if (state.active === idx)
         state.player = evolved;
     }
-    text(`${cap(mon.name)} evolved into ${cap(evolved.name)}!`);
     updateHUD();
+    await showBanner(`${oldName} evolved into ${evolved.name}!`, 1400);
+    await playCry(evolved);
   }
-  async function getGen1DamageMovesForPokemon(poke, level) {
-    const seen = /* @__PURE__ */ new Set();
-    const entries = [];
-    for (const m of poke.moves) {
-      for (const vg of m.version_group_details) {
-        if (!VERSION_GROUPS_GEN1.includes(vg.version_group.name))
-          continue;
-        if (vg.move_learn_method?.name !== "level-up")
-          continue;
-        const learnLv = vg.level_learned_at ?? 0;
-        if (learnLv <= level) {
-          if (!seen.has(m.move.url)) {
-            seen.add(m.move.url);
-            if (!MOVE_CACHE.has(m.move.url))
-              MOVE_CACHE.set(m.move.url, fetchCachedJSON(m.move.url));
-            entries.push({ url: m.move.url, level: learnLv });
-          }
-        }
-      }
-    }
-    const moveDatas = await Promise.all(
-      entries.map((x) => MOVE_CACHE.get(x.url))
-    );
-    const merged = moveDatas.map((md, i) => ({ md, level: entries[i].level }));
-    const usable = merged.filter(
-      (x) => x.md.generation?.name === "generation-i" && (x.md.damage_class?.name === "physical" || x.md.damage_class?.name === "special") && x.md.power
-    ).sort((a, b) => a.level - b.level);
-    const uniqueByName = [];
-    const nameSeen = /* @__PURE__ */ new Set();
-    for (const x of usable) {
-      const name = x.md.name;
-      if (!nameSeen.has(name)) {
-        nameSeen.add(name);
-        uniqueByName.push(x);
-      }
-      if (uniqueByName.length >= 4)
-        break;
-    }
-    return uniqueByName.map(({ md }) => ({
-      name: cap(md.name.replace(/-/g, " ")),
-      key: md.name,
-      power: md.power || 40,
-      accuracy: md.accuracy || 100,
-      type: md.type?.name || "normal",
-      damage_class: md.damage_class?.name || "physical",
-      pp: md.pp || 20,
-      ppLeft: md.pp || 20,
-      highCrit: !!(md.meta && md.meta.crit_rate && md.meta.crit_rate > 0),
-      ailment: md.meta?.ailment?.name || "none",
-      ailment_chance: md.meta?.ailment_chance || 0
-    }));
+  function renderTypes(container, types) {
+    container.innerHTML = "";
+    types.forEach((t) => {
+      const b = el("span", { class: "type-badge" }, t.toUpperCase());
+      b.style.background = TYPE_COLOR[t] || "#888";
+      container.appendChild(b);
+    });
   }
-  async function updateHUD() {
-    const playerSprite = $2("#playerSprite");
-    const enemySprite = $2("#enemySprite");
+  function renderStatus(pill, status) {
+    const c = status?.cond;
+    if (!c || c === "none") {
+      pill.classList.add("hidden");
+      return;
+    }
+    pill.classList.remove("hidden");
+    pill.textContent = STATUS_LABEL[c] || c.toUpperCase();
+    pill.style.background = STATUS_COLOR[c] || "#888";
+  }
+  function renderDots(container, list) {
+    container.innerHTML = "";
+    list.forEach((alive) => {
+      const i = el("i", {});
+      if (!alive)
+        i.classList.add("fainted");
+      container.appendChild(i);
+    });
+  }
+  function updateHUD() {
+    const ps = $("#playerSprite"), es = $("#enemySprite");
     if (state.player) {
-      $2("#playerName").textContent = state.player.name;
-      $2("#playerLevel").textContent = state.player.level;
-      const pf = state.player.stats.hp / state.player.stats.maxHp;
-      $2(
-        "#playerHpText"
-      ).textContent = `${state.player.stats.hp}/${state.player.stats.maxHp}`;
-      const pFill = $2("#playerHpFill");
+      const p = state.player;
+      $("#playerName").textContent = p.name;
+      $("#playerLevel").textContent = p.level;
+      renderTypes($("#playerTypes"), p.types);
+      renderStatus($("#playerStatus"), p.status);
+      const pf = p.stats.hp / p.stats.maxHp;
+      $("#playerHpText").textContent = `${p.stats.hp}/${p.stats.maxHp}`;
+      const pFill = $("#playerHpFill");
       pFill.style.width = `${100 * pf}%`;
       pFill.style.background = hpColor(pf);
-      try {
-        if (playerSprite.dataset.originalSrc !== state.player.sprite) {
-          playerSprite.dataset.originalSrc = state.player.sprite;
-          const trimmedSrc = await getTrimmedSprite(state.player.sprite);
-          playerSprite.src = trimmedSrc;
-        }
-      } catch (error) {
-        console.error("Failed to trim player sprite, using original:", error);
-        playerSprite.src = state.player.sprite;
-      }
-      if (state.player.xpNext) {
-        const xf = clamp2(state.player.xp / state.player.xpNext, 0, 1);
-        $2("#playerXpFill").style.width = `${100 * xf}%`;
+      if (p.xpNext)
+        $("#playerXpFill").style.width = `${100 * clamp(p.xp / p.xpNext, 0, 1)}%`;
+      renderDots($("#playerParty"), state.party.map((m) => m.stats.hp > 0));
+      const pcard = $("#playerCard");
+      if (pcard)
+        pcard.style.setProperty("--type", TYPE_COLOR[p.types[0]] || "#888");
+      if (ps && ps.dataset.src !== p.sprite) {
+        ps.dataset.src = p.sprite;
+        ps.src = p.sprite;
       }
     }
     if (state.enemy) {
-      $2("#enemyName").textContent = state.enemy.name;
-      $2("#enemyLevel").textContent = state.enemy.level;
-      const ef = state.enemy.stats.hp / state.enemy.stats.maxHp;
-      $2(
-        "#enemyHpText"
-      ).textContent = `${state.enemy.stats.hp}/${state.enemy.stats.maxHp}`;
-      const eFill = $2("#enemyHpFill");
+      const e = state.enemy;
+      $("#enemyName").textContent = (state.mode === "trainer" ? "" : "Wild ") + e.name;
+      $("#enemyLevel").textContent = e.level;
+      renderTypes($("#enemyTypes"), e.types);
+      renderStatus($("#enemyStatus"), e.status);
+      const ef = e.stats.hp / e.stats.maxHp;
+      $("#enemyHpText").textContent = `${e.stats.hp}/${e.stats.maxHp}`;
+      const eFill = $("#enemyHpFill");
       eFill.style.width = `${100 * ef}%`;
       eFill.style.background = hpColor(ef);
-      try {
-        if (enemySprite.dataset.originalSrc !== state.enemy.sprite) {
-          enemySprite.dataset.originalSrc = state.enemy.sprite;
-          const trimmedSrc = await getTrimmedSprite(state.enemy.sprite);
-          enemySprite.src = trimmedSrc;
-        }
-      } catch (error) {
-        console.error("Failed to trim enemy sprite, using original:", error);
-        enemySprite.src = state.enemy.sprite;
+      if (state.mode === "trainer") {
+        const dots = state.trainerTeam.map(
+          (_, i) => i > state.trainerIdx ? true : i === state.trainerIdx ? e.stats.hp > 0 : false
+        );
+        renderDots($("#enemyParty"), dots);
+      } else {
+        renderDots($("#enemyParty"), [e.stats.hp > 0]);
+      }
+      const ecard = $("#enemyCard");
+      if (ecard)
+        ecard.style.setProperty("--type", TYPE_COLOR[e.types[0]] || "#888");
+      if (es && es.dataset.src !== e.sprite) {
+        es.dataset.src = e.sprite;
+        es.src = e.sprite;
       }
     }
+    updateScore();
   }
-  function floatTextNear(targetSelector, txt, good = false) {
-    const host = document.querySelector(".screen");
-    const target = document.querySelector(targetSelector);
-    if (!target)
+  function updateScore() {
+    const w = $("#winCount"), m = $("#moneyCount"), bs = $("#badgeStrip");
+    if (w)
+      w.textContent = state.wins;
+    if (m)
+      m.textContent = state.money;
+    if (bs) {
+      bs.innerHTML = "";
+      state.badges.forEach((b) => bs.appendChild(el("span", { class: "gym-badge" }, b)));
+    }
+  }
+  function ensureVfx() {
+    return document.getElementById("vfx");
+  }
+  function floatTextNear(sel, txt, cls = "bad") {
+    const host = $(".screen"), target = $(sel);
+    if (!host || !target)
       return;
-    const rect = target.getBoundingClientRect();
-    const hostRect = host.getBoundingClientRect();
-    const x = rect.left - hostRect.left + rect.width * 0.6;
-    const y = rect.top - hostRect.top - 10;
-    const d = el("div", { class: "float " + (good ? "good" : "bad") }, txt);
-    d.style.left = `${x}px`;
-    d.style.top = `${y}px`;
+    const r = target.getBoundingClientRect(), h = host.getBoundingClientRect();
+    const d = el("div", { class: "float " + cls }, txt);
+    d.style.left = `${r.left - h.left + r.width * 0.55}px`;
+    d.style.top = `${r.top - h.top - 6}px`;
     host.appendChild(d);
     requestAnimationFrame(() => d.classList.add("show"));
     setTimeout(() => d.remove(), 900);
   }
+  function spawnSparksAt(sel, type = "normal", count = 10) {
+    const host = ensureVfx(), tgt = $(sel);
+    if (!host || !tgt)
+      return;
+    const r = tgt.getBoundingClientRect(), h = host.getBoundingClientRect();
+    const cx = r.left - h.left + r.width * 0.55, cy = r.top - h.top + r.height * 0.45;
+    for (let i = 0; i < count; i++) {
+      const s = el("div", { class: "spark" });
+      s.style.color = TYPE_COLOR[type] || "#fff";
+      const ang = Math.random() * Math.PI * 2;
+      const d0 = 4 + Math.random() * 8, d1 = 26 + Math.random() * 22;
+      s.style.left = cx + "px";
+      s.style.top = cy + "px";
+      s.style.setProperty("--sx", Math.cos(ang) * d0 + "px");
+      s.style.setProperty("--sy", Math.sin(ang) * d0 + "px");
+      s.style.setProperty("--ex", Math.cos(ang) * d1 + "px");
+      s.style.setProperty("--ey", Math.sin(ang) * d1 + "px");
+      host.appendChild(s);
+      setTimeout(() => s.remove(), 420);
+    }
+  }
+  function showBadgeNear(sel, txt, kind = "") {
+    const host = ensureVfx(), tgt = $(sel);
+    if (!host || !tgt)
+      return;
+    const r = tgt.getBoundingClientRect(), h = host.getBoundingClientRect();
+    const b = el("div", { class: "badge " + kind }, txt);
+    b.style.left = `${r.left - h.left + r.width * 0.5}px`;
+    b.style.top = `${r.top - h.top - 8}px`;
+    host.appendChild(b);
+    setTimeout(() => b.remove(), 900);
+  }
   function screenShake(kind = "hit") {
-    const root = document.querySelector(".screen");
+    const root = $(".screen");
     if (!root)
       return;
     const cls = kind === "crit" ? "shake-crit" : "shake-hit";
     root.classList.add(cls);
-    setTimeout(() => root.classList.remove(cls), kind === "crit" ? 380 : 160);
+    setTimeout(() => root.classList.remove(cls), kind === "crit" ? 400 : 160);
   }
-  function ensureVfx() {
-    let host = document.getElementById("vfx");
-    if (!host) {
-      const s = document.querySelector(".screen");
-      host = document.createElement("div");
-      host.id = "vfx";
-      host.className = "vfx";
-      s && s.prepend(host);
-    }
-    return host;
-  }
-  var TYPE_COLOR = {
-    normal: "#cfd8e3",
-    fire: "#ff8a6b",
-    water: "#7ecbff",
-    grass: "#9fd99c",
-    electric: "#ffe66d",
-    ice: "#c7f9ff",
-    fighting: "#ff9b85",
-    poison: "#e0b3ff",
-    ground: "#ffd39b",
-    flying: "#d0e6ff",
-    psychic: "#ff9aff",
-    bug: "#d8f88a",
-    rock: "#e8d8b5",
-    ghost: "#d5c8ff",
-    dragon: "#c0ccff"
-  };
-  function spawnSparksAt(selector, type = "normal", count = 10) {
-    const host = ensureVfx();
-    const tgt = document.querySelector(selector);
-    if (!host || !tgt)
+  async function lunge(sel, towardRight) {
+    const node = $(sel);
+    if (!node)
       return;
-    const r = tgt.getBoundingClientRect();
-    const h = host.getBoundingClientRect();
-    const cx = r.left - h.left + r.width * 0.6;
-    const cy = r.top - h.top + r.height * 0.45;
-    for (let i = 0; i < count; i++) {
-      const el2 = document.createElement("div");
-      el2.className = "spark";
-      el2.style.color = TYPE_COLOR[type] || TYPE_COLOR.normal;
-      const ang = Math.random() * Math.PI * 2;
-      const d0 = 4 + Math.random() * 8;
-      const d1 = 24 + Math.random() * 20;
-      el2.style.left = cx + "px";
-      el2.style.top = cy + "px";
-      el2.style.setProperty("--sx", Math.cos(ang) * d0 + "px");
-      el2.style.setProperty("--sy", Math.sin(ang) * d0 + "px");
-      el2.style.setProperty("--ex", Math.cos(ang) * d1 + "px");
-      el2.style.setProperty("--ey", Math.sin(ang) * d1 + "px");
-      host.appendChild(el2);
-      setTimeout(() => el2.remove(), 420);
+    const dx = (towardRight ? 1 : -1) * 26;
+    try {
+      await node.animate(
+        [
+          { transform: "translate(0,0)" },
+          { transform: `translate(${dx}px,-6px)`, offset: 0.4 },
+          { transform: "translate(0,0)" }
+        ],
+        { duration: 240, easing: "ease-out" }
+      ).finished;
+    } catch (_) {
     }
   }
-  function showBadgeNear(selector, text2) {
-    const host = ensureVfx();
-    const tgt = document.querySelector(selector);
-    if (!host || !tgt)
-      return;
-    const r = tgt.getBoundingClientRect();
-    const h = host.getBoundingClientRect();
-    const x = r.left - h.left + r.width * 0.5;
-    const y = r.top - h.top - 10;
-    const el2 = document.createElement("div");
-    el2.className = "badge";
-    el2.textContent = text2;
-    el2.style.left = x + "px";
-    el2.style.top = y + "px";
-    host.appendChild(el2);
-    setTimeout(() => el2.remove(), 900);
-  }
-  function impactSprite(selector, crit = false, towardRight = true) {
-    const el2 = document.querySelector(selector);
-    if (!el2)
+  function impactSprite(sel, crit, towardRight) {
+    const node = $(sel);
+    if (!node)
       return;
     const rot = (towardRight ? -1 : 1) * (crit ? 10 : 6);
     const dx = (towardRight ? 8 : -8) * (crit ? 1.5 : 1);
-    const dur = crit ? 380 : 220;
-    el2.animate(
+    node.animate(
       [
-        {
-          transform: "translate(0,0) rotate(0deg) scale(1)",
-          filter: "brightness(2) saturate(0)"
-        },
-        {
-          transform: `translate(${dx}px,-2px) rotate(${rot}deg) scale(${crit ? 1.06 : 1.02})`,
-          filter: "brightness(1.3)",
-          offset: 0.35
-        },
-        { transform: "translate(0,0) rotate(0deg) scale(1)", filter: "none" }
+        { transform: "translate(0,0) rotate(0) scale(1)", filter: "brightness(2) saturate(0)" },
+        { transform: `translate(${dx}px,-2px) rotate(${rot}deg) scale(${crit ? 1.06 : 1.02})`, filter: "brightness(1.3)", offset: 0.35 },
+        { transform: "translate(0,0) rotate(0) scale(1)", filter: "none" }
       ],
-      { duration: dur, easing: "cubic-bezier(.2,.8,.2,1)" }
+      { duration: crit ? 380 : 220, easing: "cubic-bezier(.2,.8,.2,1)" }
     );
   }
-  function faintOut(selector) {
-    if (selector === "#enemySprite") {
-      (window.state || (window.state = {})).enemyHidden = true;
-    }
-    const el2 = document.querySelector(selector);
-    if (!el2)
+  function playSparkle(sel) {
+    spawnSparksAt(sel, "electric", 16);
+  }
+  function flashWhite(sel) {
+    const node = $(sel);
+    if (!node)
       return Promise.resolve();
-    return el2.animate(
+    return node.animate(
+      [{ filter: "brightness(1)" }, { filter: "brightness(4) saturate(0)" }, { filter: "brightness(1)" }],
+      { duration: 700, iterations: 1 }
+    ).finished.catch(() => {
+    });
+  }
+  function faintOut(sel) {
+    const node = $(sel);
+    if (!node)
+      return Promise.resolve();
+    return node.animate(
       [
         { filter: "none", opacity: 1, transform: "translateY(0) scale(1)" },
-        {
-          filter: "brightness(2) saturate(0)",
-          opacity: 0.9,
-          transform: "translateY(2px) scale(.98)",
-          offset: 0.4
-        },
-        {
-          filter: "brightness(2) saturate(0)",
-          opacity: 0,
-          transform: "translateY(10px) scale(.94)"
-        }
+        { filter: "brightness(2) saturate(0)", opacity: 0.9, transform: "translateY(4px) scale(.98)", offset: 0.4 },
+        { filter: "brightness(2) saturate(0)", opacity: 0, transform: "translateY(16px) scale(.9)" }
       ],
       { duration: 650, easing: "ease-in" }
     ).finished.then(() => {
-      el2.style.opacity = "0";
+      node.style.opacity = "0";
+    }).catch(() => {
     });
   }
-  function captureRelease(selector) {
-    const el2 = document.querySelector(selector);
-    if (!el2)
+  async function fadeInSprite(sel) {
+    const node = $(sel);
+    if (!node)
       return;
-    const dx = parseFloat(el2.dataset.capdx || "0"), dy = parseFloat(el2.dataset.capdy || "0");
-    el2.style.opacity = "1";
-    (window.state || (window.state = {})).enemyHidden = false;
-    el2.animate(
-      [
-        {
-          opacity: 1,
-          transform: `translate(${dx}px,${dy}px) scale(0)`,
-          filter: "brightness(2) saturate(0)"
-        },
-        {
-          opacity: 1,
-          transform: "translate(0,0) scale(1.02)",
-          filter: "brightness(1.3)",
-          offset: 0.6
-        },
-        { opacity: 1, transform: "translate(0,0) scale(1)", filter: "none" }
-      ],
-      { duration: 420, easing: "cubic-bezier(.2,.8,.2,1)" }
-    );
+    node.style.transform = "none";
+    node.style.opacity = 0;
+    try {
+      await node.animate([{ opacity: 0, transform: "translateY(-10px) scale(.9)" }, { opacity: 1, transform: "translateY(0) scale(1)" }], { duration: 320, easing: "ease-out" }).finished;
+    } catch (_) {
+    }
+    node.style.opacity = 1;
   }
-  function canAct(mon) {
-    const s = mon.status;
-    if (s.cond === "slp") {
-      if (s.turns > 0) {
-        s.turns--;
-        text(`${mon.name} is fast asleep...`);
-        return false;
-      }
-      s.cond = "none";
-      text(`${mon.name} woke up!`);
-    }
-    if (s.cond === "frz") {
-      if (Math.random() < 0.2) {
-        s.cond = "none";
-        text(`${mon.name} thawed out!`);
-      } else {
-        text(`${mon.name} is frozen solid!`);
-        return false;
-      }
-    }
-    if (s.cond === "par" && Math.random() < 0.25) {
-      text(`${mon.name} is paralyzed! It can't move!`);
-      return false;
-    }
-    return true;
+  var bannerHold = { t: 0 };
+  async function showBanner(txt, ms = 1100) {
+    const b = $("#banner");
+    if (!b)
+      return;
+    b.textContent = txt;
+    b.classList.remove("hidden");
+    const token = ++bannerHold.t;
+    await sleep(ms);
+    if (token === bannerHold.t)
+      b.classList.add("hidden");
   }
-  function endOfTurn(mon) {
-    const s = mon.status;
-    if (s.cond === "brn" || s.cond === "psn") {
-      const dmg = Math.max(1, Math.floor(mon.stats.maxHp / 16));
-      mon.stats.hp = clamp2(mon.stats.hp - dmg, 0, mon.stats.maxHp);
-      updateHUD();
-      floatTextNear(
-        mon === state.player ? "#playerSprite" : "#enemySprite",
-        `-${dmg}`,
-        false
-      );
-      if (mon.stats.hp <= 0) {
-        text(`${mon.name} fainted from ${s.cond === "brn" ? "burn" : "poison"}!`);
-      }
+  var THEMES = ["normal", "fire", "water", "grass", "electric", "ice", "fighting", "poison", "ground", "flying", "psychic", "bug", "rock", "ghost", "dragon"];
+  function setThemeByType(types) {
+    const t = types && types[0] || "normal";
+    const scr = $(".screen");
+    if (!scr)
+      return;
+    THEMES.forEach((x) => scr.classList.remove("type-" + x));
+    scr.classList.add("type-" + t);
+    scr.style.setProperty("--type", TYPE_COLOR[t] || "#888");
+    try {
+      ThemeFX.set(t);
+    } catch (_) {
     }
-  }
-  function applyAilment(target, ail) {
-    if (!ail || ail === "none")
-      return;
-    const s = target.status;
-    if (s.cond !== "none")
-      return;
-    const map = {
-      burn: "brn",
-      paralysis: "par",
-      poison: "psn",
-      sleep: "slp",
-      freeze: "frz"
-    };
-    const c = map[ail];
-    if (!c)
-      return;
-    s.cond = c;
-    s.turns = c === "slp" ? 2 + Math.floor(Math.random() * 3) : 0;
-    text(
-      `${target.name} is ${c === "par" ? "paralyzed" : c === "psn" ? "poisoned" : c === "brn" ? "burned" : c === "frz" ? "frozen" : "asleep"}!`
-    );
   }
   var fx = function() {
     const canvas = document.getElementById("fxCanvas");
@@ -1041,58 +1580,41 @@
     }
     window.addEventListener("resize", resize);
     resize();
-    function clear() {
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-    }
-    let ballImagePromise;
-    async function getBallImage() {
-      if (ballImagePromise)
-        return ballImagePromise;
-      ballImagePromise = (async () => {
-        const url = ITEM_ICON("poke-ball");
+    const clear = () => ctx.clearRect(0, 0, canvas.width, canvas.height);
+    let ballPromise;
+    async function ball() {
+      if (ballPromise)
+        return ballPromise;
+      ballPromise = (async () => {
         try {
-          let blobUrl = null;
-          if (window.isSecureContext && "caches" in window) {
-            const cache = await caches.open("poke-cache");
-            let resp = await cache.match(url);
-            if (!resp) {
-              resp = await fetch(url, { mode: "cors" });
-              if (resp.ok)
-                cache.put(url, resp.clone());
-            }
-            if (resp && resp.ok) {
-              const blob = await resp.blob();
-              blobUrl = URL.createObjectURL(blob);
-            }
-          }
           const im = new Image();
           im.crossOrigin = "anonymous";
-          im.src = blobUrl || url;
+          im.src = ITEM_ICON("poke-ball");
           await new Promise((r) => {
             im.onload = r;
             im.onerror = r;
           });
           return im.width ? im : null;
-        } catch (e) {
+        } catch (_) {
           return null;
         }
       })();
-      return ballImagePromise;
+      return ballPromise;
     }
-    async function throwAndWobble(startX, startY, targetX, targetY, onHit) {
-      if (!isMuted)
-        new Audio("assets/sfx/battle/attack.wav").play();
-      const r = 32;
-      const arcMin = cssNum("--ball-arc-min", 60), arcMax = cssNum("--ball-arc-max", 140);
-      const dx = targetX - startX, dy = targetY - startY;
-      const dist = Math.hypot(dx, dy);
-      const arc = clamp2(dist * 0.25, arcMin, arcMax);
-      const img = await getBallImage();
+    async function throwAndWobble(sx, sy, tx, ty, onHit) {
+      if (!isMuted) {
+        try {
+          new Audio("assets/sfx/battle/attack.wav").play();
+        } catch (_) {
+        }
+      }
+      const r = 30;
+      const arc = clamp(Math.hypot(tx - sx, ty - sy) * 0.25, cssNum("--ball-arc-min", 60), cssNum("--ball-arc-max", 140));
+      const img = await ball();
       for (let t = 0; t <= 1.001; t += 0.02) {
-        const ctrlX = (startX + targetX) / 2;
-        const ctrlY = Math.max(30, Math.min(startY, targetY) - arc);
-        const x = (1 - t) * (1 - t) * startX + 2 * (1 - t) * t * ctrlX + t * t * targetX;
-        const y = (1 - t) * (1 - t) * startY + 2 * (1 - t) * t * ctrlY + t * t * targetY;
+        const cx = (sx + tx) / 2, cy = Math.max(30, Math.min(sy, ty) - arc);
+        const x = (1 - t) * (1 - t) * sx + 2 * (1 - t) * t * cx + t * t * tx;
+        const y = (1 - t) * (1 - t) * sy + 2 * (1 - t) * t * cy + t * t * ty;
         clear();
         ctx.save();
         ctx.translate(x, y);
@@ -1104,11 +1626,11 @@
       }
       if (typeof onHit === "function")
         onHit();
-      async function wobbleOnce() {
+      async function wobble() {
         for (let a = 0; a < 1; a += 0.1) {
           clear();
           ctx.save();
-          ctx.translate(targetX, targetY);
+          ctx.translate(tx, ty);
           ctx.rotate(Math.sin(a * Math.PI * 2) * 0.35);
           if (img)
             ctx.drawImage(img, -r, -r, r * 2, r * 2);
@@ -1116,11 +1638,11 @@
           await sleep(30);
         }
       }
-      await wobbleOnce();
+      await wobble();
       return {
         async shake(times) {
           for (let i = 0; i < times; i++) {
-            await wobbleOnce();
+            await wobble();
             await sleep(160);
           }
         },
@@ -1130,995 +1652,926 @@
     return { throwAndWobble, clear };
   }();
   var ThemeFX = (() => {
-    const host = document.querySelector(".screen");
-    if (!host)
+    const layer = document.getElementById("themefx");
+    if (!layer)
       return { set: () => {
       } };
-    const layer = document.createElement("div");
-    layer.className = "themefx";
-    host.prepend(layer);
-    let current = "", intensity = 1;
+    let current = "";
+    const intensity = 1;
     const CONFIG = {
-      normal: {
-        kind: "mote",
-        count: 14,
-        size: [4, 10],
-        dur: [12, 18],
-        blur: [0, 1]
-      },
-      fire: {
-        kind: "ember",
-        count: 18,
-        size: [5, 12],
-        dur: [10, 15],
-        blur: [0, 1]
-      },
-      water: {
-        kind: "bubble",
-        count: 14,
-        size: [6, 14],
-        dur: [12, 18],
-        blur: [0, 0]
-      },
-      grass: {
-        kind: "leaf",
-        count: 12,
-        size: [8, 14],
-        dur: [12, 18],
-        blur: [0, 0]
-      },
-      electric: {
-        kind: "spark",
-        count: 10,
-        size: [10, 16],
-        dur: [8, 12],
-        blur: [0, 0]
-      },
-      ice: {
-        kind: "snow",
-        count: 20,
-        size: [4, 8],
-        dur: [12, 20],
-        blur: [0, 0.5]
-      },
-      fighting: {
-        kind: "mote",
-        count: 10,
-        size: [4, 10],
-        dur: [10, 16],
-        blur: [0, 0]
-      },
-      poison: {
-        kind: "fume",
-        count: 12,
-        size: [18, 28],
-        dur: [14, 22],
-        blur: [4, 8]
-      },
-      ground: {
-        kind: "dust",
-        count: 14,
-        size: [6, 12],
-        dur: [12, 18],
-        blur: [1, 3]
-      },
-      flying: {
-        kind: "feather",
-        count: 8,
-        size: [10, 18],
-        dur: [16, 22],
-        blur: [0, 0]
-      },
-      psychic: {
-        kind: "orb",
-        count: 8,
-        size: [10, 16],
-        dur: [10, 16],
-        blur: [0, 0]
-      },
-      bug: {
-        kind: "spore",
-        count: 14,
-        size: [5, 10],
-        dur: [12, 18],
-        blur: [0, 1]
-      },
-      rock: {
-        kind: "grit",
-        count: 12,
-        size: [5, 8],
-        dur: [10, 16],
-        blur: [0, 0]
-      },
-      ghost: {
-        kind: "wisp",
-        count: 8,
-        size: [16, 26],
-        dur: [16, 22],
-        blur: [4, 8]
-      },
-      dragon: {
-        kind: "star",
-        count: 10,
-        size: [4, 8],
-        dur: [16, 24],
-        blur: [0, 0]
-      }
+      normal: { kind: "mote", count: 14, size: [4, 10], dur: [12, 18], blur: [0, 1] },
+      fire: { kind: "ember", count: 20, size: [5, 12], dur: [10, 15], blur: [0, 1] },
+      water: { kind: "bubble", count: 16, size: [6, 14], dur: [12, 18], blur: [0, 0] },
+      grass: { kind: "leaf", count: 14, size: [8, 14], dur: [12, 18], blur: [0, 0] },
+      electric: { kind: "spark", count: 12, size: [10, 16], dur: [8, 12], blur: [0, 0] },
+      ice: { kind: "snow", count: 22, size: [4, 8], dur: [12, 20], blur: [0, 0.5] },
+      fighting: { kind: "mote", count: 10, size: [4, 10], dur: [10, 16], blur: [0, 0] },
+      poison: { kind: "fume", count: 12, size: [18, 28], dur: [14, 22], blur: [4, 8] },
+      ground: { kind: "dust", count: 14, size: [6, 12], dur: [12, 18], blur: [1, 3] },
+      flying: { kind: "feather", count: 9, size: [10, 18], dur: [16, 22], blur: [0, 0] },
+      psychic: { kind: "orb", count: 9, size: [10, 16], dur: [10, 16], blur: [0, 0] },
+      bug: { kind: "spore", count: 14, size: [5, 10], dur: [12, 18], blur: [0, 1] },
+      rock: { kind: "grit", count: 12, size: [5, 8], dur: [10, 16], blur: [0, 0] },
+      ghost: { kind: "wisp", count: 9, size: [16, 26], dur: [16, 22], blur: [4, 8] },
+      dragon: { kind: "star", count: 12, size: [4, 8], dur: [16, 24], blur: [0, 0] }
     };
-    function rand(a, b) {
-      return a + Math.random() * (b - a);
-    }
-    function clear() {
-      layer.innerHTML = "";
-    }
+    const rand = (a, b) => a + Math.random() * (b - a);
     function spawn(kind, conf) {
-      const el2 = document.createElement("div");
-      el2.className = "p " + kind;
-      const x = rand(5, 95).toFixed(2);
-      const size = Math.round(rand(conf.size[0], conf.size[1]));
+      const p = el("div", { class: "p " + kind });
       const durNum = rand(conf.dur[0], conf.dur[1]);
-      const dur = durNum.toFixed(2);
-      const delay = (-rand(0, durNum)).toFixed(2);
-      const dx = (Math.random() < 0.5 ? -1 : 1) * rand(4, 26);
-      const blur = rand(conf.blur[0], conf.blur[1]).toFixed(1);
-      el2.style.setProperty("--x", x);
-      el2.style.setProperty("--size", `${size}px`);
-      el2.style.setProperty("--dur", `${dur}s`);
-      el2.style.setProperty("--delay", `${delay}s`);
-      el2.style.setProperty("--dx", `${dx}px`);
-      el2.style.setProperty("--blur", blur);
+      p.style.setProperty("--x", rand(5, 95).toFixed(2));
+      p.style.setProperty("--size", `${Math.round(rand(conf.size[0], conf.size[1]))}px`);
+      p.style.setProperty("--dur", `${durNum.toFixed(2)}s`);
+      p.style.setProperty("--delay", `${(-rand(0, durNum)).toFixed(2)}s`);
+      p.style.setProperty("--dx", `${(Math.random() < 0.5 ? -1 : 1) * rand(4, 26)}px`);
+      p.style.setProperty("--blur", rand(conf.blur[0], conf.blur[1]).toFixed(1));
       if (kind === "orb") {
-        el2.style.setProperty("--r", `${Math.round(rand(50, 120))}px`);
-        el2.style.setProperty("--delay", `${rand(0, 6).toFixed(2)}s`);
+        p.style.setProperty("--r", `${Math.round(rand(50, 120))}px`);
+        p.style.setProperty("--delay", `${rand(0, 6).toFixed(2)}s`);
       }
-      layer.appendChild(el2);
+      layer.appendChild(p);
     }
     function set(type) {
-      if (!type)
-        type = "normal";
+      type = type || "normal";
       if (type === current)
         return;
       current = type;
-      clear();
+      layer.innerHTML = "";
       const conf = CONFIG[type] || CONFIG.normal;
       const n = Math.round(conf.count * intensity);
       for (let i = 0; i < n; i++)
         spawn(conf.kind, conf);
     }
-    function setIntensity(value = 1) {
-      intensity = Math.max(0.25, Math.min(2, value));
-      set(current);
-    }
     set("normal");
-    function burst(kind = CONFIG[current]?.kind || "mote", count = 8) {
-      const temp = { size: [10, 16], dur: [4, 7], blur: [0, 1] };
-      for (let i = 0; i < count; i++)
-        spawn(kind, temp);
-    }
-    return { set, burst, setIntensity };
+    return { set };
   })();
-  function maybeAwardDrops() {
-    if (Math.random() < 0.2) {
-      const gained = Math.random() < 0.5 ? 1 : 2;
-      state.items["poke-ball"] += gained;
-      text(`You found ${gained} Pok\xE9 Ball${gained > 1 ? "s" : ""}!`);
+  function labelFor(mon, isEnemy) {
+    return (isEnemy && state.mode !== "trainer" ? "Wild " : "") + mon.name;
+  }
+  async function performMove(attacker, defender, move, attackerIsPlayer) {
+    const aSel = attackerIsPlayer ? "#playerSprite" : "#enemySprite";
+    const dSel = attackerIsPlayer ? "#enemySprite" : "#playerSprite";
+    const towardRight = attackerIsPlayer;
+    const act = canAct(attacker);
+    if (act.message) {
+      await say(act.message, 200);
     }
-    if (Math.random() < 0.15) {
-      const r = Math.random();
-      const key = r < 0.6 ? "potion" : r < 0.9 ? "super-potion" : "hyper-potion";
-      state.items[key]++;
-      text(`You obtained a ${cap(key.replace(/-/g, " "))}!`);
+    if (!act.canAct)
+      return { acted: false, defenderFainted: false };
+    if (move.ppLeft <= 0)
+      move = { ...STRUGGLE };
+    else
+      move.ppLeft = Math.max(0, move.ppLeft - 1);
+    await say(`${attackerIsPlayer ? "" : state.mode === "trainer" ? "Foe " : "The wild "}${attacker.name} used ${move.name}!`, 120);
+    renderMovesIfOpen();
+    if (move.power > 0) {
+      playSfx(move);
+      await lunge(aSel, towardRight);
+    } else {
+      playSfx(move);
     }
-    if (Math.random() < 0.1) {
-      const cures = [
-        "antidote",
-        "parlyz-heal",
-        "awakening",
-        "burn-heal",
-        "ice-heal"
-      ];
-      const key = cures[Math.floor(Math.random() * cures.length)];
-      state.items[key]++;
-      text(`You found a ${cap(key.replace(/-/g, " "))}!`);
+    const res = useMove(attacker, defender, move);
+    if (res.missed) {
+      await say(res.log[0] || "But it missed!");
+      return { acted: true, defenderFainted: false, result: res };
     }
+    if (res.immune) {
+      await say(res.log[0] || `It doesn't affect ${defender.name}...`);
+      return { acted: true, defenderFainted: false, result: res };
+    }
+    if (res.hits.length) {
+      const crit = res.hits.some((h) => h.crit);
+      impactSprite(dSel, crit, towardRight);
+      spawnSparksAt(dSel, move.type, crit ? 16 : 10);
+      if (!attackerIsPlayer)
+        screenShake(crit ? "crit" : "hit");
+      updateHUD();
+      const dmgTxt = `-${res.totalDmg}`;
+      floatTextNear(dSel, dmgTxt, crit ? "crit" : "bad");
+      if (crit) {
+        await say("A critical hit!");
+      }
+      const eff = res.effMult;
+      if (eff !== void 0 && eff !== 1) {
+        const t = effText(eff);
+        if (t) {
+          showBadgeNear(dSel, eff > 1 ? "SUPER" : "RESIST", eff > 1 ? "super" : "weak");
+          await say(t);
+        }
+      }
+    }
+    if (res.drain > 0) {
+      updateHUD();
+      floatTextNear(aSel, `+${res.drain}`, "good");
+    }
+    if (res.recoil > 0) {
+      updateHUD();
+      floatTextNear(aSel, `-${res.recoil}`, "bad");
+    }
+    if (res.healed > 0) {
+      updateHUD();
+      floatTextNear(aSel, `+${res.healed}`, "good");
+    }
+    for (const line of res.log) {
+      if (/used |missed|doesn't affect|drained|recoil|regained|Hit /.test(line))
+        continue;
+      await say(line);
+    }
+    updateHUD();
+    return { acted: true, defenderFainted: res.targetFainted, result: res };
+  }
+  async function fightRound(playerMove) {
+    setBusy(true);
+    show("none");
+    const eIdx = chooseAIMove(state.enemy, state.player);
+    const enemyMove = state.enemy.moves[eIdx] || { ...STRUGGLE };
+    const playerFirst = firstMover(state.player, playerMove, state.enemy, enemyMove) === "a";
+    const order = playerFirst ? [["p", playerMove], ["e", enemyMove]] : [["e", enemyMove], ["p", playerMove]];
+    const flinch = { p: false, e: false };
+    for (const [who, move] of order) {
+      if (state.player.stats.hp <= 0 || state.enemy.stats.hp <= 0)
+        break;
+      if (who === "p") {
+        if (flinch.p) {
+          await say(`${state.player.name} flinched and couldn't move!`);
+          continue;
+        }
+        const r = await performMove(state.player, state.enemy, move, true);
+        if (r.result && r.result.flinch)
+          flinch.e = true;
+        if (state.enemy.stats.hp <= 0)
+          return onEnemyFaint();
+      } else {
+        if (flinch.e) {
+          await say(`Foe ${state.enemy.name} flinched!`);
+          continue;
+        }
+        const r = await performMove(state.enemy, state.player, move, false);
+        if (r.result && r.result.flinch)
+          flinch.p = true;
+        if (state.player.stats.hp <= 0)
+          return onPlayerFaint();
+      }
+    }
+    if (await residualPhase())
+      return;
+    await backToMenu();
+  }
+  async function enemyFreeTurn() {
+    const eIdx = chooseAIMove(state.enemy, state.player);
+    const enemyMove = state.enemy.moves[eIdx] || { ...STRUGGLE };
+    await performMove(state.enemy, state.player, enemyMove, false);
+    if (state.player.stats.hp <= 0)
+      return onPlayerFaint();
+    if (await residualPhase())
+      return;
+    await backToMenu();
+  }
+  async function residualPhase() {
+    for (const [mon, sel, isEnemy] of [
+      [state.player, "#playerSprite", false],
+      [state.enemy, "#enemySprite", true]
+    ]) {
+      if (!mon || mon.stats.hp <= 0)
+        continue;
+      const r = endOfTurn(mon);
+      if (r && r.dmg) {
+        updateHUD();
+        floatTextNear(sel, `-${r.dmg}`, "bad");
+        await say(`${mon.name} is hurt by its ${r.kind === "brn" ? "burn" : "poison"}!`);
+        if (r.fainted) {
+          if (isEnemy) {
+            await onEnemyFaint();
+            return true;
+          }
+          await onPlayerFaint();
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+  async function backToMenu() {
+    show("menu");
+    await say("What will you do?", 0);
+    setBusy(false);
+    maybeAuto();
+  }
+  function xpFor(enemy) {
+    const base = Math.max(1, Math.floor((enemy.base_exp || 64) * enemy.level / 7));
+    return state.mode === "trainer" ? Math.floor(base * 1.5) : base;
+  }
+  async function onEnemyFaint() {
+    await playCry(state.enemy);
+    await faintOut("#enemySprite");
+    await say(`${labelFor(state.enemy, true)} fainted!`);
+    await gainXP(state.player, xpFor(state.enemy));
+    if (state.mode === "trainer") {
+      state.trainerIdx++;
+      if (state.trainerIdx < state.trainerTeam.length) {
+        await sleep(400);
+        await sendTrainerMon(state.trainerIdx);
+        await backToMenu();
+        return;
+      }
+      await onTrainerDefeated();
+      return;
+    }
+    state.wins++;
+    maybeAwardDrops();
+    updateScore();
+    save();
+    await sleep(500);
+    await startEncounter();
+    setBusy(false);
+  }
+  async function onPlayerFaint() {
+    await playCry(state.player);
+    await faintOut("#playerSprite");
+    await say(`${state.player.name} fainted!`);
+    const healthyIdx = state.party.map((m, i) => ({ m, i })).filter(({ m, i }) => m.stats.hp > 0 && i !== state.active).map(({ i }) => i);
+    if (healthyIdx.length) {
+      if (state.auto) {
+        const cur = battleScore(state.player, state.enemy);
+        const pick = bestSwitch(state.party, state.active, state.enemy, 0, 0) ?? healthyIdx[0];
+        await say("Choose your next Pok\xE9mon!");
+        await swapTo(pick, true);
+        return;
+      }
+      await say("Choose your next Pok\xE9mon!");
+      renderParty(true);
+      show("swap");
+      setBusy(false);
+      return;
+    }
+    await say("You have no Pok\xE9mon left to fight...", 400);
+    await say("You scurry back to the Pok\xE9mon Center.");
+    state.party.forEach((m) => {
+      m.stats.hp = m.stats.maxHp;
+      m.status = { cond: "none", turns: 0, toxic: 0 };
+      resetStages(m);
+      m.moves.forEach((mv) => mv.ppLeft = mv.pp);
+    });
+    state.money = Math.max(0, Math.floor(state.money * 0.5));
+    state.mode = "wild";
+    state.trainer = null;
+    state.wins = Math.max(0, state.wins - 1);
+    setActive(0);
+    save();
+    await sleep(700);
+    await startEncounter();
+    setBusy(false);
+  }
+  function wildLevel() {
+    return clamp(4 + Math.floor(state.wins / 2.5), 4, 55);
   }
   async function startEncounter() {
+    resetStages(state.player);
+    if (state.mode !== "trainer" && state.trainersBeaten < TRAINERS.length && state.wins >= (state.trainersBeaten + 1) * TRAINER_EVERY) {
+      return startTrainerBattle(TRAINERS[state.trainersBeaten]);
+    }
+    state.mode = "wild";
+    state.trainer = null;
+    state.trainerTeam = [];
     show("menu");
-    let poke, mon, species;
-    for (let tries = 0; tries < 10; tries++) {
-      const enemyLevel = clamp2(3 + Math.floor(wins / 3), 3, 12);
+    const level = wildLevel();
+    let mon = null, poke = null;
+    for (let tries = 0; tries < 12; tries++) {
       const eid = 1 + Math.floor(Math.random() * GEN1_MAX_ID);
       if (eid >= 144 && eid <= 151)
         continue;
       poke = await fetchPokemon(eid);
       const bst = poke.stats.reduce((a, s) => a + s.base_stat, 0);
-      if (bst <= 330) {
-        mon = makeMon(poke, enemyLevel);
-        species = await fetchSpecies(eid);
+      if (bst <= 360 || tries > 8) {
+        mon = makeMon(poke, level);
+        const species = await fetchSpecies(poke.id);
         mon.capture_rate = species.capture_rate;
         break;
       }
     }
-    if (!mon) {
-      const enemyLevel = clamp2(3 + Math.floor(wins / 3), 3, 12);
-      mon = makeMon(poke, enemyLevel);
-      const sp = await fetchSpecies(poke.id);
-      mon.capture_rate = sp.capture_rate;
-    }
-    mon.moves = await getGen1DamageMovesForPokemon(poke, mon.level);
-    if (mon.moves.length === 0) {
-      mon.moves = [
-        {
-          name: "Tackle",
-          key: "tackle",
-          power: 40,
-          accuracy: 95,
-          type: "normal",
-          damage_class: "physical",
-          pp: 35,
-          ppLeft: 35
-        }
-      ];
-    }
+    mon.moves = await fetchMoveset(poke, mon.level);
+    if (!mon.moves.length)
+      mon.moves = [{ ...STRUGGLE, name: "Tackle", key: "tackle", power: 40, pp: 35, ppLeft: 35, drain: 0 }];
     state.enemy = mon;
-    await updateHUD();
-    const es = $2("#enemySprite");
-    if (es) {
-      es.style.transform = "none";
-      delete es.dataset.capdx;
-      delete es.dataset.capdy;
-      es.style.opacity = 0;
-      es.animate([{ opacity: 0 }, { opacity: 1 }], {
-        duration: 250,
-        easing: "ease-in"
-      }).onfinish = () => {
-        es.style.opacity = 1;
-      };
-    }
+    updateHUD();
     setThemeByType(mon.types);
-    text("A wild Pok\xE9mon appeared!");
+    await fadeInSprite("#enemySprite");
+    await say(`A wild ${mon.name} appeared!`);
     await playCry(mon);
-    maybeAuto();
+    await backToMenu();
   }
-  async function chooseStarter(id) {
-    const poke = await fetchPokemon(id);
-    const mon = makeMon(poke, 5);
-    const species = await fetchSpecies(id);
-    mon.capture_rate = species.capture_rate;
-    mon.moves = await getGen1DamageMovesForPokemon(poke, mon.level);
-    if (mon.moves.length === 0) {
-      mon.moves = [
-        {
-          name: "Tackle",
-          key: "tackle",
-          power: 40,
-          accuracy: 95,
-          type: "normal",
-          damage_class: "physical",
-          pp: 35,
-          ppLeft: 35
-        }
-      ];
+  async function startTrainerBattle(trainer) {
+    state.mode = "trainer";
+    state.trainer = trainer;
+    state.trainerIdx = 0;
+    setBusy(true);
+    show("none");
+    const base = wildLevel();
+    state.trainerTeam = [];
+    for (let i = 0; i < trainer.team.length; i++) {
+      const lvl = clamp(base + 1 + i, 4, 60);
+      const mon = await buildMon(trainer.team[i], lvl);
+      state.trainerTeam.push(mon);
     }
-    await setupGrowthAndEvo(mon, species);
-    mon.sprite = mon.spriteBack || mon.spriteFront;
-    state.party = [mon];
-    setActive(0);
+    await say(trainer.intro, 500);
+    await sendTrainerMon(0);
+    await backToMenu();
+  }
+  async function sendTrainerMon(idx) {
+    const mon = state.trainerTeam[idx];
+    ensureRuntime(mon);
+    state.enemy = mon;
+    updateHUD();
+    setThemeByType(mon.types);
+    await fadeInSprite("#enemySprite");
+    await say(`${state.trainer.title} sent out ${mon.name}!`);
+    await playCry(mon);
+  }
+  async function onTrainerDefeated() {
+    const t = state.trainer;
+    await say(`You defeated ${t.name}!`, 500);
+    const r = t.reward || {};
+    if (r.money) {
+      state.money += r.money;
+      await say(`You got \u20BD${r.money} for winning!`);
+    }
+    if (r.balls)
+      state.items["poke-ball"] += r.balls;
+    if (r.potions)
+      state.items["potion"] += r.potions;
+    if (r.hyperPotions)
+      state.items["hyper-potion"] += r.hyperPotions;
+    if (t.badge && !state.badges.includes(t.badge)) {
+      state.badges.push(t.badge);
+      await showBanner(`You earned the ${t.badge} Badge!`, 1500);
+    }
+    state.trainersBeaten++;
+    state.wins++;
+    state.mode = "wild";
+    state.trainer = null;
+    state.trainerTeam = [];
+    updateScore();
+    save();
+    await sleep(500);
     await startEncounter();
+    setBusy(false);
+  }
+  function maybeAwardDrops() {
+    if (Math.random() < 0.22) {
+      const g = Math.random() < 0.5 ? 1 : 2;
+      state.items["poke-ball"] += g;
+      floatToast(`Found ${g} Pok\xE9 Ball${g > 1 ? "s" : ""}!`);
+    }
+    if (Math.random() < 0.12) {
+      const r = Math.random();
+      const key = r < 0.6 ? "potion" : r < 0.9 ? "super-potion" : "hyper-potion";
+      state.items[key]++;
+    }
+    if (Math.random() < 0.1)
+      state.money += 20 + Math.floor(Math.random() * 40);
+  }
+  function floatToast(txt) {
+    showBanner(txt, 900);
+  }
+  function renderMovesIfOpen() {
+    if (!$("#movesView").classList.contains("hidden"))
+      renderMoves();
   }
   function renderMoves() {
-    const grid = $2("#movesGrid");
+    const grid = $("#movesGrid");
     grid.innerHTML = "";
     state.player.moves.forEach((mv, idx) => {
-      const disabled = mv.ppLeft <= 0;
-      const btn = document.createElement("button");
-      btn.className = "move-btn";
-      btn.disabled = disabled;
-      btn.innerHTML = `<span>${mv.name}</span><span class="small">${cap(
-        mv.type
-      )} \u2022 Pow ${mv.power} \u2022 PP ${mv.ppLeft}/${mv.pp}</span>`;
-      btn.addEventListener("click", () => useMove(idx));
+      const btn = el("button", { class: "move-btn" });
+      btn.style.setProperty("--mtype", TYPE_COLOR[mv.type] || "#666");
+      if (mv.ppLeft <= mv.pp * 0.25)
+        btn.classList.add("low-pp");
+      btn.disabled = mv.ppLeft <= 0 || state.busy;
+      const kind = mv.power > 0 ? `Pow ${mv.power}` : cap(mv.category.replace(/-/g, " "));
+      btn.innerHTML = `<span class="mv-name">${mv.name}</span><span class="mv-meta"><span>${cap(mv.type)}</span><span>${kind}</span><span class="mv-pp">PP ${mv.ppLeft}/${mv.pp}</span></span>`;
+      btn.addEventListener("click", () => onChooseMove(idx));
       grid.appendChild(btn);
     });
   }
-  function renderParty() {
-    const list = $2("#partyList");
+  function onChooseMove(idx) {
+    if (state.busy)
+      return;
+    const mv = state.player.moves[idx];
+    if (!mv || mv.ppLeft <= 0)
+      return;
+    fightRound(mv);
+  }
+  function renderParty(forcedSwitch = false) {
+    const list = $("#partyList");
     list.innerHTML = "";
     state.party.forEach((m, idx) => {
       const f = m.stats.hp / m.stats.maxHp;
-      const pct = Math.round(100 * f);
       const item = el("div", { class: "party-item" });
-      item.innerHTML = `<div>${idx === state.active ? "\u2605 " : ""}${cap(
-        m.name
-      )} Lv ${m.level} \u2014 HP ${m.stats.hp}/${m.stats.maxHp}</div><div style="width:120px" class="hpbar"><div style="width:${pct}%; height:8px; background:${hpColor(
-        f
-      )}"></div></div>`;
-      const b = el("button", {}, "Switch");
-      b.disabled = idx === state.active || m.stats.hp <= 0;
-      b.addEventListener("click", () => swapTo(idx));
-      item.appendChild(b);
+      if (idx === state.active)
+        item.classList.add("active-mon");
+      if (m.stats.hp <= 0)
+        item.classList.add("fainted");
+      const main = el("div", { class: "p-main" });
+      main.appendChild(el("img", { src: m.spriteFront || m.artwork, alt: m.name }));
+      const info = el("div", { class: "p-info" });
+      info.appendChild(el("div", { class: "p-name" }, `${idx === state.active ? "\u2605 " : ""}${m.name}`));
+      info.appendChild(el("div", { class: "small" }, `Lv ${m.level} \xB7 ${m.stats.hp}/${m.stats.maxHp} HP${m.status.cond !== "none" ? " \xB7 " + (STATUS_LABEL[m.status.cond] || "") : ""}`));
+      const mini = el("div", { class: "mini-hp" });
+      const miniFill = el("i", {});
+      miniFill.style.width = `${100 * f}%`;
+      miniFill.style.background = hpColor(f);
+      mini.appendChild(miniFill);
+      info.appendChild(mini);
+      main.appendChild(info);
+      item.appendChild(main);
+      const btn = el("button", { class: "use-btn" }, idx === state.active ? "Active" : "Switch");
+      btn.disabled = idx === state.active || m.stats.hp <= 0 || state.busy;
+      btn.addEventListener("click", () => swapTo(idx, forcedSwitch));
+      item.appendChild(btn);
       list.appendChild(item);
     });
   }
-  async function swapTo(idx) {
-    if (state.busy)
+  async function swapTo(idx, forced = false) {
+    if (state.busy && !forced)
+      return;
+    if (idx === state.active)
       return;
     setBusy(true);
-    if (idx === state.active) {
-      setBusy(false);
-      return;
-    }
-    const from = state.player;
-    const to = state.party[idx];
-    text(`${cap(from.name)}, come back! Go, ${cap(to.name)}!`);
-    await sleep(500);
+    const from = state.player, to = state.party[idx];
+    await say(`${from.name}, come back!`);
+    await faintOut("#playerSprite").catch(() => {
+    });
     setActive(idx);
-    await sleep(400);
-    await enemyTurn();
-    show("menu");
-    setBusy(false);
-  }
-  function effText(mult) {
-    if (mult === 0)
-      return "It doesn't affect the foe...";
-    if (mult >= 2)
-      return "It's super effective!";
-    if (mult <= 0.5)
-      return "It's not very effective...";
-    return "";
-  }
-  async function useMove(i) {
-    if (state.busy)
-      return;
-    setBusy(true);
-    const actor = state.player;
-    if (!canAct(actor)) {
-      await sleep(600);
-      await enemyTurn();
-      setBusy(false);
-      return;
+    await fadeInSprite("#playerSprite");
+    await say(`Go, ${to.name}!`);
+    await playCry(to);
+    save();
+    if (forced) {
+      await backToMenu();
+    } else {
+      await enemyFreeTurn();
     }
-    const mv = actor.moves[i];
-    if (mv.ppLeft <= 0) {
-      text("No PP left for that move!");
-      setBusy(false);
-      return;
-    }
-    show("menu");
-    text(`${actor.name} used ${mv.name}!`);
-    await sleep(250);
-    mv.ppLeft = Math.max(0, mv.ppLeft - 1);
-    renderMoves();
-    if (!rollHit(mv.accuracy)) {
-      text("But it missed!");
-      await sleep(400);
-      await enemyTurn();
-      setBusy(false);
-      return;
-    }
-    playSfx(mv);
-    const { dmg, eff, crit } = calcDamage(actor, state.enemy, mv);
-    impactSprite("#enemySprite", crit, true);
-    spawnSparksAt("#enemySprite", mv.type, crit ? 14 : 10);
-    state.enemy.stats.hp = clamp2(
-      state.enemy.stats.hp - dmg,
-      0,
-      state.enemy.stats.maxHp
-    );
-    updateHUD();
-    let msg = `-${dmg}`;
-    if (crit)
-      msg += "!";
-    floatTextNear("#enemySprite", msg, false);
-    if (eff !== 1) {
-      text(effText(eff));
-      showBadgeNear("#enemySprite", eff > 1 ? "SUPER!" : eff < 1 ? "WEAK" : "");
-      await sleep(350);
-    }
-    if (mv.ailment && mv.ailment !== "none" && Math.random() * 100 < (mv.ailment_chance || 0))
-      applyAilment(state.enemy, mv.ailment);
-    await sleep(300);
-    if (state.enemy.stats.hp <= 0) {
-      await playCry(state.enemy);
-      await faintOut("#enemySprite");
-      text(`The wild ${state.enemy.name} fainted!`);
-      const xpGain = Math.max(
-        1,
-        Math.floor((state.enemy.base_exp || 64) * state.enemy.level / 7)
-      );
-      await gainXP(actor, xpGain);
-      maybeAwardDrops();
-      wins++;
-      await sleep(800);
-      await startEncounter();
-      setBusy(false);
-      return;
-    }
-    endOfTurn(state.enemy);
-    if (state.enemy.stats.hp <= 0) {
-      await playCry(state.enemy);
-      text(`The wild ${state.enemy.name} fainted!`);
-      const xpGain = Math.max(
-        1,
-        Math.floor((state.enemy.base_exp || 64) * state.enemy.level / 7)
-      );
-      await gainXP(actor, xpGain);
-      maybeAwardDrops();
-      wins++;
-      await sleep(800);
-      await startEncounter();
-      setBusy(false);
-      return;
-    }
-    await enemyTurn();
-    setBusy(false);
-  }
-  async function enemyTurn() {
-    const actor = state.enemy;
-    if (!canAct(actor)) {
-      await sleep(500);
-      endOfTurn(state.player);
-      if (state.player.stats.hp <= 0) {
-        await playCry(state.player);
-        await faintOut("#playerSprite");
-        text(
-          `${state.player.name} fainted... Sending you to the Pok\xE9mon Center.`
-        );
-        await sleep(900);
-        state.player.stats.hp = state.player.stats.maxHp;
-        wins = Math.max(0, wins - 1);
-        await startEncounter();
-      } else {
-        text("What will you do?");
-        maybeAuto();
-      }
-      return;
-    }
-    const mv = actor.moves[Math.floor(Math.random() * actor.moves.length)];
-    text(`Enemy ${actor.name} used ${mv.name}!`);
-    await sleep(250);
-    if (!rollHit(mv.accuracy)) {
-      text("It missed!");
-      await sleep(300);
-      endOfTurn(state.player);
-      if (state.player.stats.hp <= 0) {
-        await playCry(state.player);
-        text(`${state.player.name} fainted...`);
-        await sleep(900);
-        state.player.stats.hp = state.player.stats.maxHp;
-        wins = Math.max(0, wins - 1);
-        await startEncounter();
-      } else {
-        text("What will you do?");
-        maybeAuto();
-      }
-      return;
-    }
-    playSfx(mv);
-    const { dmg, eff, crit } = calcDamage(actor, state.player, mv);
-    impactSprite("#playerSprite", crit, false);
-    spawnSparksAt("#playerSprite", mv.type, crit ? 14 : 10);
-    screenShake(crit ? "crit" : "hit");
-    state.player.stats.hp = clamp2(
-      state.player.stats.hp - dmg,
-      0,
-      state.player.stats.maxHp
-    );
-    updateHUD();
-    let msg = `-${dmg}`;
-    if (crit)
-      msg += "!";
-    floatTextNear("#playerSprite", msg, true);
-    if (eff !== 1) {
-      text(effText(eff));
-      await sleep(350);
-    }
-    if (mv.ailment && mv.ailment !== "none" && Math.random() * 100 < (mv.ailment_chance || 0))
-      applyAilment(state.player, mv.ailment);
-    await sleep(300);
-    if (state.player.stats.hp <= 0) {
-      await playCry(state.player);
-      text(`${state.player.name} fainted... Sending you to the Pok\xE9mon Center.`);
-      await sleep(900);
-      state.player.stats.hp = state.player.stats.maxHp;
-      wins = Math.max(0, wins - 1);
-      await startEncounter();
-      return;
-    }
-    endOfTurn(state.player);
-    if (state.player.stats.hp <= 0) {
-      await playCry(state.player);
-      text(`${state.player.name} fainted... Sending you to the Pok\xE9mon Center.`);
-      await sleep(900);
-      state.player.stats.hp = state.player.stats.maxHp;
-      wins = Math.max(0, wins - 1);
-      await startEncounter();
-      return;
-    }
-    text("What will you do?");
-    maybeAuto();
-  }
-  function hasPotion() {
-    return state.items["potion"] > 0 || state.items["super-potion"] > 0 || state.items["hyper-potion"] > 0;
-  }
-  function bestPotion() {
-    const need = state.player.stats.maxHp - state.player.stats.hp;
-    if (need <= 0)
-      return null;
-    const opts = [
-      { k: "potion", heal: 20 },
-      { k: "super-potion", heal: 50 },
-      { k: "hyper-potion", heal: 200 }
-    ];
-    for (const o of opts) {
-      if (state.items[o.k] > 0 && need <= o.heal)
-        return o;
-    }
-    for (const o of opts.slice().reverse()) {
-      if (state.items[o.k] > 0)
-        return o;
-    }
-    return null;
-  }
-  async function usePotionKey(key) {
-    if (state.busy)
-      return;
-    const map = { potion: 20, "super-potion": 50, "hyper-potion": 200 };
-    const heal = map[key];
-    if (!heal || state.items[key] <= 0) {
-      text("No such potion.");
-      await sleep(500);
-      await enemyTurn();
-      return;
-    }
-    if (state.player.stats.hp >= state.player.stats.maxHp) {
-      text("It won't have any effect...");
-      await sleep(500);
-      await enemyTurn();
-      return;
-    }
-    const got = Math.min(heal, state.player.stats.maxHp - state.player.stats.hp);
-    state.player.stats.hp += got;
-    state.items[key]--;
-    updateHUD();
-    text(`You used a ${cap(key.replace(/-/g, " "))}! Restored ${got} HP.`);
-    floatTextNear("#playerSprite", `+${got}`, true);
-    await sleep(500);
-    await enemyTurn();
-  }
-  function canCure(key) {
-    const s = state.player.status.cond;
-    if (!s || s === "none")
-      return false;
-    const map = {
-      antidote: "psn",
-      "parlyz-heal": "par",
-      awakening: "slp",
-      "burn-heal": "brn",
-      "ice-heal": "frz"
-    };
-    return map[key] === s;
-  }
-  async function useCureKey(key) {
-    if (state.items[key] <= 0) {
-      text("None left.");
-      await sleep(500);
-      await enemyTurn();
-      return;
-    }
-    if (!canCure(key)) {
-      text("It had no effect.");
-      await sleep(500);
-      await enemyTurn();
-      return;
-    }
-    state.items[key]--;
-    state.player.status = { cond: "none", turns: 0, toxic: false };
-    text(`${cap(key.replace(/-/g, " "))} cured the status!`);
-    await sleep(400);
-    await enemyTurn();
   }
   function openBag() {
     if (state.busy)
       return;
-    const box = $2("#msgBox");
-    let view = $2("#bagView");
+    const box = $("#msgBox");
+    let view = $("#bagView");
     if (!view) {
-      view = el("div", { id: "bagView", class: "hidden" });
+      view = el("div", { id: "bagView", class: "panel hidden" });
       box.appendChild(view);
     }
     view.innerHTML = "";
-    const head = el("div", { class: "row between" });
-    head.append(el("div", {}, "Bag"));
-    const back = el("button", { id: "bagBackBtn", class: "small" }, "Back");
-    back.onclick = () => {
+    const head = el("div", { class: "panel-head" });
+    head.appendChild(el("h3", {}, "Bag"));
+    const back = el("button", { class: "small ghost" }, "\u25C2 Back");
+    back.onclick = async () => {
       show("menu");
-      text("What will you do?");
+      await say("What will you do?", 0);
     };
-    head.append(back);
-    view.append(head);
-    const grid = el("div", {
-      id: "bagGrid",
-      style: "display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:8px;"
-    });
-    function card(key, label, action) {
+    head.appendChild(back);
+    view.appendChild(head);
+    const grid = el("div", { class: "bag-grid" });
+    const balls = state.mode === "trainer";
+    const item = (key, label, action) => {
       const count = state.items[key] || 0;
-      const c = el("div", {
-        class: "card",
-        style: "display:flex;align-items:center;gap:10px;justify-content:space-between;"
-      });
-      const left = el("div", {});
-      const img = el("img", {
-        src: ITEM_ICON(key),
-        width: 32,
-        height: 32,
-        alt: key
-      });
-      left.append(img);
-      left.append(el("div", { class: "small" }, `${label}`));
-      c.append(left);
-      c.append(el("div", { class: "small" }, `x${count}`));
-      const btn = el("button", {}, action === "ball" ? "Throw" : "Use");
-      btn.disabled = count <= 0;
+      const c = el("div", { class: "bag-item" });
+      const top = el("div", { class: "bag-top" });
+      top.appendChild(el("img", { src: ITEM_ICON(key), alt: key }));
+      top.appendChild(el("div", { class: "small" }, label));
+      c.appendChild(top);
+      c.appendChild(el("div", { class: "bag-count" }, `x${count}`));
+      const btn = el("button", { class: "use-btn" }, action === "ball" ? "Throw" : "Use");
+      btn.disabled = count <= 0 || state.busy || action === "ball" && balls;
       btn.onclick = () => {
         if (action === "ball")
-          throwBall();
+          throwBall(key);
         else if (["potion", "super-potion", "hyper-potion"].includes(key))
           usePotionKey(key);
         else
           useCureKey(key);
       };
-      c.append(btn);
-      grid.append(c);
-    }
-    card("poke-ball", "Pok\xE9 Ball", "ball");
-    card("potion", "Potion");
-    card("super-potion", "Super Potion");
-    card("hyper-potion", "Hyper Potion");
-    card("antidote", "Antidote");
-    card("parlyz-heal", "Parlyz Heal");
-    card("awakening", "Awakening");
-    card("burn-heal", "Burn Heal");
-    card("ice-heal", "Ice Heal");
-    view.append(grid);
+      c.appendChild(btn);
+      grid.appendChild(c);
+    };
+    item("poke-ball", "Pok\xE9 Ball", "ball");
+    item("great-ball", "Great Ball", "ball");
+    item("ultra-ball", "Ultra Ball", "ball");
+    item("potion", "Potion");
+    item("super-potion", "Super Potion");
+    item("hyper-potion", "Hyper Potion");
+    item("antidote", "Antidote");
+    item("parlyz-heal", "Parlyz Heal");
+    item("awakening", "Awakening");
+    item("burn-heal", "Burn Heal");
+    item("ice-heal", "Ice Heal");
+    view.appendChild(grid);
     show("bag");
-    text("Choose an item.");
+    say(balls ? "Choose an item. (You can't catch a trainer's Pok\xE9mon!)" : "Choose an item.", 0);
   }
-  function openBoxes() {
+  var POTION_HEAL = { potion: 20, "super-potion": 50, "hyper-potion": 200 };
+  async function usePotionKey(key) {
     if (state.busy)
       return;
-    const box = $2("#msgBox");
-    let view = $2("#boxView");
+    const heal = POTION_HEAL[key];
+    if (!heal || state.items[key] <= 0)
+      return;
+    if (state.player.stats.hp >= state.player.stats.maxHp) {
+      await say("It won't have any effect...");
+      return;
+    }
+    setBusy(true);
+    const got = Math.min(heal, state.player.stats.maxHp - state.player.stats.hp);
+    state.player.stats.hp += got;
+    state.items[key]--;
+    updateHUD();
+    floatTextNear("#playerSprite", `+${got}`, "good");
+    await say(`Used ${cap(key.replace(/-/g, " "))}! Restored ${got} HP.`);
+    save();
+    await enemyFreeTurn();
+  }
+  var CURE_MAP = { antidote: "psn", "parlyz-heal": "par", awakening: "slp", "burn-heal": "brn", "ice-heal": "frz" };
+  async function useCureKey(key) {
+    if (state.busy)
+      return;
+    if (state.items[key] <= 0)
+      return;
+    const target = CURE_MAP[key];
+    const cur = state.player.status.cond;
+    const matches = target === cur || key === "antidote" && cur === "tox";
+    if (!matches) {
+      await say("It had no effect.");
+      return;
+    }
+    setBusy(true);
+    state.items[key]--;
+    state.player.status = { cond: "none", turns: 0, toxic: 0 };
+    updateHUD();
+    await say(`${cap(key.replace(/-/g, " "))} cured the status!`);
+    save();
+    await enemyFreeTurn();
+  }
+  var BALL_BONUS = { "poke-ball": 1, "great-ball": 1.5, "ultra-ball": 2 };
+  async function throwBall(key = "poke-ball") {
+    if (state.busy)
+      return;
+    if (state.mode === "trainer") {
+      await say("You can't catch a trainer's Pok\xE9mon!");
+      return;
+    }
+    if ((state.items[key] || 0) <= 0) {
+      await say("None left!");
+      return;
+    }
+    setBusy(true);
+    show("none");
+    state.items[key]--;
+    await say(`You threw a ${cap(key.replace(/-/g, " "))}!`, 120);
+    const canvas = $("#fxCanvas");
+    const cRect = canvas.getBoundingClientRect();
+    const eRect = $(".enemy .plate").getBoundingClientRect();
+    const pRect = $(".player .plate").getBoundingClientRect();
+    const sx = 40, sy = pRect.top + pRect.height * 0.1 - cRect.top;
+    const tx = eRect.left + eRect.width * 0.5 - cRect.left, ty = eRect.top + eRect.height * 0.1 - cRect.top;
+    const enemyImg = $("#enemySprite");
+    try {
+      const handle = await fx.throwAndWobble(sx, sy, tx, ty, () => {
+        enemyImg.style.opacity = "0";
+      });
+      const success = catchSuccess(state.enemy, BALL_BONUS[key] || 1);
+      await handle.shake(success ? 3 : Math.floor(Math.random() * 2) + 1);
+      if (success) {
+        handle.clear();
+        await say(`Gotcha! ${state.enemy.name} was caught!`, 400);
+        const mon = await buildMon(state.enemy.id, state.enemy.level);
+        mon.stats.hp = state.enemy.stats.hp;
+        mon.status = state.enemy.status;
+        mon.sprite = mon.spriteFront;
+        if (state.party.length < 6)
+          state.party.push(mon);
+        else {
+          state.box.push(mon);
+          await say(`${mon.name} was sent to the PC Box!`);
+        }
+        maybeAwardDrops();
+        state.wins++;
+        updateScore();
+        save();
+        await sleep(700);
+        await startEncounter();
+        setBusy(false);
+      } else {
+        handle.clear();
+        enemyImg.style.opacity = "1";
+        await fadeInSprite("#enemySprite");
+        await say(`Oh no! ${state.enemy.name} broke free!`);
+        await enemyFreeTurn();
+      }
+    } catch (err) {
+      console.error("Ball FX error:", err);
+      enemyImg.style.opacity = "1";
+      await say("The ball fizzled...");
+      setBusy(false);
+    }
+  }
+  function openBox() {
+    if (state.busy)
+      return;
+    const box = $("#msgBox");
+    let view = $("#boxView");
     if (!view) {
-      view = el("div", { id: "boxView", class: "hidden" });
+      view = el("div", { id: "boxView", class: "panel hidden" });
       box.appendChild(view);
     }
     view.innerHTML = "";
-    const head = el("div", { class: "row between" });
-    head.append(el("div", {}, `Box \u2014 ${state.box.length} Pok\xE9mon`));
-    const back = el("button", { id: "boxBackBtn", class: "small" }, "Back");
-    back.onclick = () => {
-      show("swap");
-    };
-    head.append(back);
-    view.append(head);
-    const list = el("div", {
-      style: "display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:8px;"
-    });
+    const head = el("div", { class: "panel-head" });
+    head.appendChild(el("h3", {}, `PC Box \u2014 ${state.box.length}`));
+    const back = el("button", { class: "small ghost" }, "\u25C2 Back");
+    back.onclick = () => show("swap");
+    head.appendChild(back);
+    view.appendChild(head);
+    const grid = el("div", { class: "box-grid" });
+    if (!state.box.length)
+      grid.appendChild(el("div", { class: "small" }, "The Box is empty."));
     state.box.forEach((m, idx) => {
-      const c = el("div", { class: "card" });
-      c.innerHTML = `<div style="display:flex;align-items:center;gap:8px;justify-content:space-between"><div><img src="${m.spriteFront}" width="48" height="48"/> ${cap(m.name)} Lv ${m.level}</div></div>`;
-      const b = el(
-        "button",
-        {},
-        state.party.length < 6 ? "Add to party" : "Swap with active"
-      );
+      const c = el("div", { class: "box-item" });
+      const main = el("div", { class: "p-main" });
+      main.appendChild(el("img", { src: m.spriteFront || m.artwork, alt: m.name }));
+      main.appendChild(el("div", { class: "p-info" }, ""));
+      main.lastChild.appendChild(el("div", { class: "p-name" }, m.name));
+      main.lastChild.appendChild(el("div", { class: "small" }, `Lv ${m.level}`));
+      c.appendChild(main);
+      const b = el("button", { class: "use-btn" }, state.party.length < 6 ? "Withdraw" : "Swap");
       b.onclick = () => {
         if (state.party.length < 6) {
           state.party.push(m);
           state.box.splice(idx, 1);
-          setActive(state.party.length - 1);
         } else {
           const old = state.party[state.active];
           state.party[state.active] = m;
           state.box[idx] = old;
           setActive(state.active);
         }
+        save();
         renderParty();
-        openBoxes();
+        openBox();
       };
-      c.append(b);
-      list.append(c);
+      c.appendChild(b);
+      grid.appendChild(c);
     });
-    view.append(list);
+    view.appendChild(grid);
     show("box");
   }
-  async function throwBall() {
-    if (state.busy)
-      return;
-    setBusy(true);
-    if ((state.items["poke-ball"] || 0) <= 0) {
-      text("No Pok\xE9 Balls left!");
-      setBusy(false);
-      return;
-    }
-    state.items["poke-ball"]--;
-    text(`You threw a Pok\xE9 Ball! (x${state.items["poke-ball"]})`);
-    const canvas = document.getElementById("fxCanvas");
-    const cRect = canvas.getBoundingClientRect();
-    const eRect = document.querySelector(".enemy .plate").getBoundingClientRect();
-    const pRect = document.querySelector(".player .plate").getBoundingClientRect();
-    const startX = 40;
-    const startY = pRect.top + pRect.height * 0.1 - cRect.top;
-    const targetX = eRect.left + eRect.width * 0.5 - cRect.left;
-    const targetY = eRect.top + eRect.height * 0.1 - cRect.top;
-    const enemyImg = document.getElementById("enemySprite");
-    try {
-      const handle = await fx.throwAndWobble(
-        startX,
-        startY,
-        targetX,
-        targetY,
-        () => {
-          enemyImg.style.opacity = "0";
-        }
-      );
-      const success = catchSuccess(state.enemy);
-      const shakes = success ? 3 : Math.floor(Math.random() * 2);
-      await handle.shake(shakes);
-      if (success) {
-        if (!isMuted)
-          new Audio("assets/sfx/battle/attack.wav").play();
-        text(`Gotcha! ${state.enemy.name} was caught!`);
-        const data = await fetchPokemon(state.enemy.id);
-        const species = await fetchSpecies(state.enemy.id);
-        const mon = makeMon(data, state.enemy.level);
-        mon.moves = await getGen1DamageMovesForPokemon(data, mon.level);
-        mon.capture_rate = species.capture_rate;
-        await setupGrowthAndEvo(mon, species);
-        mon.sprite = mon.spriteFront;
-        if (state.party.length < 6) {
-          state.party.push(mon);
-        } else {
-          state.box.push(mon);
-          text(`${cap(mon.name)} was sent to the Box!`);
-        }
-        maybeAwardDrops();
-        await sleep(1100);
-        handle.clear();
-        await startEncounter();
-      } else {
-        handle.clear();
-        captureRelease("#enemySprite");
-        text(`The ${state.enemy.name} escaped!`);
-        await sleep(600);
-        await enemyTurn();
-      }
-    } catch (err) {
-      console.error("Ball FX error:", err);
-      enemyImg.style.opacity = "1";
-      text("The ball fizzled\u2026");
-      await sleep(500);
-    }
-    setBusy(false);
+  function hasPotion() {
+    return state.items.potion > 0 || state.items["super-potion"] > 0 || state.items["hyper-potion"] > 0;
   }
-  (function initUI() {
-    ["#catchBtn", "#potionBtn"].forEach((sel) => {
-      const e = $2(sel);
-      if (e)
-        e.style.display = "none";
-    });
-    const bag = $2("#ballInfoBtn");
-    if (bag) {
-      bag.textContent = "BAG";
-      bag.onclick = () => {
-        if (state.busy)
-          return;
-        openBag();
-      };
-    }
-    const menu = $2("#menu .choices");
-    if (menu && !$2("#autoToggle")) {
-      const lab = el("label", {
-        class: "small",
-        style: "display:flex; align-items:center; gap:6px;"
-      });
-      const cb = el("input", { type: "checkbox", id: "autoToggle" });
-      cb.onchange = () => {
-        state.auto = cb.checked;
-        if (state.auto)
-          maybeAuto();
-      };
-      lab.append(cb);
-      lab.append(document.createTextNode("Auto play"));
-      menu.append(lab);
-    }
-    const swapHead = $2("#swapView .row.between");
-    if (swapHead && !$2("#boxOpenBtn")) {
-      const b = el("button", { id: "boxOpenBtn", class: "small" }, "Boxes");
-      b.onclick = () => openBoxes();
-      swapHead.insertBefore(b, swapHead.lastElementChild);
-    }
-  })();
-  function bestMove(attacker, defender) {
-    let pick = null;
-    let score = -1;
-    attacker.moves.forEach((m, idx) => {
-      if (m.ppLeft <= 0)
-        return;
-      const eff = typeEffect(m.type, defender.types);
-      const stab = attacker.types.includes(m.type) ? 1.5 : 1;
-      const ppFactor = m.pp > 0 ? m.ppLeft / m.pp : 0;
-      const sc = (m.power || 0) * eff * stab * (m.accuracy || 100) * ppFactor / 100;
-      if (sc > score) {
-        score = sc;
-        pick = idx;
-      }
-    });
-    return pick;
-  }
-  function battleScore(mon, enemy) {
-    let maxMoveScore = 0;
-    let totalPP = 0;
-    let totalPPLeft = 0;
-    mon.moves.forEach((m) => {
-      totalPP += m.pp || 0;
-      totalPPLeft += m.ppLeft || 0;
-      if (m.ppLeft <= 0)
-        return;
-      const eff = typeEffect(m.type, enemy.types);
-      const stab = mon.types.includes(m.type) ? 1.5 : 1;
-      const ppFactor = m.pp > 0 ? m.ppLeft / m.pp : 0;
-      const mScore = (m.power || 0) * eff * stab * (m.accuracy || 100) * ppFactor / 100;
-      if (mScore > maxMoveScore)
-        maxMoveScore = mScore;
-    });
-    if (maxMoveScore <= 0)
-      return 0;
-    const ppFactorOverall = totalPP > 0 ? totalPPLeft / totalPP : 0;
-    let defScore = 0;
-    let moveCount = 0;
-    enemy.moves.forEach((em) => {
-      if (em.ppLeft <= 0)
-        return;
-      defScore += typeEffect(em.type, mon.types);
-      moveCount++;
-    });
-    defScore = moveCount > 0 ? defScore / moveCount : 1;
-    const defFactor = 1 / defScore;
-    const hpFactor = mon.stats.hp / mon.stats.maxHp;
-    const levelFactor = enemy.level ? Math.max(0.5, Math.min(2, mon.level / enemy.level)) : 1;
-    return maxMoveScore * defFactor * hpFactor * ppFactorOverall * levelFactor;
-  }
-  function bestSwitch(enemy, currentScore, threshold = 1.5) {
-    let bestIdx = null;
-    let bestScore = currentScore * threshold;
-    state.party.forEach((mon, idx) => {
-      if (mon.stats.hp <= 0 || idx === state.active)
-        return;
-      const score = battleScore(mon, enemy);
-      if (score > bestScore) {
-        bestScore = score;
-        bestIdx = idx;
-      }
-    });
-    return bestIdx;
-  }
-  async function autoSwitch(toIdx) {
-    if (state.busy || toIdx === state.active)
-      return;
-    setBusy(true);
-    const oldName = cap(state.player.name);
-    const newName = cap(state.party[toIdx].name);
-    text(`Come back, ${oldName}!`);
-    await sleep(800);
-    setActive(toIdx);
-    updateHUD();
-    text(`Go, ${newName}!`);
-    await sleep(800);
-    await enemyTurn();
-    setBusy(false);
+  function bestPotion() {
+    const need = state.player.stats.maxHp - state.player.stats.hp;
+    if (need <= 0)
+      return null;
+    const opts = [{ k: "potion", h: 20 }, { k: "super-potion", h: 50 }, { k: "hyper-potion", h: 200 }];
+    for (const o of opts)
+      if (state.items[o.k] > 0 && need <= o.h)
+        return o.k;
+    for (const o of opts.slice().reverse())
+      if (state.items[o.k] > 0)
+        return o.k;
+    return null;
   }
   async function maybeAuto() {
-    if (!state.auto || state.busy)
+    if (!state.auto || state.busy || !state.started)
       return;
-    await sleep(450);
+    if (!state.player || !state.enemy || state.player.stats.hp <= 0)
+      return;
+    await sleep(420);
+    if (state.busy || state.player.stats.hp <= 0)
+      return;
     const hpF = state.player.stats.hp / state.player.stats.maxHp;
     const enemyHpF = state.enemy.stats.hp / state.enemy.stats.maxHp;
     if (hpF < 0.35 && hasPotion()) {
-      const p = bestPotion();
-      if (p) {
-        await usePotionKey(p.k);
-        await sleep(500);
-        return;
-      }
+      const k = bestPotion();
+      if (k)
+        return usePotionKey(k);
     }
-    if ((state.items["poke-ball"] || 0) > 0 && (enemyHpF < 0.3 || ["slp", "frz", "par"].includes(state.enemy.status.cond))) {
-      await throwBall();
-      await sleep(400);
-      return;
+    if (state.mode !== "trainer" && (state.items["poke-ball"] || 0) > 0 && (enemyHpF < 0.28 || ["slp", "frz", "par"].includes(state.enemy.status.cond))) {
+      return throwBall("poke-ball");
     }
-    const curScore = battleScore(state.player, state.enemy);
+    const cur = battleScore(state.player, state.enemy);
     if (hpF < 0.3) {
-      const switchIdxLow = bestSwitch(state.enemy, curScore, 1.1);
-      if (switchIdxLow != null) {
-        text("Auto: Preserving low HP mon\u2026");
-        await autoSwitch(switchIdxLow);
-        await sleep(400);
+      const s = bestSwitch(state.party, state.active, state.enemy, cur, 1.1);
+      if (s != null)
+        return swapTo(s);
+    }
+    const better = bestSwitch(state.party, state.active, state.enemy, cur, 1.5);
+    if (better != null)
+      return swapTo(better);
+    const idx = bestMoveIndex(state.player, state.enemy);
+    if (idx != null)
+      return fightRound(state.player.moves[idx]);
+    if (state.mode === "trainer") {
+      const m = state.player.moves[0];
+      if (m)
+        return fightRound(m);
+    }
+    await say("Got away safely!");
+    await sleep(300);
+    await startEncounter();
+  }
+  function save() {
+    try {
+      const data = {
+        party: state.party,
+        box: state.box,
+        active: state.active,
+        items: state.items,
+        money: state.money,
+        wins: state.wins,
+        badges: state.badges,
+        trainersBeaten: state.trainersBeaten,
+        v: 2
+      };
+      localStorage.setItem(SAVE_KEY, JSON.stringify(data));
+    } catch (_) {
+    }
+  }
+  function hasSave() {
+    try {
+      return !!localStorage.getItem(SAVE_KEY);
+    } catch (_) {
+      return false;
+    }
+  }
+  function loadSave() {
+    try {
+      const raw = localStorage.getItem(SAVE_KEY);
+      if (!raw)
+        return false;
+      const d = JSON.parse(raw);
+      if (!d.party || !d.party.length)
+        return false;
+      state.party = d.party.map(ensureRuntime);
+      state.box = (d.box || []).map(ensureRuntime);
+      state.active = clamp(d.active || 0, 0, state.party.length - 1);
+      state.items = Object.assign(state.items, d.items || {});
+      state.money = d.money || 0;
+      state.wins = d.wins || 0;
+      state.badges = d.badges || [];
+      state.trainersBeaten = d.trainersBeaten || 0;
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+  async function chooseStarter(id) {
+    setBusy(true);
+    const mon = await buildMon(id, 5);
+    mon.sprite = mon.spriteBack || mon.spriteFront;
+    state.party = [mon];
+    state.box = [];
+    state.wins = 0;
+    state.money = 500;
+    state.badges = [];
+    state.trainersBeaten = 0;
+    state.mode = "wild";
+    setActive(0);
+    await fadeInSprite("#playerSprite");
+    await say(`You chose ${mon.name}! Your journey begins.`, 500);
+    await playCry(mon);
+    save();
+    await startEncounter();
+    setBusy(false);
+  }
+  function showStarterPicker() {
+    const box = $("#msgBox");
+    let view = $("#starterView");
+    if (!view) {
+      view = el("div", { id: "starterView", class: "panel" });
+      box.appendChild(view);
+    }
+    view.innerHTML = "";
+    view.appendChild(el("div", { class: "panel-head" }, ""));
+    view.firstChild.appendChild(el("h3", {}, "Choose your partner"));
+    const grid = el("div", { class: "moves-grid" });
+    const starters = [
+      { id: 1, name: "Bulbasaur", type: "grass" },
+      { id: 4, name: "Charmander", type: "fire" },
+      { id: 7, name: "Squirtle", type: "water" }
+    ];
+    starters.forEach((s) => {
+      const b = el("button", { class: "move-btn" });
+      b.style.setProperty("--mtype", TYPE_COLOR[s.type]);
+      b.innerHTML = `<span class="mv-name">${s.name}</span><span class="mv-meta"><span>${cap(s.type)} type</span></span>`;
+      b.onclick = () => {
+        view.remove();
+        chooseStarter(s.id);
+      };
+      grid.appendChild(b);
+    });
+    view.appendChild(grid);
+    ["#menu", "#movesView", "#swapView"].forEach((sel) => $(sel) && $(sel).classList.add("hidden"));
+  }
+  async function beginNewGame() {
+    try {
+      localStorage.removeItem(SAVE_KEY);
+    } catch (_) {
+    }
+    state.party = [];
+    state.box = [];
+    state.wins = 0;
+    state.badges = [];
+    state.trainersBeaten = 0;
+    state.money = 0;
+    state.mode = "wild";
+    hideTitle();
+    state.started = true;
+    updateScore();
+    await say("Welcome! Choose your starter to begin.", 200);
+    showStarterPicker();
+  }
+  async function continueGame() {
+    if (!loadSave())
+      return beginNewGame();
+    hideTitle();
+    state.started = true;
+    setActive(state.active);
+    updateScore();
+    await startEncounter();
+  }
+  function hideTitle() {
+    const t = $("#titleScreen");
+    if (t)
+      t.classList.add("hidden");
+  }
+  function wireUI() {
+    $("#fightBtn").addEventListener("click", () => {
+      if (!state.busy) {
+        renderMoves();
+        show("moves");
+      }
+    });
+    $("#ballInfoBtn").addEventListener("click", () => {
+      if (!state.busy)
+        openBag();
+    });
+    $("#swapBtn").addEventListener("click", () => {
+      if (!state.busy) {
+        renderParty();
+        show("swap");
+      }
+    });
+    $("#runBtn").addEventListener("click", async () => {
+      if (state.busy)
+        return;
+      if (state.mode === "trainer") {
+        await say("You can't run from a trainer battle!");
         return;
       }
-    }
-    const switchIdx = bestSwitch(state.enemy, curScore, 1.5);
-    if (switchIdx != null) {
-      text("Auto: Switching to a better matchup\u2026");
-      await autoSwitch(switchIdx);
-      await sleep(400);
-      return;
-    }
-    const moveIdx = bestMove(state.player, state.enemy);
-    if (moveIdx != null) {
-      await useMove(moveIdx);
-      await sleep(400);
-      return;
-    }
-    const backupSwitch = bestSwitch(state.enemy, curScore, 1.1);
-    if (backupSwitch != null) {
-      text("Auto: Switching to available option\u2026");
-      await autoSwitch(backupSwitch);
-      await sleep(400);
-      return;
-    }
-    text("Auto: No viable moves, no healthy switch \u2014 running.");
-    await sleep(350);
-    await startEncounter();
+      setBusy(true);
+      await say("Got away safely!");
+      await sleep(300);
+      await startEncounter();
+      setBusy(false);
+    });
+    $("#backBtn").addEventListener("click", async () => {
+      if (!state.busy) {
+        show("menu");
+        await say("What will you do?", 0);
+      }
+    });
+    $("#swapBackBtn").addEventListener("click", async () => {
+      if (!state.busy) {
+        show("menu");
+        await say("What will you do?", 0);
+      }
+    });
+    $("#boxOpenBtn").addEventListener("click", () => openBox());
+    const auto = $("#autoToggle");
+    if (auto)
+      auto.addEventListener("change", () => {
+        state.auto = auto.checked;
+        if (state.auto)
+          maybeAuto();
+      });
+    $("#newGameBtn").addEventListener("click", () => beginNewGame());
+    const cont = $("#continueBtn");
+    if (cont)
+      cont.addEventListener("click", () => continueGame());
   }
-  $2("#fightBtn").addEventListener("click", () => {
-    if (state.busy)
-      return;
-    renderMoves();
-    show("moves");
-  });
-  $2("#ballInfoBtn").addEventListener("click", () => {
-    if (state.busy)
-      return;
-    openBag();
-  });
-  $2("#swapBtn").addEventListener("click", () => {
-    if (state.busy)
-      return;
-    renderParty();
-    show("swap");
-  });
-  $2("#runBtn").addEventListener("click", async () => {
-    if (state.busy)
-      return;
-    text("Got away safely!");
-    await sleep(500);
-    await startEncounter();
-  });
-  $2("#backBtn").addEventListener("click", () => {
-    if (state.busy)
-      return;
-    show("menu");
-    text("What will you do?");
-  });
-  $2("#swapBackBtn").addEventListener("click", () => {
-    if (state.busy)
-      return;
-    show("menu");
-    text("What will you do?");
-  });
-  $2("#starterPick").addEventListener("click", (e) => {
-    const id = e.target?.dataset?.starter;
-    if (!id || state.busy)
-      return;
-    show("menu");
-    chooseStarter(id);
-  });
-  function autoLoopTick() {
-    if (state.auto)
-      maybeAuto();
+  function boot() {
+    wireUI();
+    initAudio();
+    updateScore();
+    if (hasSave()) {
+      const cont = $("#continueBtn");
+      if (cont)
+        cont.classList.remove("hidden");
+    }
+    setInterval(() => {
+      if (state.auto && state.started)
+        maybeAuto();
+    }, 1100);
   }
-  setInterval(autoLoopTick, 1e3);
-  initAudio();
+  if (document.readyState === "loading")
+    document.addEventListener("DOMContentLoaded", boot);
+  else
+    boot();
 })();
