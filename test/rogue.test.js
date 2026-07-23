@@ -12,7 +12,7 @@ import {
 import {
   NODE, generateMap, createRun, availableNext, travelTo, markResolved,
   currentNode, checkWipe, offerSigils, offerMutations, rollShop,
-  rollMysteryEvent, rollGold, encounterLevel, RUN_CONFIG,
+  rollMysteryEvent, rollGold, encounterLevel, bossMemberLevel, RUN_CONFIG,
 } from "../src/run.js";
 
 let passed = 0;
@@ -232,6 +232,30 @@ test("shop stock & mystery events are valid; gold/level scale", () => {
   assert.ok(ev.id && ev.choices.length >= 1);
   assert.ok(rollGold(clone(run), NODE.ELITE) > rollGold(clone(run), NODE.BATTLE));
   assert.ok(encounterLevel({ visited: new Array(10), ascension: 0 }) > encounterLevel({ visited: [], ascension: 0 }));
+});
+
+test("encounters and Elite bosses stay near an under-levelled living party", () => {
+  const run = {
+    visited: new Array(4),
+    ascension: 0,
+    team: [{ level: 5, stats: { hp: 18 } }],
+  };
+  assert.strictEqual(encounterLevel(run), 6, "route cannot race far beyond a level 5 partner");
+  assert.strictEqual(bossMemberLevel(run, 0, false), 7, "first Elite member is one step above encounter level");
+  assert.strictEqual(bossMemberLevel(run, 2, false), 8, "boss team ramps gradually");
+});
+
+test("fainted high-level reserves do not inflate encounters", () => {
+  const run = {
+    visited: new Array(8),
+    ascension: 0,
+    team: [
+      { level: 5, stats: { hp: 12 } },
+      { level: 40, stats: { hp: 0 } },
+    ],
+  };
+  assert.strictEqual(encounterLevel(run), 6);
+  assert.strictEqual(bossMemberLevel(run, 0, true), 8, "Champion keeps a bounded two-level step");
 });
 
 console.log(`\n${passed} checks passed`);

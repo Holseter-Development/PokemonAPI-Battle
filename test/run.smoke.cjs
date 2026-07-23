@@ -27,7 +27,7 @@ const MON = (id, name) => ({
     { stat: { name: "special-defense" }, base_stat: 50 },
     { stat: { name: "speed" }, base_stat: 50 },
   ],
-  types: [{ type: { name: "normal" } }],
+  types: [{ type: { name: ({ 1: "grass", 4: "fire", 7: "water" }[id] || "normal") } }],
   cries: { latest: "http://x/cry.ogg" },
   sprites: {
     front_default: "f.png", back_default: "b.png",
@@ -102,15 +102,20 @@ const waitFor = (cond, ms = 9000) => new Promise((resolve, reject) => {
 (async () => {
   try {
     doc.getElementById("newGameBtn").click();
-    await waitFor(() => doc.getElementById("starterView") && doc.querySelectorAll("#starterView button.move-btn").length === 3);
+    await waitFor(() => {
+      const starter = doc.getElementById("starterScreen");
+      return starter && !starter.classList.contains("hidden") &&
+        doc.querySelectorAll("#starterGrid button.starter-card").length === 3;
+    });
     console.log("  ✓ starter picker shown");
 
     // Pick the first starter → builds the mon (mocked API) → starts the Expedition.
-    doc.querySelector("#starterView button.move-btn").click();
+    doc.querySelector("#starterGrid button.starter-card").click();
     await waitFor(() => {
       const map = doc.getElementById("mapScreen");
       return map && !map.classList.contains("hidden") && doc.querySelectorAll("#mapCanvas .map-node").length > 0;
     });
+    assert.ok(doc.getElementById("starterScreen").classList.contains("hidden"), "starter screen closes after selection");
     console.log("  ✓ expedition started, map rendered");
 
     const avail = doc.querySelectorAll("#mapCanvas .map-node.available");
@@ -139,6 +144,7 @@ const waitFor = (cond, ms = 9000) => new Promise((resolve, reject) => {
 
     // A wild battle should spin up: enemy name populated, menu reachable.
     await waitFor(() => (doc.getElementById("enemyName").textContent || "").length > 1);
+    assert.match(doc.getElementById("enemyName").textContent, /Wild Mon(60|116)/, "opening encounter favors the Grass starter matchup");
     console.log("  ✓ wild battle started (" + doc.getElementById("enemyName").textContent + ")");
 
     // Enable auto-play and let it fight the battle to a finish, which must

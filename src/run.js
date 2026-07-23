@@ -299,8 +299,21 @@ export function rollMysteryEvent(run) {
   });
 }
 
-// Difficulty scaling for a node's encounter level, given run depth + ascension.
+// Difficulty scaling follows run depth, but never races far ahead merely
+// because a route contained shops, rests, or mysteries instead of battles.
 export function encounterLevel(run) {
-  const depth = run.visited.length;
-  return Math.min(100, 5 + Math.floor(depth * 1.6) + run.ascension * 6);
+  const depth = run.visited?.length || 0;
+  const ascension = run.ascension || 0;
+  const curve = Math.min(100, 5 + Math.floor(depth * 1.35) + ascension * 6);
+  const living = (run.team || []).filter((m) => m?.stats?.hp > 0 && Number.isFinite(m.level));
+  if (!living.length) return curve;
+  const strongest = Math.max(...living.map((m) => m.level));
+  return Math.min(curve, strongest + 1 + ascension * 2);
+}
+
+// Expedition bosses scale from the fair encounter level rather than the
+// original eight-Gym campaign floors. Later team members rise only gradually.
+export function bossMemberLevel(run, memberIndex = 0, champion = false) {
+  const bossStep = champion ? 2 : 1;
+  return Math.min(100, encounterLevel(run) + bossStep + Math.floor(Math.max(0, memberIndex) / 2));
 }

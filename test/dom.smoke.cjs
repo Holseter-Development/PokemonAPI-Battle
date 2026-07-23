@@ -57,15 +57,26 @@ console.log("  ✓ title screen rendered");
 assert.ok(!doc.getElementById("titleScreen").classList.contains("hidden"), "title visible at boot");
 
 // --- click "New Adventure" and let the async flow settle ---
+const staleEnemy = doc.getElementById("enemySprite");
+staleEnemy.setAttribute("src", "old-battle.png");
+staleEnemy.dataset.src = "old-battle.png";
 doc.getElementById("newGameBtn").click();
 
 setTimeout(() => {
   try {
     assert.ok(doc.getElementById("titleScreen").classList.contains("hidden"), "title hidden after new game");
-    const starter = doc.getElementById("starterView");
-    assert.ok(starter, "starter picker created");
-    const btns = starter.querySelectorAll("button.move-btn");
+    const starter = doc.getElementById("starterScreen");
+    assert.ok(starter && !starter.classList.contains("hidden"), "standalone starter screen shown");
+    const btns = starter.querySelectorAll("button.starter-card");
     assert.strictEqual(btns.length, 3, "three starter buttons");
+    btns.forEach((btn) => {
+      const sprite = btn.querySelector(".starter-art img");
+      assert.ok(sprite && /animated/.test(sprite.getAttribute("src")), "starter uses animated front sprite");
+      assert.ok(btn.querySelector(".starter-type"), "starter type is visible");
+    });
+    assert.ok(doc.querySelector(".screen").classList.contains("starter-mode"), "starter uses its own presentation");
+    assert.ok(!staleEnemy.hasAttribute("src"), "old battle sprite cleared on restart");
+    assert.strictEqual(staleEnemy.style.opacity, "0", "old battle sprite stays hidden");
     console.log("  ✓ new expedition reveals 3-starter picker");
 
     // Expedition map overlay exists and starts hidden.

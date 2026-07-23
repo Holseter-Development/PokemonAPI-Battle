@@ -47,7 +47,7 @@ import { randomSeedString } from "./rng.js";
 import {
   NODE, createRun, availableNext, travelTo, markResolved, currentNode,
   nodeById, offerSigils, offerMutations, rollShop, rollMysteryEvent, rollGold,
-  encounterLevel, checkWipe, withRng,
+  encounterLevel, bossMemberLevel, checkWipe, withRng,
 } from "./run.js";
 import {
   SIGILS, MUTATIONS, applyMutation, aggregateSigils, applyStartingBallBonus, emptyEffects, RARITY_COLOR,
@@ -897,14 +897,24 @@ function applyEnemyEntryEffect(mon) {
 }
 
 // Build a level-appropriate wild Pokémon (non-legendary, gentle BST bias).
-async function makeWildMon(level) {
+const OPENING_WILD_IDS = {
+  grass: [60, 116], // Poliwag, Horsea
+  fire: [10, 13],   // Caterpie, Weedle
+  water: [37],      // Vulpix
+};
+
+async function makeWildMon(level, openingType = null) {
   let mon = null, poke = null;
   for (let tries = 0; tries < 12; tries++) {
-    const eid = 1 + Math.floor(Math.random() * GEN1_MAX_ID);
+    const openingPool = openingType && OPENING_WILD_IDS[openingType];
+    const eid = openingPool
+      ? openingPool[Math.floor(Math.random() * openingPool.length)]
+      : 1 + Math.floor(Math.random() * GEN1_MAX_ID);
     if (eid >= 144 && eid <= 151) continue;
     poke = await fetchPokemon(eid);
     const bst = poke.stats.reduce((a, s) => a + s.base_stat, 0);
-    if (bst <= 360 || tries > 8) {
+    const limit = openingPool ? 320 : 360;
+    if (bst <= limit || tries > 8) {
       mon = makeMon(poke, level);
       const species = await fetchSpecies(poke.id);
       mon.capture_rate = species.capture_rate;
@@ -919,6 +929,8 @@ async function makeWildMon(level) {
 // spec: { kind:'battle', enemy } | { kind:'elite'|'champion', boss, team }
 //       + onWin(info), onLose(), onFlee()
 async function startBattle(spec) {
+  $("#starterScreen")?.classList.add("hidden");
+  $(".screen")?.classList.remove("starter-mode");
   state.battle = spec;
   state.mode = spec.kind === "battle" ? "wild" : "trainer";
   state.isChampion = spec.kind === "champion";
@@ -1028,6 +1040,8 @@ function showMapScreen() { const m = $("#mapScreen"); if (m) m.classList.remove(
 function hideMapScreen() { const m = $("#mapScreen"); if (m) m.classList.add("hidden"); }
 
 function showMap() {
+  $("#starterScreen")?.classList.add("hidden");
+  $(".screen")?.classList.remove("starter-mode");
   state.mode = "map";
   state.battle = null;
   setBusy(false);
@@ -1247,7 +1261,8 @@ async function resolveNode(node) {
 
 async function resolveBattleNode(node) {
   setBusy(true);
-  const mon = await makeWildMon(encounterLevel(state.run));
+  const openingType = state.run.visited.length === 0 ? state.player?.types?.[0] : null;
+  const mon = await makeWildMon(encounterLevel(state.run), openingType);
   setBusy(false);
   await startBattle({
     kind: "battle", enemy: mon,
@@ -1270,10 +1285,10 @@ async function afterBattleWin(info = {}) {
 }
 
 async function buildBossTeam(boss) {
-  const anchor = Math.max(encounterLevel(state.run), boss.floor) + state.run.ascension * 10;
+  const champion = boss === CHAMPION;
   const team = [];
   for (let i = 0; i < boss.team.length; i++) {
-    team.push(await buildMon(boss.team[i], clamp(anchor + i, 4, 100)));
+    team.push(await buildMon(boss.team[i], bossMemberLevel(state.run, i, champion)));
   }
   return team;
 }
@@ -1551,6 +1566,8 @@ async function backToTitle() {
   state.started = false;
   state.mode = "map";
   state.battle = null;
+  $("#starterScreen")?.classList.add("hidden");
+  $(".screen")?.classList.remove("starter-mode");
   hideMapScreen();
   closeModal();
   const t = $("#titleScreen");
@@ -1901,44 +1918,118 @@ async function maybeAuto() {
 // ---------------------------------------------------------------- flow -----
 
 async function chooseStarter(id) {
+  const screen = $("#starterScreen");
+  const grid = $("#starterGrid");
+  const prompt = $("#starterPrompt");
+  const chosen = STARTERS.find((s) => s.id === id);
   setBusy(true);
-  const mon = await buildMon(id, 5);
-  mon.sprite = mon.spriteBack || mon.spriteFront;
-  await say(`You chose ${mon.name}!`, 300);
-  await playCry(mon);
-  await startExpedition(mon);
-  setBusy(false);
+  if (grid) {
+    grid.querySelectorAll(".starter-card").forEach((card) => {
+      card.disabled = true;
+      card.classList.toggle("selected", Number(card.dataset.id) === id);
+    });
+  }
+  if (prompt) prompt.textContent = `Preparing ${chosen?.name || "your partner"}...`;
+  try {
+    const mon = await buildMon(id, 5);
+    mon.sprite = mon.spriteBack || mon.spriteFront;
+    await playCry(mon);
+    await startExpedition(mon);
+    if (screen) screen.classList.add("hidden");
+    $(".screen")?.classList.remove("starter-mode");
+  } catch (error) {
+    console.error("Could not prepare starter:", error);
+    if (prompt) prompt.textContent = "That partner could not be loaded. Please try again.";
+    if (grid) grid.querySelectorAll(".starter-card").forEach((card) => (card.disabled = false));
+  } finally {
+    setBusy(false);
+  }
 }
 
 function showStarterPicker() {
-  const box = $("#msgBox");
-  let view = $("#starterView");
-  if (!view) {
-    view = el("div", { id: "starterView", class: "panel" });
-    box.appendChild(view);
-  }
-  view.innerHTML = "";
-  view.appendChild(el("div", { class: "panel-head" }, ""));
-  view.firstChild.appendChild(el("h3", {}, "Choose your partner"));
-  const grid = el("div", { class: "moves-grid" });
+  const screen = $("#starterScreen");
+  const grid = $("#starterGrid");
+  const prompt = $("#starterPrompt");
+  if (!screen || !grid) return;
+  const details = {
+    grass: { style: "Steady", note: "Recovery and clever status play" },
+    fire: { style: "Bold", note: "Fast pressure and heavy damage" },
+    water: { style: "Reliable", note: "Strong defenses and safe matchups" },
+  };
+  grid.innerHTML = "";
   STARTERS.forEach((s) => {
-    const b = el("button", { class: "move-btn" });
-    b.style.setProperty("--mtype", TYPE_COLOR[s.type]);
-    b.innerHTML = `<span class="mv-name">${s.name}</span><span class="mv-meta"><span>${cap(s.type)} type</span></span>`;
-    b.onclick = () => { view.remove(); chooseStarter(s.id); };
+    const info = details[s.type];
+    const b = el("button", {
+      class: `starter-card starter-${s.type}`,
+      "aria-label": `Choose ${s.name}, ${s.type} type`,
+    });
+    b.dataset.id = String(s.id);
+    b.style.setProperty("--starter-type", TYPE_COLOR[s.type]);
+    b.innerHTML =
+      `<span class="starter-art">` +
+      `<img src="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/versions/generation-v/black-white/animated/${s.id}.gif" ` +
+      `data-fallback="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/${s.id}.png" alt="${s.name}" />` +
+      `</span>` +
+      `<span class="starter-type">${cap(s.type)} type</span>` +
+      `<strong>${s.name}</strong>` +
+      `<span class="starter-style">${info.style}</span>` +
+      `<small>${info.note}</small>` +
+      `<span class="starter-choose">Choose ${s.name}</span>`;
+    const img = b.querySelector("img");
+    img.onerror = () => {
+      if (img.src !== img.dataset.fallback) img.src = img.dataset.fallback;
+    };
+    b.onclick = () => chooseStarter(s.id);
     grid.appendChild(b);
   });
-  view.appendChild(grid);
-  ["#menu", "#movesView", "#swapView"].forEach((sel) => $(sel) && $(sel).classList.add("hidden"));
+  if (prompt) prompt.textContent = "Select a partner to begin";
+  hideMapScreen();
+  show("none");
+  $(".screen")?.classList.add("starter-mode");
+  screen.classList.remove("hidden");
+}
+
+function clearBattlePresentation() {
+  state.player = null;
+  state.enemy = null;
+  state.trainer = null;
+  state.trainerTeam = [];
+  state.trainerIdx = 0;
+  for (const sel of ["#playerSprite", "#enemySprite"]) {
+    const img = $(sel);
+    if (!img) continue;
+    img.removeAttribute("src");
+    delete img.dataset.src;
+    img.style.opacity = "0";
+    img.style.transform = "none";
+  }
+  for (const sel of ["#playerTypes", "#enemyTypes", "#playerParty", "#enemyParty"]) {
+    const node = $(sel);
+    if (node) node.innerHTML = "";
+  }
+  for (const sel of ["#playerName", "#enemyName", "#playerLevel", "#enemyLevel", "#playerHpText", "#enemyHpText"]) {
+    const node = $(sel);
+    if (node) node.textContent = "";
+  }
+  for (const sel of ["#playerHpFill", "#enemyHpFill", "#playerXpFill"]) {
+    const node = $(sel);
+    if (node) node.style.width = "0%";
+  }
+  for (const sel of ["#playerStatus", "#enemyStatus", "#weatherIndicator"]) {
+    const node = $(sel);
+    if (node) node.classList.add("hidden");
+  }
+  setText("");
+  setThemeByType(["normal"]);
 }
 
 async function beginNewGame() {
   clearRun();
   state.party = []; state.box = [];
+  clearBattlePresentation();
   hideTitle();
   state.started = true;
   updateScore();
-  await say("A new Expedition awaits. Choose your partner.", 200);
   showStarterPicker();
 }
 
