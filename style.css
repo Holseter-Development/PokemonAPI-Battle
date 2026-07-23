@@ -483,13 +483,57 @@ button.use-btn:active { transform: translateY(2px); }
 
 /* ---- responsive --------------------------------------------------------- */
 @media (max-width: 720px) {
-  .statusbox { max-width: 62vw; min-width: 190px; }
-  .enemy-box { top: 10px; left: 10px; }
-  .player-box { right: 10px; bottom: clamp(150px, 26vh, 220px); }
-  .arena .enemy { top: 9%; right: 3%; }
-  .arena .player { bottom: 32%; left: 2%; }
+  /* Fill the whole viewport: wrapper is a flex column, the battle screen
+     grows to take all remaining space so there's no wasted area below it. */
+  .wrapper {
+    max-width: 100%;
+    margin: 0;
+    padding: 8px;
+    min-height: 100svh;
+    min-height: 100dvh;
+    display: flex;
+    flex-direction: column;
+  }
+  .topbar { margin-bottom: 8px; row-gap: 6px; }
+  .tagline { display: none; }
   .brand-text h1 { font-size: 17px; }
-  .cmd { padding: 13px 8px; font-size: 15px; }
+  .chip { padding: 4px 8px; font-size: 12px; }
+  .audio-controls input[type="range"] { width: 64px; }
+  .foot { display: none; }
+
+  .screen {
+    flex: 1 1 auto;
+    min-height: 440px; /* overrides the desktop clamp; flex controls real height */
+    border-radius: 16px;
+  }
+
+  /* Status boxes: narrower so they never cover the sprites. The message box
+     (z-index 5) sits above the HUD (z-index 4), so command buttons are always
+     on top even if a card sits near them. */
+  .statusbox { max-width: 58vw; min-width: 46vw; padding: 8px 9px; }
+  .mon-name { font-size: 13px; }
+  .lv-badge { font-size: 10px; padding: 1px 6px; }
+  .enemy-box { top: 10px; left: 10px; }
+  .player-box { right: 10px; bottom: calc(228px + env(safe-area-inset-bottom, 0px)); }
+
+  .arena .enemy { top: 7%; right: 3%; width: 46vw; }
+  .arena .player { bottom: 34%; left: 2%; width: 52vw; }
+  #enemySprite { width: clamp(120px, 36vw, 210px); margin-bottom: -10px; }
+  #playerSprite { width: clamp(140px, 42vw, 240px); margin-bottom: -10px; }
+
+  .menu-grid { gap: 8px; }
+  .cmd { padding: 14px 8px; font-size: 15px; }
+  .auto-toggle { margin-top: 8px; }
+  .msgbox { padding: 10px; padding-bottom: calc(10px + env(safe-area-inset-bottom, 0px)); }
+  .banner { font-size: 13px; padding: 8px 16px; top: 12%; }
+}
+
+/* Landscape phones: keep the message box compact so the arena stays visible. */
+@media (max-width: 900px) and (orientation: landscape) {
+  .wrapper { min-height: 100dvh; }
+  .player-box { bottom: calc(150px + env(safe-area-inset-bottom, 0px)); }
+  .menu-grid { grid-template-columns: repeat(4, 1fr); }
+  .auto-toggle { margin-top: 6px; }
 }
 @media (min-width: 1600px) {
   .mon-name { font-size: 17px; }
