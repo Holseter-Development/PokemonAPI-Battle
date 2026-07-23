@@ -53,6 +53,16 @@ import {
   SIGILS, MUTATIONS, applyMutation, aggregateSigils, applyStartingBallBonus, emptyEffects, RARITY_COLOR,
 } from "./mutations.js";
 import { sampleDistinct } from "./rng.js";
+import {
+  GEN1_DEX_SIZE,
+  defaultProgression,
+  normalizeProgression,
+  registerSpeciesId,
+  progressionCounts,
+  recordExpeditionStart,
+  recordBestDepth,
+  recordRunResult,
+} from "./progression.js";
 import { $, el, show, typeText, setText } from "./ui.js";
 
 console.info("PokéBattle Arena — build v1.0");
@@ -78,7 +88,8 @@ async function say(str, hold = 260) {
 
 const RUN_KEY = "pkbattle:run:v1";
 const VAULT_KEY = "pkbattle:vault:v1";
-const META_KEY = "pkbattle:meta:v1";
+const META_KEY = "pkbattle:meta:v2";
+const LEGACY_META_KEY = "pkbattle:meta:v1";
 
 const state = {
   party: [],       // === run.team while an expedition is active
@@ -100,9 +111,31 @@ const state = {
   noSwitchTurns: 0,
   endureUsed: { used: false },
   vault: [],       // persistent ascended roster (for ranked)
-  meta: { fragments: 0, expeditionsWon: 0 },
+  meta: defaultProgression(),
   items: null,     // aliased to run.items during a run
 };
+
+function registerPokemonProgress(mon, field, announce = true) {
+  if (!mon || !registerSpeciesId(state.meta, field, mon.id)) return false;
+  saveMeta();
+  if (announce) {
+    const counts = progressionCounts(state.meta);
+    const label = field === "seen" ? "Seen" : "Caught";
+    floatToast(`Pokédex · ${label} ${counts[field]}/${GEN1_DEX_SIZE} · ${mon.name}`);
+  }
+  return true;
+}
+
+function backfillOwnedPokemon(...groups) {
+  let added = 0;
+  for (const group of groups) {
+    for (const mon of Array.isArray(group) ? group : []) {
+      if (mon && registerSpeciesId(state.meta, "caught", mon.id)) added++;
+    }
+  }
+  if (added) saveMeta();
+  return added;
+}
 
 function setBusy(v) {
   state.busy = v;
@@ -288,6 +321,10 @@ async function maybeEvolve(mon) {
   updateHUD();
   await showBanner(`${oldName} evolved into ${evolved.name}!`, 1400);
   await playCry(evolved);
+  if (registerPokemonProgress(evolved, "caught", false)) {
+    const counts = progressionCounts(state.meta);
+    await say(`Pokédex updated: ${counts.caught}/${GEN1_DEX_SIZE} species caught.`);
+  }
 }
 
 // ---------------------------------------------------------------- HUD ------
@@ -1010,6 +1047,7 @@ async function startBattle(spec) {
     setThemeByType(state.enemy.types);
     await fadeInSprite("#enemySprite");
     await say(`A wild ${state.enemy.name} appeared!`);
+    registerPokemonProgress(state.enemy, "seen");
     if (entryStatus) await say(`${state.enemy.name} was poisoned by Toxic Spikes!`);
     await playCry(state.enemy);
   } else {
@@ -1034,6 +1072,7 @@ async function sendTrainerMon(idx) {
   setThemeByType(mon.types);
   await fadeInSprite("#enemySprite");
   await say(`${state.trainer.leader} sent out ${mon.name}!`);
+  registerPokemonProgress(mon, "seen");
   if (entryStatus) await say(`${mon.name} was poisoned by Toxic Spikes!`);
   await playCry(mon);
 }
@@ -1063,14 +1102,17 @@ async function startExpedition(starterMon) {
   state.player = run.team[0];
   state.started = true;
   state.battle = null;
+  recordExpeditionStart(state.meta);
   saveRun();
   await say("Your Expedition begins! Chart a path to the Champion.", 400);
   showMap();
+  registerPokemonProgress(starterMon, "caught");
 }
 
 function bindRun(run) {
   run.team = (run.team || []).map(ensureRuntime);
   run.box = (run.box || []).map(ensureRuntime);
+  backfillOwnedPokemon(run.team, run.box);
   if (!run.items) run.items = DEFAULT_ITEMS();
   if (!run.sigils) run.sigils = [];
   state.run = run;
@@ -1111,7 +1153,11 @@ function showMap() {
 
 // Advance to the map after a node resolves (and mark the node done).
 function goToMap() {
-  if (state.run) { markResolved(state.run, { won: false }); saveRun(); }
+  if (state.run) {
+    markResolved(state.run, { won: false });
+    recordBestDepth(state.meta, state.run.visited.length + 1);
+    saveRun();
+  }
   showMap();
 }
 
@@ -1336,6 +1382,10 @@ async function afterBattleWin(info = {}) {
     ensureRuntime(info.caught);
     if (state.run.team.length < 6) state.run.team.push(info.caught);
     else { state.run.box.push(info.caught); await say(`${info.caught.name} was sent to storage.`); }
+    if (registerPokemonProgress(info.caught, "caught", false)) {
+      const counts = progressionCounts(state.meta);
+      await say(`Pokédex updated: ${counts.caught}/${GEN1_DEX_SIZE} species caught.`);
+    }
   }
   const gold = Math.round(rollGold(state.run, NODE.BATTLE) * (state.sigilFx.goldMult || 1));
   state.run.gold += gold;
@@ -1500,6 +1550,10 @@ async function applyEventEffect(effect) {
       const mon = await makeWildMon(encounterLevel(run));
       if (run.team.length < 6) run.team.push(mon); else run.box.push(mon);
       await say(`The egg hatched into ${mon.name}!`);
+      if (registerPokemonProgress(mon, "caught", false)) {
+        const counts = progressionCounts(state.meta);
+        await say(`Pokédex updated: ${counts.caught}/${GEN1_DEX_SIZE} species caught.`);
+      }
       break;
     }
     case "tutor": {
@@ -1583,7 +1637,8 @@ function pickTeamMember(title) {
 
 async function runVictory() {
   markResolved(state.run, { won: true });
-  state.meta.expeditionsWon++;
+  recordBestDepth(state.meta, state.run.visited.length + 1);
+  recordRunResult(state.meta, true);
   const frags = 60 + state.run.visited.length * 4 + state.run.ascension * 30;
   state.meta.fragments += frags;
   saveMeta();
@@ -1608,6 +1663,7 @@ async function runVictory() {
 
 async function runWipe() {
   if (state.run) { state.run.over = true; state.run.won = false; }
+  recordRunResult(state.meta, false);
   const frags = 15 + (state.run ? state.run.visited.length : 0) * 3;
   state.meta.fragments += frags;
   saveMeta();
@@ -1658,8 +1714,28 @@ function loadRun() { try { const raw = localStorage.getItem(RUN_KEY); return raw
 function clearRun() { try { localStorage.removeItem(RUN_KEY); } catch (_) {} state.run = null; state.battle = null; state.started = false; }
 function loadVault() { try { return JSON.parse(localStorage.getItem(VAULT_KEY) || "[]"); } catch (_) { return []; } }
 function saveVault() { try { localStorage.setItem(VAULT_KEY, JSON.stringify(state.vault || [])); } catch (_) {} }
-function loadMeta() { try { return Object.assign({ fragments: 0, expeditionsWon: 0 }, JSON.parse(localStorage.getItem(META_KEY) || "{}")); } catch (_) { return { fragments: 0, expeditionsWon: 0 }; } }
-function saveMeta() { try { localStorage.setItem(META_KEY, JSON.stringify(state.meta)); } catch (_) {} }
+function readStoredJSON(key) {
+  try {
+    const raw = localStorage.getItem(key);
+    return raw ? JSON.parse(raw) : null;
+  } catch (_) {
+    return null;
+  }
+}
+function loadMeta() {
+  const current = readStoredJSON(META_KEY);
+  const hasCurrent = current && typeof current === "object" && !Array.isArray(current);
+  const legacy = hasCurrent
+    ? null
+    : readStoredJSON(LEGACY_META_KEY);
+  return normalizeProgression(hasCurrent ? current : (legacy || {}));
+}
+function saveMeta() {
+  try {
+    state.meta = normalizeProgression(state.meta);
+    localStorage.setItem(META_KEY, JSON.stringify(state.meta));
+  } catch (_) {}
+}
 function ascendToVault(mon) { state.vault.push(snapshotMon(mon)); saveVault(); }
 
 function floatToast(txt) {
@@ -2251,6 +2327,8 @@ function wireUI() {
 function boot() {
   state.vault = loadVault();
   state.meta = loadMeta();
+  backfillOwnedPokemon(state.vault);
+  saveMeta(); // materialize a normalized v2 profile after loading legacy data
   wireUI();
   initAudio();
   updateScore();

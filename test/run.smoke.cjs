@@ -116,6 +116,10 @@ const waitFor = (cond, ms = 9000) => new Promise((resolve, reject) => {
       return map && !map.classList.contains("hidden") && doc.querySelectorAll("#mapCanvas .map-node").length > 0;
     });
     assert.ok(doc.getElementById("starterScreen").classList.contains("hidden"), "starter screen closes after selection");
+    const startedMeta = JSON.parse(window.localStorage.getItem("pkbattle:meta:v2"));
+    assert.strictEqual(startedMeta.expeditionsStarted, 1, "new Expedition recorded exactly once");
+    assert.deepStrictEqual(startedMeta.seen, [1], "starter registered as seen");
+    assert.deepStrictEqual(startedMeta.caught, [1], "starter registered as caught");
     console.log("  ✓ expedition started, map rendered");
 
     const avail = doc.querySelectorAll("#mapCanvas .map-node.available");
@@ -133,8 +137,24 @@ const waitFor = (cond, ms = 9000) => new Promise((resolve, reject) => {
     // run -> aggregateSigils -> controller battle-context path.
     const stored = JSON.parse(window.localStorage.getItem("pkbattle:run:v1"));
     stored.sigils = ["permafrost", "toxic_spikes"];
+    stored.box = [{
+      id: 99,
+      name: "Legacy Mon99",
+      stats: { hp: 20, maxHp: 20 },
+      moves: [],
+      types: ["normal"],
+    }];
     window.localStorage.setItem("pkbattle:run:v1", JSON.stringify(stored));
     doc.getElementById("continueBtn").click();
+    assert.strictEqual(
+      JSON.parse(window.localStorage.getItem("pkbattle:meta:v2")).expeditionsStarted,
+      1,
+      "continuing does not record another Expedition start",
+    );
+    assert.ok(
+      JSON.parse(window.localStorage.getItem("pkbattle:meta:v2")).caught.includes(99),
+      "legacy Box species backfilled as caught",
+    );
 
     // Travel to the first available node → a battle (or node) should resolve,
     // hiding the map. (Row-0 nodes are always Wild battles.)
@@ -145,6 +165,11 @@ const waitFor = (cond, ms = 9000) => new Promise((resolve, reject) => {
     // A wild battle should spin up: enemy name populated, menu reachable.
     await waitFor(() => (doc.getElementById("enemyName").textContent || "").length > 1);
     assert.match(doc.getElementById("enemyName").textContent, /Wild Mon(60|116)/, "opening encounter favors the Grass starter matchup");
+    const wildId = Number(doc.getElementById("enemyName").textContent.match(/\d+/)[0]);
+    await waitFor(() => JSON.parse(window.localStorage.getItem("pkbattle:meta:v2")).seen.includes(wildId));
+    const sightingMeta = JSON.parse(window.localStorage.getItem("pkbattle:meta:v2"));
+    assert.ok(sightingMeta.seen.includes(wildId), "wild encounter registered as seen");
+    assert.ok(!sightingMeta.caught.includes(wildId), "sighting alone does not register a catch");
     console.log("  ✓ wild battle started (" + doc.getElementById("enemyName").textContent + ")");
 
     // Enable auto-play and let it fight the battle to a finish, which must
@@ -159,6 +184,11 @@ const waitFor = (cond, ms = 9000) => new Promise((resolve, reject) => {
     auto.checked = true;
     auto.dispatchEvent(new window.Event("change"));
     await waitFor(() => !doc.getElementById("mapScreen").classList.contains("hidden"), 25000);
+    assert.strictEqual(
+      JSON.parse(window.localStorage.getItem("pkbattle:meta:v2")).bestDepth,
+      1,
+      "resolving the first node records best depth",
+    );
     console.log("  ✓ auto-played the battle back to the map");
 
     assert.ok(!uncaught, "no uncaught error: " + uncaught);

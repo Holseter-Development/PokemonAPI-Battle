@@ -35,6 +35,14 @@ if (!window.matchMedia) {
 }
 window.fetch = () => Promise.reject(new Error("network disabled in smoke test"));
 window.Image = class { set src(_) {} };
+window.localStorage.setItem("pkbattle:meta:v1", JSON.stringify({
+  fragments: 44,
+  expeditionsWon: 2,
+  startingSigils: ["ball_cache"],
+}));
+window.localStorage.setItem("pkbattle:vault:v1", JSON.stringify([
+  { id: 25, name: "Pikachu" },
+]));
 
 let uncaught = null;
 window.addEventListener("error", (e) => (uncaught = e.error || e.message));
@@ -49,6 +57,14 @@ window.document.dispatchEvent(new window.Event("DOMContentLoaded"));
 console.log("  ✓ bundle evaluates and boots without throwing");
 
 const doc = window.document;
+const migratedMeta = JSON.parse(window.localStorage.getItem("pkbattle:meta:v2"));
+assert.strictEqual(migratedMeta.version, 2, "legacy meta migrated to v2");
+assert.strictEqual(migratedMeta.fragments, 44, "legacy fragments retained");
+assert.strictEqual(migratedMeta.expeditionsWon, 2, "legacy wins retained");
+assert.strictEqual(migratedMeta.expeditionsStarted, 2, "legacy starts normalized against wins");
+assert.deepStrictEqual(migratedMeta.startingSigils, ["ball_cache"], "unknown legacy fields retained");
+assert.deepStrictEqual(migratedMeta.seen, [25], "legacy Vault species backfilled as seen");
+assert.deepStrictEqual(migratedMeta.caught, [25], "legacy Vault species backfilled as caught");
 assert.ok(doc.getElementById("titleScreen"), "title screen present");
 assert.ok(doc.getElementById("newGameBtn"), "new game button present");
 console.log("  ✓ title screen rendered");

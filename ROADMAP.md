@@ -909,9 +909,9 @@ shops prove that money has meaningful competing uses.
 
 Implement in this order:
 
-1. `P1.1` — Versioned progression model.
-2. `P1.2` — Seen and caught tracking.
-3. `P1.3` — Pokédex screen.
+1. `P1.1` — Versioned progression model. **Complete**
+2. `P1.2` — Seen and caught tracking. **Complete**
+3. `P1.3` — Pokédex screen. **Next**
 4. `P1.4` — Pokédex milestone perks.
 5. `P1.5` — Fragment upgrade shop.
 6. `P1.6` — Trainer profile.
@@ -946,9 +946,9 @@ Update this section as chunks ship.
 
 | Chunk | Status | Notes |
 | --- | --- | --- |
-| P1.1 | Next | Version and normalize persistent profile data |
-| P1.2 | Planned | Track seen/caught across every acquisition path |
-| P1.3 | Planned | Add the Pokédex UI |
+| P1.1 | Complete | v2 profile, legacy migration, run statistics, and tests shipped 2026-07-24 |
+| P1.2 | Complete | Battle sightings, ownership paths, evolution, and legacy backfill shipped 2026-07-24 |
+| P1.3 | Next | Add the Pokédex UI |
 | P1.4 | Planned | Activate Pokédex perks |
 | P1.5 | Planned | Make Fragments spendable |
 | P1.6 | Planned | Add trainer profile |

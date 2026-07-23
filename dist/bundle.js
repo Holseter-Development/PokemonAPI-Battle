@@ -2138,6 +2138,125 @@
     return Math.min(100, encounterLevel(run) + bossStep + Math.floor(Math.max(0, memberIndex) / 2));
   }
 
+  // src/progression.js
+  var PROGRESSION_VERSION = 2;
+  var GEN1_DEX_SIZE = 151;
+  var DEX_FIELDS = /* @__PURE__ */ new Set(["seen", "caught", "shinyCaught"]);
+  function nonNegativeInt(value) {
+    const n = Number(value);
+    return Number.isFinite(n) ? Math.max(0, Math.floor(n)) : 0;
+  }
+  function cleanDexIds(value) {
+    if (!Array.isArray(value))
+      return [];
+    return [...new Set(value.map(Number).filter((id) => Number.isInteger(id) && id >= 1 && id <= GEN1_DEX_SIZE))].sort((a, b) => a - b);
+  }
+  function cleanRecord(value) {
+    if (!value || typeof value !== "object" || Array.isArray(value))
+      return {};
+    return Object.fromEntries(Object.entries(value).filter(
+      ([, entry]) => typeof entry === "boolean" || typeof entry === "string" || typeof entry === "number" && Number.isFinite(entry)
+    ));
+  }
+  function defaultProgression() {
+    return {
+      version: PROGRESSION_VERSION,
+      fragments: 0,
+      expeditionsStarted: 0,
+      expeditionsWon: 0,
+      bestDepth: 0,
+      bestWinStreak: 0,
+      currentWinStreak: 0,
+      playTimeMs: 0,
+      seen: [],
+      caught: [],
+      shinyCaught: [],
+      unlocks: {},
+      upgrades: {}
+    };
+  }
+  function normalizeProgression(raw) {
+    const source = raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {};
+    const wins = nonNegativeInt(source.expeditionsWon);
+    const currentStreak = nonNegativeInt(source.currentWinStreak);
+    const shinyCaught = cleanDexIds(source.shinyCaught);
+    const caught = cleanDexIds([...Array.isArray(source.caught) ? source.caught : [], ...shinyCaught]);
+    const seen = cleanDexIds([...Array.isArray(source.seen) ? source.seen : [], ...caught]);
+    return {
+      ...source,
+      version: PROGRESSION_VERSION,
+      fragments: nonNegativeInt(source.fragments),
+      expeditionsStarted: Math.max(nonNegativeInt(source.expeditionsStarted), wins),
+      expeditionsWon: wins,
+      bestDepth: nonNegativeInt(source.bestDepth),
+      bestWinStreak: Math.max(nonNegativeInt(source.bestWinStreak), currentStreak),
+      currentWinStreak: currentStreak,
+      playTimeMs: nonNegativeInt(source.playTimeMs),
+      seen,
+      caught,
+      shinyCaught,
+      unlocks: cleanRecord(source.unlocks),
+      upgrades: cleanRecord(source.upgrades)
+    };
+  }
+  function registerSpeciesId(profile, field, value) {
+    if (!profile || !DEX_FIELDS.has(field))
+      return false;
+    const id = Number(value);
+    if (!Number.isInteger(id) || id < 1 || id > GEN1_DEX_SIZE)
+      return false;
+    const add = (key) => {
+      const ids = cleanDexIds(profile[key]);
+      if (ids.includes(id)) {
+        profile[key] = ids;
+        return false;
+      }
+      ids.push(id);
+      ids.sort((a, b) => a - b);
+      profile[key] = ids;
+      return true;
+    };
+    const added = add(field);
+    if (field === "caught" || field === "shinyCaught")
+      add("seen");
+    if (field === "shinyCaught")
+      add("caught");
+    return added;
+  }
+  function progressionCounts(profile) {
+    const normalized = normalizeProgression(profile);
+    return {
+      seen: normalized.seen.length,
+      caught: normalized.caught.length,
+      shinyCaught: normalized.shinyCaught.length
+    };
+  }
+  function recordExpeditionStart(profile) {
+    profile.expeditionsStarted = nonNegativeInt(profile.expeditionsStarted) + 1;
+    return profile.expeditionsStarted;
+  }
+  function recordBestDepth(profile, depth) {
+    profile.bestDepth = Math.max(nonNegativeInt(profile.bestDepth), nonNegativeInt(depth));
+    return profile.bestDepth;
+  }
+  function recordRunResult(profile, won) {
+    if (won) {
+      profile.expeditionsWon = nonNegativeInt(profile.expeditionsWon) + 1;
+      profile.currentWinStreak = nonNegativeInt(profile.currentWinStreak) + 1;
+      profile.bestWinStreak = Math.max(
+        nonNegativeInt(profile.bestWinStreak),
+        profile.currentWinStreak
+      );
+      profile.expeditionsStarted = Math.max(
+        nonNegativeInt(profile.expeditionsStarted),
+        profile.expeditionsWon
+      );
+    } else {
+      profile.currentWinStreak = 0;
+    }
+    return profile;
+  }
+
   // src/ui.js
   var $ = (sel) => document.querySelector(sel);
   function el(tag, attrs = {}, txt = "") {
@@ -2228,7 +2347,8 @@
   }
   var RUN_KEY = "pkbattle:run:v1";
   var VAULT_KEY = "pkbattle:vault:v1";
-  var META_KEY = "pkbattle:meta:v1";
+  var META_KEY = "pkbattle:meta:v2";
+  var LEGACY_META_KEY = "pkbattle:meta:v1";
   var state = {
     party: [],
     // === run.team while an expedition is active
@@ -2256,10 +2376,33 @@
     endureUsed: { used: false },
     vault: [],
     // persistent ascended roster (for ranked)
-    meta: { fragments: 0, expeditionsWon: 0 },
+    meta: defaultProgression(),
     items: null
     // aliased to run.items during a run
   };
+  function registerPokemonProgress(mon, field, announce = true) {
+    if (!mon || !registerSpeciesId(state.meta, field, mon.id))
+      return false;
+    saveMeta();
+    if (announce) {
+      const counts = progressionCounts(state.meta);
+      const label = field === "seen" ? "Seen" : "Caught";
+      floatToast(`Pok\xE9dex \xB7 ${label} ${counts[field]}/${GEN1_DEX_SIZE} \xB7 ${mon.name}`);
+    }
+    return true;
+  }
+  function backfillOwnedPokemon(...groups) {
+    let added = 0;
+    for (const group of groups) {
+      for (const mon of Array.isArray(group) ? group : []) {
+        if (mon && registerSpeciesId(state.meta, "caught", mon.id))
+          added++;
+      }
+    }
+    if (added)
+      saveMeta();
+    return added;
+  }
   function setBusy(v) {
     state.busy = v;
     document.querySelectorAll(".msgbox button, #menu button").forEach((b) => b.disabled = v);
@@ -2442,6 +2585,10 @@
     updateHUD();
     await showBanner(`${oldName} evolved into ${evolved.name}!`, 1400);
     await playCry(evolved);
+    if (registerPokemonProgress(evolved, "caught", false)) {
+      const counts = progressionCounts(state.meta);
+      await say(`Pok\xE9dex updated: ${counts.caught}/${GEN1_DEX_SIZE} species caught.`);
+    }
   }
   function renderTypes(container, types) {
     container.innerHTML = "";
@@ -3201,6 +3348,7 @@
       setThemeByType(state.enemy.types);
       await fadeInSprite("#enemySprite");
       await say(`A wild ${state.enemy.name} appeared!`);
+      registerPokemonProgress(state.enemy, "seen");
       if (entryStatus)
         await say(`${state.enemy.name} was poisoned by Toxic Spikes!`);
       await playCry(state.enemy);
@@ -3225,6 +3373,7 @@
     setThemeByType(mon.types);
     await fadeInSprite("#enemySprite");
     await say(`${state.trainer.leader} sent out ${mon.name}!`);
+    registerPokemonProgress(mon, "seen");
     if (entryStatus)
       await say(`${mon.name} was poisoned by Toxic Spikes!`);
     await playCry(mon);
@@ -3259,13 +3408,16 @@
     state.player = run.team[0];
     state.started = true;
     state.battle = null;
+    recordExpeditionStart(state.meta);
     saveRun();
     await say("Your Expedition begins! Chart a path to the Champion.", 400);
     showMap();
+    registerPokemonProgress(starterMon, "caught");
   }
   function bindRun(run) {
     run.team = (run.team || []).map(ensureRuntime);
     run.box = (run.box || []).map(ensureRuntime);
+    backfillOwnedPokemon(run.team, run.box);
     if (!run.items)
       run.items = DEFAULT_ITEMS();
     if (!run.sigils)
@@ -3312,6 +3464,7 @@
   function goToMap() {
     if (state.run) {
       markResolved(state.run, { won: false });
+      recordBestDepth(state.meta, state.run.visited.length + 1);
       saveRun();
     }
     showMap();
@@ -3556,6 +3709,10 @@
         state.run.box.push(info.caught);
         await say(`${info.caught.name} was sent to storage.`);
       }
+      if (registerPokemonProgress(info.caught, "caught", false)) {
+        const counts = progressionCounts(state.meta);
+        await say(`Pok\xE9dex updated: ${counts.caught}/${GEN1_DEX_SIZE} species caught.`);
+      }
     }
     const gold = Math.round(rollGold(state.run, NODE.BATTLE) * (state.sigilFx.goldMult || 1));
     state.run.gold += gold;
@@ -3761,6 +3918,10 @@
         else
           run.box.push(mon);
         await say(`The egg hatched into ${mon.name}!`);
+        if (registerPokemonProgress(mon, "caught", false)) {
+          const counts = progressionCounts(state.meta);
+          await say(`Pok\xE9dex updated: ${counts.caught}/${GEN1_DEX_SIZE} species caught.`);
+        }
         break;
       }
       case "tutor": {
@@ -3866,7 +4027,8 @@
   }
   async function runVictory() {
     markResolved(state.run, { won: true });
-    state.meta.expeditionsWon++;
+    recordBestDepth(state.meta, state.run.visited.length + 1);
+    recordRunResult(state.meta, true);
     const frags = 60 + state.run.visited.length * 4 + state.run.ascension * 30;
     state.meta.fragments += frags;
     saveMeta();
@@ -3900,6 +4062,7 @@
       state.run.over = true;
       state.run.won = false;
     }
+    recordRunResult(state.meta, false);
     const frags = 15 + (state.run ? state.run.visited.length : 0) * 3;
     state.meta.fragments += frags;
     saveMeta();
@@ -3981,15 +4144,23 @@
     } catch (_) {
     }
   }
-  function loadMeta() {
+  function readStoredJSON(key) {
     try {
-      return Object.assign({ fragments: 0, expeditionsWon: 0 }, JSON.parse(localStorage.getItem(META_KEY) || "{}"));
+      const raw = localStorage.getItem(key);
+      return raw ? JSON.parse(raw) : null;
     } catch (_) {
-      return { fragments: 0, expeditionsWon: 0 };
+      return null;
     }
+  }
+  function loadMeta() {
+    const current = readStoredJSON(META_KEY);
+    const hasCurrent = current && typeof current === "object" && !Array.isArray(current);
+    const legacy = hasCurrent ? null : readStoredJSON(LEGACY_META_KEY);
+    return normalizeProgression(hasCurrent ? current : legacy || {});
   }
   function saveMeta() {
     try {
+      state.meta = normalizeProgression(state.meta);
       localStorage.setItem(META_KEY, JSON.stringify(state.meta));
     } catch (_) {
     }
@@ -4636,6 +4807,8 @@
   function boot() {
     state.vault = loadVault();
     state.meta = loadMeta();
+    backfillOwnedPokemon(state.vault);
+    saveMeta();
     wireUI();
     initAudio();
     updateScore();
