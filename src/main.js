@@ -266,6 +266,35 @@ async function gainXP(mon, amount) {
   updateHUD();
 }
 
+// Fraction of the active Pokémon's XP awarded to the rest of the party. Without
+// this, only the mon that lands the KO ever levels, so a four-member team fights
+// an Elite (2-3 mons at your best level + a step) with one strong Pokémon and
+// three stragglers. Sharing keeps the whole roster viable, and because the
+// encounter/boss curve is capped to the *strongest* member it does not inflate
+// difficulty.
+const SHARED_XP_FRACTION = 0.5;
+
+// Level the non-active party up quietly (no banners, sparkles, or sprite
+// animation — those belong to the active Pokémon on screen).
+async function gainSharedXP(mon, amount) {
+  if (!mon || !mon.growth || mon.stats.hp <= 0 || amount <= 0) return;
+  mon.xp += amount;
+  while (mon.xp >= mon.xpNext) {
+    mon.xp -= mon.xpNext;
+    await levelUp(mon, { silent: true });
+  }
+}
+
+async function grantPartyXP(amount) {
+  await gainXP(state.player, amount);
+  const share = Math.max(1, Math.round(amount * SHARED_XP_FRACTION));
+  for (const mon of state.party) {
+    if (mon === state.player || mon.stats.hp <= 0) continue;
+    await gainSharedXP(mon, share);
+  }
+  save();
+}
+
 async function animateXP(mon, amount) {
   // Purely cosmetic sweep of the XP bar toward full before applying.
   const fill = $("#playerXpFill");
@@ -276,7 +305,8 @@ async function animateXP(mon, amount) {
   await sleep(320);
 }
 
-async function levelUp(mon) {
+async function levelUp(mon, opts = {}) {
+  const silent = !!opts.silent;
   const oldMax = mon.stats.maxHp;
   const frac = mon.stats.hp / Math.max(1, oldMax);
   mon.level++;
@@ -295,10 +325,12 @@ async function levelUp(mon) {
     mon.xpNext = Math.max(1, next - cur);
   }
   updateHUD();
-  await showBanner(`${mon.name} grew to Lv ${mon.level}!`);
-  playSparkle("#playerSprite");
-  await maybeEvolve(mon);
-  save();
+  if (!silent) {
+    await showBanner(`${mon.name} grew to Lv ${mon.level}!`);
+    playSparkle("#playerSprite");
+  }
+  await maybeEvolve(mon, opts);
+  if (!silent) save();
 }
 
 // Keep existing moves' PP where names match; append new learnset moves.
@@ -311,7 +343,8 @@ function mergeMoves(oldMoves, freshMoves) {
   return result.length ? result : oldMoves;
 }
 
-async function maybeEvolve(mon) {
+async function maybeEvolve(mon, opts = {}) {
+  const silent = !!opts.silent;
   if (!mon.evoChainUrl) return;
   const chain = await fetchEvo(mon.evoChainUrl);
   const find = (node) => {
@@ -342,15 +375,22 @@ async function maybeEvolve(mon) {
 
   const oldName = mon.name;
   const idx = state.party.indexOf(mon);
-  await flashWhite("#playerSprite");
+  // A reserve Pokémon can evolve from shared XP mid-battle; do it quietly and
+  // never touch the on-screen active sprite (flashWhite/banner/cry are the
+  // active mon's spotlight).
+  const showcase = !silent && idx === state.active;
+  if (showcase) await flashWhite("#playerSprite");
   if (idx >= 0) {
     state.party[idx] = evolved;
     if (state.active === idx) state.player = evolved;
   }
   updateHUD();
-  await showBanner(`${oldName} evolved into ${evolved.name}!`, 1400);
-  await playCry(evolved);
-  await announceCaughtProgress(registerPokemonProgress(evolved, "caught", false));
+  const registration = registerPokemonProgress(evolved, "caught", false);
+  if (showcase) {
+    await showBanner(`${oldName} evolved into ${evolved.name}!`, 1400);
+    await playCry(evolved);
+    await announceCaughtProgress(registration);
+  }
 }
 
 // ---------------------------------------------------------------- HUD ------
@@ -582,7 +622,16 @@ async function fadeInSprite(sel) {
   node.style.transform = "none";
   node.style.opacity = 0;
   try {
-    await node.animate([{ opacity: 0, transform: "translateY(-10px) scale(.9)" }, { opacity: 1, transform: "translateY(0) scale(1)" }], { duration: 320, easing: "ease-out" }).finished;
+    // Animate `filter` on entry, not just opacity/transform. The sprites are
+    // animated GIFs sitting on a filtered compositor layer; without a filter
+    // keyframe on send-out the browser never repaints that layer, leaving the
+    // Pokémon a blank white silhouette until the first hit (impactSprite) forces
+    // a repaint. The brightness sweep both fixes the paint and reads as a
+    // materialize flash.
+    await node.animate([
+      { opacity: 0, transform: "translateY(-10px) scale(.9)", filter: "brightness(1.8) saturate(.4)" },
+      { opacity: 1, transform: "translateY(0) scale(1)", filter: "none" },
+    ], { duration: 320, easing: "ease-out" }).finished;
   } catch (_) {}
   node.style.opacity = 1;
 }
@@ -961,7 +1010,7 @@ async function onEnemyFaint() {
       await say(`${state.player.name} fed on the victory!`);
     }
   }
-  await gainXP(state.player, Math.round(xpFor(state.enemy) * (state.sigilFx.xpMult || 1)));
+  await grantPartyXP(Math.round(xpFor(state.enemy) * (state.sigilFx.xpMult || 1)));
 
   if (state.mode === "trainer") {
     state.trainerIdx++;
@@ -1067,8 +1116,11 @@ async function startBattle(spec) {
     if (idx >= 0) setActive(idx);
   }
   resetStages(state.player);
+  // Keep the player sprite hidden through the opponent's entrance; it gets a
+  // proper send-out (fadeInSprite) once the foe is on-screen. A static
+  // opacity:1 here never triggers a filter repaint, so the GIF would show white.
   const ps = $("#playerSprite");
-  if (ps) { ps.style.opacity = "1"; ps.style.transform = "none"; }
+  if (ps) { ps.style.opacity = "0"; ps.style.transform = "none"; }
 
   if (spec.kind === "battle") {
     state.enemy = spec.enemy;
@@ -1093,6 +1145,10 @@ async function startBattle(spec) {
     await say(spec.boss.intro, 400);
     await sendTrainerMon(0);
   }
+  // Send out the player's lead now that the opponent is on-screen. This also
+  // gives the player sprite its filter repaint so it renders instead of showing
+  // as a white silhouette.
+  await fadeInSprite("#playerSprite");
   await backToMenu();
 }
 
@@ -1850,9 +1906,17 @@ async function swapTo(idx, forced = false) {
   setBusy(true);
   const from = state.player, to = state.party[idx];
   state.noSwitchTurns = 0;
-  await say(`${from.name}, come back!`);
-  const regen = switchOutHeal(from); // Regenerator mutation
-  await faintOut("#playerSprite").catch(() => {});
+  // A fainted Pokémon has already been recalled and hidden by onPlayerFaint's
+  // faintOut. Replaying the "come back!" recall here would flash the fainted
+  // sprite back to full opacity (faintOut starts at opacity 1) before fading it
+  // out a second time — the "reappear into a ball, then vanish" glitch. Only
+  // recall a Pokémon that is still conscious.
+  let regen = 0;
+  if (from.stats.hp > 0) {
+    await say(`${from.name}, come back!`);
+    regen = switchOutHeal(from); // Regenerator mutation
+    await faintOut("#playerSprite").catch(() => {});
+  }
   setActive(idx);
   if (regen > 0) floatToast(`${from.name} regenerated ${regen} HP`);
   await fadeInSprite("#playerSprite");

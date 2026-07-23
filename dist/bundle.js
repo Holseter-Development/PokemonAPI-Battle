@@ -2783,6 +2783,26 @@
     }
     updateHUD();
   }
+  var SHARED_XP_FRACTION = 0.5;
+  async function gainSharedXP(mon, amount) {
+    if (!mon || !mon.growth || mon.stats.hp <= 0 || amount <= 0)
+      return;
+    mon.xp += amount;
+    while (mon.xp >= mon.xpNext) {
+      mon.xp -= mon.xpNext;
+      await levelUp(mon, { silent: true });
+    }
+  }
+  async function grantPartyXP(amount) {
+    await gainXP(state.player, amount);
+    const share = Math.max(1, Math.round(amount * SHARED_XP_FRACTION));
+    for (const mon of state.party) {
+      if (mon === state.player || mon.stats.hp <= 0)
+        continue;
+      await gainSharedXP(mon, share);
+    }
+    save();
+  }
   async function animateXP(mon, amount) {
     const fill = $("#playerXpFill");
     if (!fill || mon !== state.player)
@@ -2792,7 +2812,8 @@
     fill.style.width = `${100 * clamp(Math.min(end, 1), 0, 1)}%`;
     await sleep(320);
   }
-  async function levelUp(mon) {
+  async function levelUp(mon, opts = {}) {
+    const silent = !!opts.silent;
     const oldMax = mon.stats.maxHp;
     const frac = mon.stats.hp / Math.max(1, oldMax);
     mon.level++;
@@ -2811,10 +2832,13 @@
       mon.xpNext = Math.max(1, next - cur);
     }
     updateHUD();
-    await showBanner(`${mon.name} grew to Lv ${mon.level}!`);
-    playSparkle("#playerSprite");
-    await maybeEvolve(mon);
-    save();
+    if (!silent) {
+      await showBanner(`${mon.name} grew to Lv ${mon.level}!`);
+      playSparkle("#playerSprite");
+    }
+    await maybeEvolve(mon, opts);
+    if (!silent)
+      save();
   }
   function mergeMoves(oldMoves, freshMoves) {
     const byKey = new Map(oldMoves.map((m) => [m.key, m]));
@@ -2824,7 +2848,8 @@
     });
     return result.length ? result : oldMoves;
   }
-  async function maybeEvolve(mon) {
+  async function maybeEvolve(mon, opts = {}) {
+    const silent = !!opts.silent;
     if (!mon.evoChainUrl)
       return;
     const chain = await fetchEvo(mon.evoChainUrl);
@@ -2858,16 +2883,21 @@
     evolved.sprite = evolved.spriteBack || evolved.spriteFront;
     const oldName = mon.name;
     const idx = state.party.indexOf(mon);
-    await flashWhite("#playerSprite");
+    const showcase = !silent && idx === state.active;
+    if (showcase)
+      await flashWhite("#playerSprite");
     if (idx >= 0) {
       state.party[idx] = evolved;
       if (state.active === idx)
         state.player = evolved;
     }
     updateHUD();
-    await showBanner(`${oldName} evolved into ${evolved.name}!`, 1400);
-    await playCry(evolved);
-    await announceCaughtProgress(registerPokemonProgress(evolved, "caught", false));
+    const registration = registerPokemonProgress(evolved, "caught", false);
+    if (showcase) {
+      await showBanner(`${oldName} evolved into ${evolved.name}!`, 1400);
+      await playCry(evolved);
+      await announceCaughtProgress(registration);
+    }
   }
   function renderTypes(container, types) {
     container.innerHTML = "";
@@ -3112,7 +3142,10 @@
     node.style.transform = "none";
     node.style.opacity = 0;
     try {
-      await node.animate([{ opacity: 0, transform: "translateY(-10px) scale(.9)" }, { opacity: 1, transform: "translateY(0) scale(1)" }], { duration: 320, easing: "ease-out" }).finished;
+      await node.animate([
+        { opacity: 0, transform: "translateY(-10px) scale(.9)", filter: "brightness(1.8) saturate(.4)" },
+        { opacity: 1, transform: "translateY(0) scale(1)", filter: "none" }
+      ], { duration: 320, easing: "ease-out" }).finished;
     } catch (_) {
     }
     node.style.opacity = 1;
@@ -3525,7 +3558,7 @@
         await say(`${state.player.name} fed on the victory!`);
       }
     }
-    await gainXP(state.player, Math.round(xpFor(state.enemy) * (state.sigilFx.xpMult || 1)));
+    await grantPartyXP(Math.round(xpFor(state.enemy) * (state.sigilFx.xpMult || 1)));
     if (state.mode === "trainer") {
       state.trainerIdx++;
       if (state.trainerIdx < state.trainerTeam.length) {
@@ -3623,7 +3656,7 @@
     resetStages(state.player);
     const ps = $("#playerSprite");
     if (ps) {
-      ps.style.opacity = "1";
+      ps.style.opacity = "0";
       ps.style.transform = "none";
     }
     if (spec.kind === "battle") {
@@ -3651,6 +3684,7 @@
       await say(spec.boss.intro, 400);
       await sendTrainerMon(0);
     }
+    await fadeInSprite("#playerSprite");
     await backToMenu();
   }
   async function sendTrainerMon(idx) {
@@ -4534,10 +4568,13 @@
     setBusy(true);
     const from = state.player, to = state.party[idx];
     state.noSwitchTurns = 0;
-    await say(`${from.name}, come back!`);
-    const regen = switchOutHeal(from);
-    await faintOut("#playerSprite").catch(() => {
-    });
+    let regen = 0;
+    if (from.stats.hp > 0) {
+      await say(`${from.name}, come back!`);
+      regen = switchOutHeal(from);
+      await faintOut("#playerSprite").catch(() => {
+      });
+    }
     setActive(idx);
     if (regen > 0)
       floatToast(`${from.name} regenerated ${regen} HP`);

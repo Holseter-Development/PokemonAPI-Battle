@@ -175,7 +175,11 @@ body {
 #enemySprite, #playerSprite {
   image-rendering: pixelated; object-fit: contain; user-select: none; pointer-events: none;
   filter: drop-shadow(0 8px 10px rgba(0,0,0,.35));
-  transform-origin: 50% 90%; will-change: transform, filter, opacity;
+  /* `filter` is intentionally omitted from will-change: promoting a persistent
+     filtered layer left the animated-GIF sprites unpainted (white) until a
+     filter animation forced a repaint. The transient impact/entry filter
+     animations still composite fine on demand. */
+  transform-origin: 50% 90%; will-change: transform, opacity;
 }
 #enemySprite { width: clamp(120px, 19vw, 300px); margin-bottom: -14px; }
 #playerSprite { width: clamp(140px, 22vw, 340px); margin-bottom: -14px; }
