@@ -4,12 +4,71 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="theme-color" content="#0a0e1a" />
+    <link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2032%2032'%3E%3Ccircle%20cx='16'%20cy='16'%20r='15'%20fill='%23eef2f8'/%3E%3Cpath%20d='M1%2016a15%2015%200%200%201%2030%200z'%20fill='%23ee4b53'/%3E%3Crect%20x='1'%20y='15'%20width='30'%20height='2'%20fill='%23111'/%3E%3Ccircle%20cx='16'%20cy='16'%20r='5'%20fill='%23fff'%20stroke='%23111'%20stroke-width='2'/%3E%3C/svg%3E" />
     <title>PokéBattle Arena</title>
     <link rel="preconnect" href="https://raw.githubusercontent.com" crossorigin />
     <link rel="preconnect" href="https://pokeapi.co" crossorigin />
     <link rel="stylesheet" href="style.css" />
   </head>
   <body>
+    <!-- Inline icon sprite (custom line icons; no emoji) -->
+    <svg xmlns="http://www.w3.org/2000/svg" aria-hidden="true" style="position:absolute;width:0;height:0;overflow:hidden">
+      <defs>
+        <symbol id="i-fight" viewBox="0 0 24 24">
+          <polyline points="14.5 17.5 3 6 3 3 6 3 17.5 14.5" />
+          <line x1="13" y1="19" x2="19" y2="13" />
+          <line x1="16" y1="16" x2="20" y2="20" />
+          <line x1="19" y1="21" x2="21" y2="19" />
+          <polyline points="14.5 6.5 18 3 21 3 21 6 17.5 9.5" />
+          <line x1="5" y1="14" x2="9" y2="18" />
+        </symbol>
+        <symbol id="i-bag" viewBox="0 0 24 24">
+          <path d="M6 8h12l-1 11a1 1 0 0 1-1 1H8a1 1 0 0 1-1-1z" />
+          <path d="M9 8V6a3 3 0 0 1 6 0v2" />
+          <path d="M9 12h6" />
+        </symbol>
+        <symbol id="i-pkmn" viewBox="0 0 24 24">
+          <circle cx="12" cy="12" r="9" />
+          <path d="M3 12h6" />
+          <path d="M15 12h6" />
+          <circle cx="12" cy="12" r="2.6" />
+        </symbol>
+        <symbol id="i-run" viewBox="0 0 24 24">
+          <path d="M14 4H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h8" />
+          <polyline points="16 8 20 12 16 16" />
+          <line x1="20" y1="12" x2="9" y2="12" />
+        </symbol>
+        <symbol id="i-volume" viewBox="0 0 24 24">
+          <path d="M11 5 6 9H3v6h3l5 4z" />
+          <path d="M15.5 8.5a5 5 0 0 1 0 7" />
+          <path d="M18.5 6a9 9 0 0 1 0 12" />
+        </symbol>
+        <symbol id="i-volume-off" viewBox="0 0 24 24">
+          <path d="M11 5 6 9H3v6h3l5 4z" />
+          <line x1="16" y1="9" x2="22" y2="15" />
+          <line x1="22" y1="9" x2="16" y2="15" />
+        </symbol>
+        <symbol id="i-trophy" viewBox="0 0 24 24">
+          <path d="M7 4h10v5a5 5 0 0 1-10 0z" />
+          <path d="M7 6H4v1a3 3 0 0 0 3 3" />
+          <path d="M17 6h3v1a3 3 0 0 1-3 3" />
+          <path d="M9 20h6" />
+          <path d="M12 14v6" />
+        </symbol>
+        <symbol id="i-coin" viewBox="0 0 24 24">
+          <circle cx="12" cy="12" r="8" />
+          <path d="M12 7.5v9" />
+          <path d="M14.5 9.4c0-1-1-1.6-2.5-1.6s-2.5.7-2.5 1.7.9 1.5 2.5 1.8 2.7.8 2.7 1.9-1.2 1.8-2.7 1.8-2.6-.6-2.6-1.7" />
+        </symbol>
+        <symbol id="i-medal" viewBox="0 0 24 24">
+          <circle cx="12" cy="14" r="6" />
+          <path d="M12 14l1.5 1.2-.6 1.9L12 18l-1.9-.9-.6-1.9z" />
+          <path d="M8 3l2 6" />
+          <path d="M16 3l-2 6" />
+        </symbol>
+      </defs>
+    </svg>
+
     <div class="wrapper">
       <header class="topbar">
         <div class="brand">
@@ -21,12 +80,15 @@
         </div>
         <div class="topbar-right">
           <div id="scoreboard" class="scoreboard">
-            <span class="chip" title="Battles won">🏆 <b id="winCount">0</b></span>
-            <span class="chip" title="Money">₽ <b id="moneyCount">0</b></span>
+            <span class="chip" title="Battles won"><svg class="ico"><use href="#i-trophy" /></svg> <b id="winCount">0</b></span>
+            <span class="chip" title="Money"><svg class="ico"><use href="#i-coin" /></svg> <b id="moneyCount">0</b></span>
             <span id="badgeStrip" class="badge-strip" title="Badges"></span>
+            <span id="objective" class="chip objective-chip" title="Current objective"></span>
           </div>
           <div class="audio-controls">
-            <button id="muteBtn" class="icon-btn" title="Mute">🔊</button>
+            <button id="muteBtn" class="icon-btn" title="Mute" aria-pressed="false" aria-label="Toggle sound">
+              <svg class="ico"><use href="#i-volume" /></svg>
+            </button>
             <input type="range" id="volumeSlider" min="0" max="1" step="0.05" value="0.2" aria-label="Volume" />
           </div>
         </div>
@@ -101,10 +163,10 @@
 
           <div id="menu" class="panel hidden">
             <div class="menu-grid">
-              <button id="fightBtn" class="cmd cmd-fight"><span class="cmd-ico">⚔</span>FIGHT</button>
-              <button id="ballInfoBtn" class="cmd cmd-bag"><span class="cmd-ico">🎒</span>BAG</button>
-              <button id="swapBtn" class="cmd cmd-pkmn"><span class="cmd-ico">🐾</span>PKMN</button>
-              <button id="runBtn" class="cmd cmd-run"><span class="cmd-ico">🏃</span>RUN</button>
+              <button id="fightBtn" class="cmd cmd-fight"><svg class="ico" aria-hidden="true"><use href="#i-fight" /></svg>FIGHT</button>
+              <button id="ballInfoBtn" class="cmd cmd-bag"><svg class="ico" aria-hidden="true"><use href="#i-bag" /></svg>BAG</button>
+              <button id="swapBtn" class="cmd cmd-pkmn"><svg class="ico" aria-hidden="true"><use href="#i-pkmn" /></svg>PKMN</button>
+              <button id="runBtn" class="cmd cmd-run"><svg class="ico" aria-hidden="true"><use href="#i-run" /></svg>RUN</button>
             </div>
             <label class="auto-toggle small">
               <input type="checkbox" id="autoToggle" /> <span>Auto-play</span>
@@ -148,10 +210,20 @@
         <div class="title-actions">
           <button id="newGameBtn" class="title-btn primary">New Adventure</button>
           <button id="continueBtn" class="title-btn hidden">Continue</button>
+          <button id="arenaBtn" class="title-btn">Ranked Arena</button>
         </div>
-        <p class="title-hint small">Choose a starter, battle wild Pokémon &amp; trainers, evolve your team.</p>
+        <p class="title-hint small">Grind, catch &amp; evolve a team through the Gym gauntlet in singleplayer — then bring it to the Arena for 1v1 ranked PvP.</p>
       </div>
       <div class="title-orbs" aria-hidden="true"></div>
+    </div>
+
+    <!-- Reusable modal (victory / arena) -->
+    <div id="modal" class="modal hidden">
+      <div class="modal-card">
+        <h2 id="modalTitle"></h2>
+        <div id="modalBody"></div>
+        <div id="modalActions" class="modal-actions"></div>
+      </div>
     </div>
 
     <audio id="battleMusic" loop src="assets/sfx/music/wild-battle.ogg"></audio>

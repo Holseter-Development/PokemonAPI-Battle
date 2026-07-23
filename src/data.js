@@ -109,49 +109,41 @@ export const PRIORITY_STATUS_MOVES = new Set([
   "double-team", "minimize", "reflect", "light-screen", "leech-seed",
 ]);
 
-// Trainer roster — milestone battles between wild encounters. Each entry lists
-// species ids and a level offset applied on top of the current difficulty.
-export const TRAINERS = [
-  {
-    name: "Youngster Joey",
-    title: "Youngster",
-    intro: "Youngster Joey wants to battle!",
-    team: [16, 19, 21], // Pidgey, Rattata, Spearow
-    reward: { money: 200, balls: 2 },
-    badge: null,
-  },
-  {
-    name: "Lass Dana",
-    title: "Lass",
-    intro: "Lass Dana challenges you!",
-    team: [43, 69, 63], // Oddish, Bellsprout, Abra
-    reward: { money: 320, potions: 2 },
-    badge: null,
-  },
-  {
-    name: "Bug Catcher Rick",
-    title: "Bug Catcher",
-    intro: "Bug Catcher Rick sends out his swarm!",
-    team: [13, 48, 123, 127], // Weedle, Venonat, Scyther, Pinsir
-    reward: { money: 400, balls: 3 },
-    badge: null,
-  },
-  {
-    name: "Hiker Bruno",
-    title: "Hiker",
-    intro: "Hiker Bruno blocks the path!",
-    team: [74, 95, 111, 106], // Geodude, Onix, Rhyhorn, Hitmonlee
-    reward: { money: 500, potions: 3 },
-    badge: "Boulder",
-  },
-  {
-    name: "Ace Trainer Iris",
-    title: "Ace Trainer",
-    intro: "Ace Trainer Iris means business!",
-    team: [59, 65, 130, 149], // Arcanine, Alakazam, Gyarados, Dragonite
-    reward: { money: 900, hyperPotions: 1, balls: 5 },
-    badge: "Champion",
-  },
+// ---- Campaign: the Gym ladder ------------------------------------------
+// The singleplayer "journey with a destination": clear the eight Gyms, then
+// challenge the Champion. Wild battles between Gyms are the grind that levels
+// your team. Each Gym scales with progression and New Game+ level.
+export const GYMS = [
+  { leader: "Brock",   title: "Gym Leader", town: "Pewter",     type: "rock",     badge: "Boulder",
+    team: [74, 95], intro: "Brock, the Rock-solid trainer, blocks your path!", floor: 12, reward: { money: 600, potions: 2 } },
+  { leader: "Misty",   title: "Gym Leader", town: "Cerulean",   type: "water",    badge: "Cascade",
+    team: [120, 121], intro: "Misty, the Tomboyish Mermaid, dives in!", floor: 18, reward: { money: 800, superPotions: 2 } },
+  { leader: "Lt. Surge", title: "Gym Leader", town: "Vermilion", type: "electric", badge: "Thunder",
+    team: [100, 25, 26], intro: "Lt. Surge, the Lightning American, sparks up!", floor: 24, reward: { money: 1000, balls: 4 } },
+  { leader: "Erika",   title: "Gym Leader", town: "Celadon",    type: "grass",    badge: "Rainbow",
+    team: [114, 71, 45], intro: "Erika, the Nature-Loving Princess, greets you.", floor: 29, reward: { money: 1200, superPotions: 3 } },
+  { leader: "Koga",    title: "Gym Leader", town: "Fuchsia",    type: "poison",   badge: "Soul",
+    team: [109, 89, 110], intro: "Koga, the Poisonous Ninja Master, appears!", floor: 34, reward: { money: 1400, hyperPotions: 1 } },
+  { leader: "Sabrina", title: "Gym Leader", town: "Saffron",    type: "psychic",  badge: "Marsh",
+    team: [64, 122, 65], intro: "Sabrina, the Master of Psychic power, awaits.", floor: 40, reward: { money: 1600, ultraBalls: 2 } },
+  { leader: "Blaine",  title: "Gym Leader", town: "Cinnabar",   type: "fire",     badge: "Volcano",
+    team: [58, 77, 59], intro: "Blaine, the Hot-Headed Quiz Master, ignites!", floor: 45, reward: { money: 1800, hyperPotions: 2 } },
+  { leader: "Giovanni", title: "Gym Leader", town: "Viridian",  type: "ground",   badge: "Earth",
+    team: [111, 51, 112], intro: "Giovanni, the self-proclaimed strongest, sneers.", floor: 50, reward: { money: 2500, ultraBalls: 3, hyperPotions: 2 } },
+];
+
+// The final challenge after all eight badges.
+export const CHAMPION = {
+  leader: "Champion Blue", title: "Champion", town: "Indigo Plateau", type: "normal", badge: "Champion",
+  team: [18, 65, 112, 103, 130, 6], // Pidgeot, Alakazam, Rhydon, Exeggutor, Gyarados, Charizard
+  intro: "Your rival stands as Champion. This is the battle you've trained for!",
+  floor: 56, reward: { money: 5000, ultraBalls: 5, hyperPotions: 3 },
+};
+
+export const STARTERS = [
+  { id: 1, name: "Bulbasaur", type: "grass" },
+  { id: 4, name: "Charmander", type: "fire" },
+  { id: 7, name: "Squirtle", type: "water" },
 ];
 
 // Fallback move used when a Pokémon somehow has no valid learnset.

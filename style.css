@@ -282,7 +282,17 @@ body {
   box-shadow: 0 4px 0 rgba(0,0,0,.35), inset 0 1px 0 rgba(255,255,255,.18);
   transition: transform .06s ease, filter .15s ease;
 }
-.cmd-ico { font-size: 17px; }
+/* custom line icons */
+.ico {
+  width: 1.15em; height: 1.15em; flex: none;
+  display: inline-block; vertical-align: -0.2em;
+  fill: none; stroke: currentColor; stroke-width: 2;
+  stroke-linecap: round; stroke-linejoin: round;
+  overflow: visible;
+}
+.cmd .ico { width: 1.3em; height: 1.3em; vertical-align: -0.28em; }
+.chip .ico { width: 1em; height: 1em; vertical-align: -0.15em; opacity: .95; }
+.icon-btn .ico { width: 18px; height: 18px; }
 .cmd-fight { background: linear-gradient(180deg, #ff6b6b, #d6353f); }
 .cmd-bag   { background: linear-gradient(180deg, #ffb24d, #e07b18); }
 .cmd-pkmn  { background: linear-gradient(180deg, #55c777, #2c9b53); }
@@ -476,6 +486,41 @@ button.use-btn:active { transform: translateY(2px); }
 .title-orbs::before { width: 340px; height: 340px; background: #d6353f; top: 8%; left: 12%; animation: float-orb 14s ease-in-out infinite; }
 .title-orbs::after { width: 300px; height: 300px; background: #2b7fe0; bottom: 8%; right: 12%; animation: float-orb 18s ease-in-out infinite reverse; }
 @keyframes float-orb { 0%,100% { transform: translate(0,0); } 50% { transform: translate(30px,-24px); } }
+
+.objective-chip {
+  display: inline-flex; align-items: center; gap: 6px; color: var(--muted);
+  max-width: 340px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
+}
+.objective-chip .ico { color: var(--accent); }
+.objective-chip span { overflow: hidden; text-overflow: ellipsis; }
+
+/* ---- modal (victory / arena) ------------------------------------------- */
+.modal {
+  position: fixed; inset: 0; z-index: 60; display: grid; place-items: center;
+  background: rgba(6, 9, 16, 0.72); backdrop-filter: blur(6px); padding: 20px;
+}
+.modal-card {
+  width: min(440px, 94vw); background: linear-gradient(180deg, #182238, #0f1626);
+  border: 1px solid var(--panel-line); border-radius: 20px; padding: 24px;
+  box-shadow: var(--shadow); text-align: center;
+}
+.modal-card h2 {
+  margin: 0 0 12px; font-size: 24px;
+  background: linear-gradient(180deg, #ffe14d, #ffab00);
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+}
+.modal-card p { margin: 8px 0; }
+.arena-soon { font-weight: 800; color: var(--accent-2); }
+.roster-list {
+  list-style: none; margin: 12px 0; padding: 0; display: grid;
+  grid-template-columns: repeat(2, 1fr); gap: 6px; text-align: left;
+}
+.roster-list li {
+  background: rgba(255,255,255,.06); border: 1px solid var(--panel-line);
+  border-radius: 8px; padding: 6px 10px;
+}
+.modal-actions { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; margin-top: 18px; }
+.modal-actions .title-btn { padding: 12px 22px; font-size: 15px; }
 
 .foot { margin-top: 10px; opacity: .7; text-align: center; }
 .small { font-size: 12px; color: var(--muted); }

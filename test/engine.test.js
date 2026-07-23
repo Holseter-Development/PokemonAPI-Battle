@@ -8,7 +8,8 @@ import {
   firstMover, effectiveStat, chooseAIMove, bestMoveIndex, catchSuccess,
 } from "../src/battle.js";
 import { selectMoves, spriteSet } from "../src/api.js";
-import { buildMove } from "../src/data.js";
+import { buildMove, GYMS, CHAMPION } from "../src/data.js";
+import { snapshotMon, buildRoster, validateRoster, rosterPower } from "../src/roster.js";
 
 let passed = 0;
 function test(name, fn) {
@@ -33,6 +34,7 @@ function makeRng(seed = 12345) {
 
 function mon(over = {}) {
   return {
+    id: over.id || 1,
     name: over.name || "Test",
     level: over.level || 20,
     types: over.types || ["normal"],
@@ -244,6 +246,58 @@ test("simulated battles terminate and keep HP in range", () => {
     }
     assert.ok(turns < 300, "battle failed to terminate");
   }
+});
+
+// ---- roster (multiplayer bridge) ----
+test("snapshotMon heals fully and clears status/stages", () => {
+  const m = mon({ stats: { maxHp: 80, hp: 12 }, status: { cond: "brn", turns: 0, toxic: 3 }, stages: { atk: 4 } });
+  const s = snapshotMon(m);
+  assert.strictEqual(s.stats.hp, s.stats.maxHp);
+  assert.strictEqual(s.status.cond, "none");
+  assert.strictEqual(s.stages.atk, 0);
+  assert.strictEqual(s.moves[0].ppLeft, s.moves[0].pp);
+});
+
+test("buildRoster caps at 6 and drops invalid members", () => {
+  const party = [];
+  for (let i = 0; i < 8; i++) party.push(mon({ name: "M" + i }));
+  party.push({ name: "broken" }); // no stats/moves
+  const r = buildRoster(party);
+  assert.ok(r.length === 6, "capped to 6: " + r.length);
+});
+
+test("validateRoster accepts a fair team, rejects bad ones", () => {
+  const good = buildRoster([mon(), mon({ name: "B" })]);
+  assert.ok(validateRoster(good).ok);
+  assert.ok(!validateRoster([]).ok, "empty rejected");
+  const overLevel = buildRoster([mon({ level: 200 })]);
+  assert.ok(!validateRoster(overLevel).ok, "over level cap rejected");
+  const noDamage = buildRoster([mon({ moves: [dmgMove({ power: 0, damage_class: "status", category: "net-good-stats" })] })]);
+  assert.ok(!validateRoster(noDamage).ok, "no damaging move rejected");
+  const notFull = good.map((m) => ({ ...m, stats: { ...m.stats, hp: 1 } }));
+  assert.ok(!validateRoster(notFull).ok, "not-full-HP rejected");
+});
+
+test("rosterPower is positive and scales with level", () => {
+  const low = buildRoster([mon({ level: 5 })]);
+  const high = buildRoster([mon({ level: 50 })]);
+  assert.ok(rosterPower(high) > rosterPower(low) && rosterPower(low) > 0);
+});
+
+// ---- campaign data integrity ----
+test("gym ladder is well-formed and scales", () => {
+  assert.strictEqual(GYMS.length, 8);
+  const badges = new Set();
+  let lastFloor = 0;
+  for (const g of GYMS) {
+    assert.ok(g.leader && g.type && g.badge, "gym fields present");
+    assert.ok(g.team.length >= 1 && g.team.every((id) => id >= 1 && id <= 151), "valid Gen-1 team");
+    assert.ok(g.floor > lastFloor, "floor levels increase");
+    lastFloor = g.floor;
+    badges.add(g.badge);
+  }
+  assert.strictEqual(badges.size, 8, "unique badges");
+  assert.ok(CHAMPION.team.length >= 5 && CHAMPION.floor > lastFloor, "champion is the toughest");
 });
 
 console.log(`\n${passed} checks passed`);
