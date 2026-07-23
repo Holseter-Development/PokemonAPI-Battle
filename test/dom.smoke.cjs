@@ -36,7 +36,7 @@ if (!window.matchMedia) {
 window.fetch = () => Promise.reject(new Error("network disabled in smoke test"));
 window.Image = class { set src(_) {} };
 window.localStorage.setItem("pkbattle:meta:v1", JSON.stringify({
-  fragments: 44,
+  fragments: 1000,
   expeditionsWon: 2,
   startingSigils: ["ball_cache"],
 }));
@@ -59,7 +59,7 @@ console.log("  ✓ bundle evaluates and boots without throwing");
 const doc = window.document;
 const migratedMeta = JSON.parse(window.localStorage.getItem("pkbattle:meta:v2"));
 assert.strictEqual(migratedMeta.version, 2, "legacy meta migrated to v2");
-assert.strictEqual(migratedMeta.fragments, 44, "legacy fragments retained");
+assert.strictEqual(migratedMeta.fragments, 1000, "legacy fragments retained");
 assert.strictEqual(migratedMeta.expeditionsWon, 2, "legacy wins retained");
 assert.strictEqual(migratedMeta.expeditionsStarted, 2, "legacy starts normalized against wins");
 assert.deepStrictEqual(migratedMeta.startingSigils, ["ball_cache"], "unknown legacy fields retained");
@@ -71,6 +71,43 @@ console.log("  ✓ title screen rendered");
 
 // Title should start visible (not hidden).
 assert.ok(!doc.getElementById("titleScreen").classList.contains("hidden"), "title visible at boot");
+
+// Account-level collection and upgrade surfaces are reachable before a run.
+doc.getElementById("pokedexBtn").click();
+let modal = doc.getElementById("modal");
+assert.ok(!modal.classList.contains("hidden") && modal.classList.contains("modal-wide"), "Pokédex opens in a wide modal");
+assert.strictEqual(doc.querySelectorAll(".dex-entry").length, 151, "Pokédex renders the full Gen-1 index");
+assert.match(doc.querySelector(".dex-summary").textContent, /1Caught/, "legacy Vault catch appears in summary");
+assert.match(doc.querySelector(".dex-milestone").textContent, /Explorer Grant/, "next permanent perk is shown");
+doc.querySelector('.dex-filter[data-filter="caught"]').click();
+assert.strictEqual(doc.querySelectorAll(".dex-entry").length, 1, "caught filter narrows the index");
+assert.strictEqual(doc.querySelector(".dex-entry").dataset.id, "25", "caught Pikachu is the filtered entry");
+doc.querySelector(".dex-close").click();
+assert.ok(modal.classList.contains("hidden"), "Pokédex closes");
+
+doc.getElementById("upgradesBtn").click();
+assert.ok(!modal.classList.contains("hidden") && modal.classList.contains("modal-wide"), "Fragment Lab opens");
+assert.strictEqual(doc.querySelectorAll(".upgrade-card").length, 5, "all permanent upgrades render");
+assert.match(doc.querySelector(".upgrade-balance").textContent, /1000/, "Fragment balance is visible");
+const upgradeCard = (name) => [...doc.querySelectorAll(".upgrade-card")]
+  .find((card) => card.querySelector("h3").textContent === name);
+assert.strictEqual(upgradeCard("Field Kit II").querySelector(".upgrade-buy").textContent, "Locked", "Level II starts prerequisite-locked");
+const buyUpgrade = (name) => {
+  let button = upgradeCard(name).querySelector(".upgrade-buy");
+  assert.ok(!button.disabled, name + " is affordable");
+  button.click();
+  button = upgradeCard(name).querySelector(".upgrade-buy");
+  assert.match(button.textContent, /Confirm/, name + " requires confirmation");
+  button.click();
+  assert.strictEqual(upgradeCard(name).querySelector(".upgrade-buy").textContent, "Owned", name + " becomes permanent");
+};
+["Field Kit I", "Ball Satchel I", "Travel Fund I", "Field Kit II", "Ball Satchel II"].forEach(buyUpgrade);
+assert.match(doc.querySelector(".upgrade-balance").textContent, /150/, "exact purchase costs are deducted");
+assert.strictEqual(doc.querySelectorAll(".upgrade-card.owned").length, 5, "maxed Lab shows every upgrade as owned");
+const purchasedMeta = JSON.parse(window.localStorage.getItem("pkbattle:meta:v2"));
+assert.strictEqual(Object.values(purchasedMeta.upgrades).filter(Boolean).length, 5, "purchases persist immediately");
+doc.querySelector(".upgrade-close").click();
+console.log("  ✓ Pokédex filters and Fragment Lab render from migrated progression");
 
 // --- click "New Adventure" and let the async flow settle ---
 const staleEnemy = doc.getElementById("enemySprite");
@@ -116,7 +153,7 @@ setTimeout(() => {
     const arenaBtn = doc.getElementById("arenaBtn");
     assert.ok(arenaBtn, "arena button present");
     arenaBtn.click();
-    const modal = doc.getElementById("modal");
+    modal = doc.getElementById("modal");
     assert.ok(modal && !modal.classList.contains("hidden"), "arena modal opens");
     assert.ok(/Arena/i.test(doc.getElementById("modalTitle").textContent), "arena modal titled");
     console.log("  ✓ ranked arena entry opens");

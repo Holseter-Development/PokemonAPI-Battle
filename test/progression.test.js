@@ -1,14 +1,28 @@
 import assert from "node:assert";
 import {
   PROGRESSION_VERSION,
+  POKEDEX_MILESTONES,
+  UPGRADE_CATALOG,
   defaultProgression,
   normalizeProgression,
   registerSpeciesId,
   progressionCounts,
+  reconcileProgressionUnlocks,
+  progressionEffects,
+  upgradePurchaseState,
+  purchaseUpgrade,
   recordExpeditionStart,
   recordBestDepth,
   recordRunResult,
 } from "../src/progression.js";
+import {
+  GEN1_NAMES,
+  dexName,
+  dexNumber,
+  dexSpriteUrl,
+  dexEntryState,
+  filteredDexIds,
+} from "../src/pokedex.js";
 
 let passed = 0;
 function test(name, fn) {
@@ -125,6 +139,109 @@ test("normalized progression round-trips through JSON", () => {
   });
   const after = normalizeProgression(JSON.parse(JSON.stringify(before)));
   assert.deepStrictEqual(after, before);
+});
+
+test("local Pokédex index covers all 151 species and stable sprite URLs", () => {
+  assert.strictEqual(GEN1_NAMES.length, 151);
+  assert.strictEqual(dexName(1), "Bulbasaur");
+  assert.strictEqual(dexName(25), "Pikachu");
+  assert.strictEqual(dexName(151), "Mew");
+  assert.strictEqual(dexNumber(7), "#007");
+  assert.match(dexSpriteUrl(25), /sprites\/pokemon\/25\.png$/);
+  assert.match(dexSpriteUrl(25, true), /sprites\/pokemon\/shiny\/25\.png$/);
+});
+
+test("Pokédex entry states and collection filters distinguish seen, caught, and shiny", () => {
+  const profile = normalizeProgression({
+    seen: [1, 25],
+    caught: [25],
+    shinyCaught: [25],
+  });
+  assert.deepStrictEqual(dexEntryState(profile, 1), {
+    id: 1, name: "Bulbasaur", seen: true, caught: false, shiny: false,
+  });
+  assert.deepStrictEqual(dexEntryState(profile, 25), {
+    id: 25, name: "Pikachu", seen: true, caught: true, shiny: true,
+  });
+  assert.strictEqual(filteredDexIds(profile, "all").length, 151);
+  assert.deepStrictEqual(filteredDexIds(profile, "seen"), [1, 25]);
+  assert.deepStrictEqual(filteredDexIds(profile, "caught"), [25]);
+  assert.strictEqual(filteredDexIds(profile, "missing").length, 150);
+  assert.deepStrictEqual(filteredDexIds(profile, "shiny"), [25]);
+  assert.strictEqual(filteredDexIds(profile, "invalid").length, 151);
+});
+
+test("every Pokédex milestone unlocks at its threshold, not before, and only once", () => {
+  const idsThrough = (count) => Array.from({ length: Math.min(151, count) }, (_, index) => index + 1);
+  for (const milestone of POKEDEX_MILESTONES) {
+    const below = defaultProgression();
+    below[milestone.field] = idsThrough(milestone.threshold - 1);
+    assert.ok(
+      !reconcileProgressionUnlocks(below).some((entry) => entry.id === milestone.id),
+      `${milestone.id} stays locked below ${milestone.threshold}`,
+    );
+
+    const at = defaultProgression();
+    at[milestone.field] = idsThrough(milestone.threshold);
+    assert.ok(
+      reconcileProgressionUnlocks(at).some((entry) => entry.id === milestone.id),
+      `${milestone.id} unlocks at ${milestone.threshold}`,
+    );
+    assert.ok(at.unlocks[milestone.id], `${milestone.id} persists on the profile`);
+    assert.ok(
+      !reconcileProgressionUnlocks(at).some((entry) => entry.id === milestone.id),
+      `${milestone.id} is not announced twice`,
+    );
+
+    const above = defaultProgression();
+    above[milestone.field] = idsThrough(milestone.threshold + 1);
+    assert.ok(
+      reconcileProgressionUnlocks(above).some((entry) => entry.id === milestone.id),
+      `${milestone.id} also unlocks when an old save is already above its threshold`,
+    );
+  }
+});
+
+test("milestones and purchased upgrades combine into exact run effects", () => {
+  const profile = defaultProgression();
+  profile.unlocks = Object.fromEntries(POKEDEX_MILESTONES.map((entry) => [entry.id, true]));
+  profile.upgrades = Object.fromEntries(UPGRADE_CATALOG.map((entry) => [entry.id, true]));
+  assert.deepStrictEqual(progressionEffects(profile), {
+    startingGold: 90,
+    startingBalls: 3,
+    startingPotions: 0,
+    startingSuperPotions: 1,
+    catchChanceMult: 1.05,
+    goldMult: 1.1,
+    starterIds: [25, 133],
+    masterResearcher: true,
+  });
+});
+
+test("Fragment Lab purchases enforce prerequisites, funds, permanence, and exact costs", () => {
+  const profile = defaultProgression();
+  profile.fragments = 1000;
+  assert.strictEqual(upgradePurchaseState(profile, "field_kit_2").reason, "requires");
+  assert.strictEqual(upgradePurchaseState(profile, "unknown").reason, "unknown");
+
+  const first = purchaseUpgrade(profile, "field_kit_1");
+  assert.ok(first.ok);
+  assert.strictEqual(profile.fragments, 925);
+  assert.strictEqual(profile.upgrades.field_kit_1, true);
+
+  const repeat = purchaseUpgrade(profile, "field_kit_1");
+  assert.strictEqual(repeat.reason, "owned");
+  assert.strictEqual(profile.fragments, 925, "owned upgrades cannot charge twice");
+
+  const second = purchaseUpgrade(profile, "field_kit_2");
+  assert.ok(second.ok);
+  assert.strictEqual(profile.fragments, 700);
+  assert.strictEqual(progressionEffects(profile).startingSuperPotions, 1);
+
+  const poor = defaultProgression();
+  poor.fragments = 74;
+  assert.strictEqual(purchaseUpgrade(poor, "field_kit_1").reason, "funds");
+  assert.strictEqual(poor.fragments, 74);
 });
 
 console.log(`\n${passed} checks passed`);

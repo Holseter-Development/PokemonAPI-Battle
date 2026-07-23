@@ -55,14 +55,28 @@ import {
 import { sampleDistinct } from "./rng.js";
 import {
   GEN1_DEX_SIZE,
+  BONUS_STARTERS,
+  POKEDEX_MILESTONES,
+  UPGRADE_CATALOG,
   defaultProgression,
   normalizeProgression,
   registerSpeciesId,
   progressionCounts,
+  reconcileProgressionUnlocks,
+  progressionEffects,
+  upgradePurchaseState,
+  purchaseUpgrade,
   recordExpeditionStart,
   recordBestDepth,
   recordRunResult,
 } from "./progression.js";
+import {
+  DEX_FILTERS,
+  dexEntryState,
+  dexNumber,
+  dexSpriteUrl,
+  filteredDexIds,
+} from "./pokedex.js";
 import { $, el, show, typeText, setText } from "./ui.js";
 
 console.info("PokéBattle Arena — build v1.0");
@@ -116,14 +130,28 @@ const state = {
 };
 
 function registerPokemonProgress(mon, field, announce = true) {
-  if (!mon || !registerSpeciesId(state.meta, field, mon.id)) return false;
+  if (!mon || !registerSpeciesId(state.meta, field, mon.id)) {
+    return { added: false, unlocks: [] };
+  }
+  const unlocks = reconcileProgressionUnlocks(state.meta);
   saveMeta();
   if (announce) {
     const counts = progressionCounts(state.meta);
     const label = field === "seen" ? "Seen" : "Caught";
-    floatToast(`Pokédex · ${label} ${counts[field]}/${GEN1_DEX_SIZE} · ${mon.name}`);
+    floatToast(unlocks.length
+      ? `Unlocked · ${unlocks.map((entry) => entry.name).join(", ")}`
+      : `Pokédex · ${label} ${counts[field]}/${GEN1_DEX_SIZE} · ${mon.name}`);
   }
-  return true;
+  return { added: true, unlocks };
+}
+
+async function announceCaughtProgress(registration) {
+  if (!registration.added) return;
+  const counts = progressionCounts(state.meta);
+  await say(`Pokédex updated: ${counts.caught}/${GEN1_DEX_SIZE} species caught.`);
+  for (const unlocked of registration.unlocks) {
+    await say(`Permanent perk unlocked: ${unlocked.name} — ${unlocked.desc}`);
+  }
 }
 
 function backfillOwnedPokemon(...groups) {
@@ -133,7 +161,8 @@ function backfillOwnedPokemon(...groups) {
       if (mon && registerSpeciesId(state.meta, "caught", mon.id)) added++;
     }
   }
-  if (added) saveMeta();
+  const unlocks = reconcileProgressionUnlocks(state.meta);
+  if (added || unlocks.length) saveMeta();
   return added;
 }
 
@@ -321,10 +350,7 @@ async function maybeEvolve(mon) {
   updateHUD();
   await showBanner(`${oldName} evolved into ${evolved.name}!`, 1400);
   await playCry(evolved);
-  if (registerPokemonProgress(evolved, "caught", false)) {
-    const counts = progressionCounts(state.meta);
-    await say(`Pokédex updated: ${counts.caught}/${GEN1_DEX_SIZE} species caught.`);
-  }
+  await announceCaughtProgress(registerPokemonProgress(evolved, "caught", false));
 }
 
 // ---------------------------------------------------------------- HUD ------
@@ -422,6 +448,13 @@ function updateScore() {
   if (w) w.textContent = state.meta.fragments; // Fragments (meta-currency)
   if (m) m.textContent = state.run ? state.run.gold : 0; // run gold
   if (bs) bs.innerHTML = "";
+  const counts = progressionCounts(state.meta);
+  const dexBtn = $("#pokedexBtn");
+  const dexQuick = $("#dexQuickCount");
+  const upgradesBtn = $("#upgradesBtn");
+  if (dexBtn) dexBtn.textContent = `Pokédex · ${counts.caught}/${GEN1_DEX_SIZE}`;
+  if (dexQuick) dexQuick.textContent = counts.caught;
+  if (upgradesBtn) upgradesBtn.textContent = `Fragment Lab · ${state.meta.fragments}`;
   updateObjective();
 }
 
@@ -1087,8 +1120,16 @@ const DEFAULT_ITEMS = () => ({
 
 async function startExpedition(starterMon) {
   const seed = randomSeedString();
-  const run = createRun(seed, { sigils: state.meta.startingSigils || [] });
+  const profileFx = progressionEffects(state.meta);
+  const run = createRun(seed, {
+    sigils: state.meta.startingSigils || [],
+    gold: profileFx.startingGold,
+  });
+  run.progressionFx = profileFx;
   run.items = DEFAULT_ITEMS();
+  run.items["poke-ball"] += profileFx.startingBalls;
+  run.items.potion += profileFx.startingPotions;
+  run.items["super-potion"] += profileFx.startingSuperPotions;
   const startingFx = aggregateSigils(run.sigils);
   applyStartingBallBonus(run.items, startingFx);
   run.team = [starterMon];
@@ -1115,6 +1156,7 @@ function bindRun(run) {
   backfillOwnedPokemon(run.team, run.box);
   if (!run.items) run.items = DEFAULT_ITEMS();
   if (!run.sigils) run.sigils = [];
+  if (!run.progressionFx) run.progressionFx = progressionEffects(defaultProgression());
   state.run = run;
   state.party = run.team;
   state.box = run.box;
@@ -1382,12 +1424,13 @@ async function afterBattleWin(info = {}) {
     ensureRuntime(info.caught);
     if (state.run.team.length < 6) state.run.team.push(info.caught);
     else { state.run.box.push(info.caught); await say(`${info.caught.name} was sent to storage.`); }
-    if (registerPokemonProgress(info.caught, "caught", false)) {
-      const counts = progressionCounts(state.meta);
-      await say(`Pokédex updated: ${counts.caught}/${GEN1_DEX_SIZE} species caught.`);
-    }
+    await announceCaughtProgress(registerPokemonProgress(info.caught, "caught", false));
   }
-  const gold = Math.round(rollGold(state.run, NODE.BATTLE) * (state.sigilFx.goldMult || 1));
+  const gold = Math.round(
+    rollGold(state.run, NODE.BATTLE) *
+    (state.sigilFx.goldMult || 1) *
+    (state.run.progressionFx?.goldMult || 1)
+  );
   state.run.gold += gold;
   if (gold) floatToast(`+${gold} gold`);
   goToMap();
@@ -1417,7 +1460,11 @@ async function resolveEliteNode(node) {
 }
 
 async function afterEliteWin(gym) {
-  const gold = Math.round(rollGold(state.run, NODE.ELITE) * (state.sigilFx.goldMult || 1));
+  const gold = Math.round(
+    rollGold(state.run, NODE.ELITE) *
+    (state.sigilFx.goldMult || 1) *
+    (state.run.progressionFx?.goldMult || 1)
+  );
   state.run.gold += gold;
   await say(`You defeated ${gym.leader}! +${gold} gold.`, 400);
   const sig = await offerDraft("sigil");
@@ -1550,10 +1597,7 @@ async function applyEventEffect(effect) {
       const mon = await makeWildMon(encounterLevel(run));
       if (run.team.length < 6) run.team.push(mon); else run.box.push(mon);
       await say(`The egg hatched into ${mon.name}!`);
-      if (registerPokemonProgress(mon, "caught", false)) {
-        const counts = progressionCounts(state.meta);
-        await say(`Pokédex updated: ${counts.caught}/${GEN1_DEX_SIZE} species caught.`);
-      }
+      await announceCaughtProgress(registerPokemonProgress(mon, "caught", false));
       break;
     }
     case "tutor": {
@@ -1930,7 +1974,8 @@ async function throwBall(key = "poke-ball") {
   const enemyImg = $("#enemySprite");
   try {
     const handle = await fx.throwAndWobble(sx, sy, tx, ty, () => { enemyImg.style.opacity = "0"; });
-    const success = Math.random() < 0.92; // near-guaranteed
+    const catchChance = Math.min(0.99, 0.92 * (state.run?.progressionFx?.catchChanceMult || 1));
+    const success = Math.random() < catchChance; // near-guaranteed
     await handle.shake(success ? 3 : Math.floor(Math.random() * 2) + 1);
     if (success) {
       handle.clear();
@@ -2056,7 +2101,10 @@ async function chooseStarter(id) {
   const screen = $("#starterScreen");
   const grid = $("#starterGrid");
   const prompt = $("#starterPrompt");
-  const chosen = STARTERS.find((s) => s.id === id);
+  const allStarters = [...STARTERS, ...BONUS_STARTERS];
+  const allowed = new Set([...STARTERS.map((s) => s.id), ...progressionEffects(state.meta).starterIds]);
+  const chosen = allStarters.find((s) => s.id === id && allowed.has(s.id));
+  if (!chosen) return;
   setBusy(true);
   if (grid) {
     grid.querySelectorAll(".starter-card").forEach((card) => {
@@ -2090,9 +2138,14 @@ function showStarterPicker() {
     grass: { style: "Steady", note: "Recovery and clever status play" },
     fire: { style: "Bold", note: "Fast pressure and heavy damage" },
     water: { style: "Reliable", note: "Strong defenses and safe matchups" },
+    electric: { style: "Quick", note: "Fast pressure and precise attacks" },
+    normal: { style: "Adaptable", note: "Flexible growth and broad potential" },
   };
   grid.innerHTML = "";
-  STARTERS.forEach((s) => {
+  const unlockedIds = new Set(progressionEffects(state.meta).starterIds);
+  const starterChoices = [...STARTERS, ...BONUS_STARTERS.filter((s) => unlockedIds.has(s.id))];
+  grid.classList.toggle("starter-grid-expanded", starterChoices.length > 3);
+  starterChoices.forEach((s) => {
     const info = details[s.type];
     const b = el("button", {
       class: `starter-card starter-${s.type}`,
@@ -2204,11 +2257,236 @@ function hideTitle() {
   if (t) t.classList.add("hidden");
 }
 
+// ---------------------------------------------------------- Pokédex / Lab ----
+
+let dexDetailToken = 0;
+
+function openPokedex() {
+  const counts = progressionCounts(state.meta);
+  openPanel("Pokédex", (body, close) => {
+    const shell = el("div", { class: "dex-shell" });
+    const summary = el("div", { class: "dex-summary" });
+    summary.innerHTML =
+      `<span><b>${counts.seen}</b><small>Seen</small></span>` +
+      `<span><b>${counts.caught}</b><small>Caught</small></span>` +
+      `<span><b>${counts.shinyCaught}</b><small>Shiny</small></span>` +
+      `<span><b>${GEN1_DEX_SIZE - counts.caught}</b><small>Missing</small></span>`;
+    const nextMilestone = POKEDEX_MILESTONES.find((milestone) =>
+      counts[milestone.field] < milestone.threshold
+    );
+    const milestone = el("div", { class: "dex-milestone" });
+    if (nextMilestone) {
+      const current = counts[nextMilestone.field];
+      milestone.innerHTML =
+        `<span><small>Next permanent perk</small><b>${nextMilestone.name}</b></span>` +
+        `<span class="dex-milestone-copy">${nextMilestone.desc}</span>` +
+        `<strong>${current} / ${nextMilestone.threshold} ${nextMilestone.field}</strong>`;
+    } else {
+      milestone.innerHTML =
+        `<span><small>Research complete</small><b>Master Researcher</b></span>` +
+        `<span class="dex-milestone-copy">Every Generation I species has been registered.</span>` +
+        `<strong>${GEN1_DEX_SIZE} / ${GEN1_DEX_SIZE}</strong>`;
+    }
+
+    const filters = el("div", { class: "dex-filters", role: "group", "aria-label": "Pokédex filters" });
+    const content = el("div", { class: "dex-content" });
+    const grid = el("div", { class: "dex-grid", role: "list", "aria-label": "Generation I Pokédex" });
+    const detail = el("aside", { class: "dex-detail", "aria-live": "polite" });
+    let filter = "all";
+    let selectedId = state.meta.caught[0] || state.meta.seen[0] || 1;
+
+    const renderDetail = async (id) => {
+      selectedId = id;
+      const entry = dexEntryState(state.meta, id);
+      const token = ++dexDetailToken;
+      detail.innerHTML = "";
+      const art = el("div", { class: `dex-detail-art ${entry.seen ? "" : "unknown"}` });
+      if (entry.seen) {
+        const img = el("img", {
+          src: dexSpriteUrl(id, entry.shiny),
+          alt: entry.name,
+        });
+        art.appendChild(img);
+      } else {
+        art.appendChild(el("span", { "aria-hidden": "true" }, "?"));
+      }
+      detail.appendChild(art);
+      detail.appendChild(el("span", { class: "dex-detail-number" }, dexNumber(id)));
+      detail.appendChild(el("h3", {}, entry.seen ? entry.name : "Undiscovered"));
+      const status = entry.caught ? (entry.shiny ? "Shiny caught" : "Caught") : entry.seen ? "Seen only" : "Not yet seen";
+      detail.appendChild(el("p", { class: `dex-detail-status ${entry.caught ? "caught" : ""}` }, status));
+      const types = el("div", { class: "dex-detail-types" });
+      detail.appendChild(types);
+      const note = el("p", { class: "small dex-detail-note" }, entry.seen ? "Loading species data…" : "Encounter this Pokémon to reveal its record.");
+      detail.appendChild(note);
+
+      grid.querySelectorAll(".dex-entry").forEach((button) => {
+        button.classList.toggle("selected", Number(button.dataset.id) === id);
+      });
+      if (!entry.seen) return;
+      try {
+        const data = await fetchPokemon(id);
+        if (token !== dexDetailToken || $("#modal")?.classList.contains("hidden")) return;
+        renderTypes(types, data.types.map((item) => item.type.name));
+        note.textContent = entry.caught
+          ? "Registered to your permanent collection."
+          : "Seen in battle. Catch it to complete this entry.";
+      } catch (_) {
+        if (token === dexDetailToken) note.textContent = "Species details are unavailable offline.";
+      }
+    };
+
+    const renderGrid = () => {
+      grid.innerHTML = "";
+      const ids = filteredDexIds(state.meta, filter);
+      if (!ids.length) {
+        grid.appendChild(el("p", { class: "dex-empty small" }, "No entries match this filter yet."));
+        return;
+      }
+      for (const id of ids) {
+        const entry = dexEntryState(state.meta, id);
+        const button = el("button", {
+          class: `dex-entry ${entry.caught ? "caught" : entry.seen ? "seen" : "unseen"} ${entry.shiny ? "shiny" : ""}`,
+          role: "listitem",
+          "aria-label": `${dexNumber(id)} ${entry.seen ? entry.name : "undiscovered"}${entry.caught ? ", caught" : ""}`,
+        });
+        button.dataset.id = String(id);
+        button.appendChild(el("span", { class: "dex-entry-number" }, dexNumber(id)));
+        if (entry.seen) {
+          const img = el("img", {
+            src: dexSpriteUrl(id, entry.shiny),
+            alt: "",
+            loading: "lazy",
+          });
+          button.appendChild(img);
+        } else {
+          button.appendChild(el("span", { class: "dex-entry-unknown", "aria-hidden": "true" }, "?"));
+        }
+        button.appendChild(el("span", { class: "dex-entry-name" }, entry.seen ? entry.name : "????"));
+        if (entry.caught) button.appendChild(el("i", { class: "dex-caught-mark", "aria-hidden": "true" }));
+        button.onclick = () => renderDetail(id);
+        grid.appendChild(button);
+      }
+      if (!ids.includes(selectedId)) selectedId = ids[0];
+      renderDetail(selectedId);
+    };
+
+    for (const value of DEX_FILTERS) {
+      const button = el("button", {
+        class: "dex-filter",
+        "data-filter": value,
+        "aria-pressed": value === filter ? "true" : "false",
+      }, cap(value));
+      button.onclick = () => {
+        filter = value;
+        filters.querySelectorAll(".dex-filter").forEach((item) =>
+          item.setAttribute("aria-pressed", String(item === button))
+        );
+        renderGrid();
+      };
+      filters.appendChild(button);
+    }
+
+    content.append(grid, detail);
+    shell.append(summary, milestone, filters, content);
+    const closeButton = el("button", { class: "title-btn dex-close" }, "Close Pokédex");
+    closeButton.onclick = close;
+    shell.appendChild(closeButton);
+    body.appendChild(shell);
+    renderGrid();
+    const focusFirstFilter = () => filters.querySelector(".dex-filter")?.focus();
+    if (typeof requestAnimationFrame === "function") requestAnimationFrame(focusFirstFilter);
+    else focusFirstFilter();
+  }, { wide: true });
+}
+
+function describeProgressionEffects(effects) {
+  const parts = [];
+  if (effects.startingGold) parts.push(`${effects.startingGold} starting gold`);
+  if (effects.startingBalls) parts.push(`${effects.startingBalls} extra ball${effects.startingBalls === 1 ? "" : "s"}`);
+  if (effects.startingPotions) parts.push(`${effects.startingPotions} extra Potion`);
+  if (effects.startingSuperPotions) parts.push(`${effects.startingSuperPotions} extra Super Potion`);
+  if (effects.catchChanceMult > 1) parts.push("+5% catch chance");
+  if (effects.goldMult > 1) parts.push("+10% battle gold");
+  return parts.length ? parts.join(" · ") : "No permanent run bonuses yet";
+}
+
+function openUpgradeLab() {
+  openPanel("Fragment Lab", (body, close) => {
+    let confirming = null;
+    let notice = "";
+    const shell = el("div", { class: "upgrade-shell" });
+
+    const render = () => {
+      shell.innerHTML = "";
+      const head = el("div", { class: "upgrade-head" });
+      head.innerHTML =
+        `<span class="upgrade-balance"><b>${state.meta.fragments}</b> Fragments</span>` +
+        `<p>${describeProgressionEffects(progressionEffects(state.meta))}</p>`;
+      shell.appendChild(head);
+      if (notice) shell.appendChild(el("p", { class: "upgrade-notice", role: "status" }, notice));
+
+      const list = el("div", { class: "upgrade-list" });
+      for (const upgrade of UPGRADE_CATALOG) {
+        const status = upgradePurchaseState(state.meta, upgrade.id);
+        const row = el("article", { class: `upgrade-card ${status.reason === "owned" ? "owned" : ""}` });
+        const copy = el("div", { class: "upgrade-copy" });
+        copy.appendChild(el("h3", {}, upgrade.name));
+        copy.appendChild(el("p", {}, upgrade.desc));
+        if (upgrade.requires && status.reason === "requires") {
+          const prerequisite = UPGRADE_CATALOG.find((item) => item.id === upgrade.requires);
+          copy.appendChild(el("small", {}, `Requires ${prerequisite?.name || "previous level"}`));
+        }
+        const action = el("button", { class: "use-btn upgrade-buy" });
+        if (status.reason === "owned") {
+          action.textContent = "Owned";
+          action.disabled = true;
+        } else if (status.reason === "requires") {
+          action.textContent = "Locked";
+          action.disabled = true;
+        } else if (status.reason === "funds") {
+          action.textContent = `${upgrade.cost} Fragments`;
+          action.disabled = true;
+        } else {
+          action.textContent = confirming === upgrade.id ? `Confirm ${upgrade.cost}` : `Buy · ${upgrade.cost}`;
+          action.onclick = () => {
+            if (confirming !== upgrade.id) {
+              confirming = upgrade.id;
+              notice = `Confirm purchase of ${upgrade.name}.`;
+              render();
+              return;
+            }
+            const result = purchaseUpgrade(state.meta, upgrade.id);
+            confirming = null;
+            notice = result.ok ? `${upgrade.name} purchased permanently.` : "Purchase could not be completed.";
+            if (result.ok) {
+              saveMeta();
+              updateScore();
+            }
+            render();
+          };
+        }
+        row.append(copy, action);
+        list.appendChild(row);
+      }
+      shell.appendChild(list);
+      const closeButton = el("button", { class: "title-btn upgrade-close" }, "Close Lab");
+      closeButton.onclick = close;
+      shell.appendChild(closeButton);
+    };
+
+    render();
+    body.appendChild(shell);
+  }, { wide: true });
+}
+
 // ---------------------------------------------------------------- modal ----
 
 function openModal({ title, bodyHTML, actions = [], dismissable = true }) {
   const modal = $("#modal");
   if (!modal) return Promise.resolve();
+  modal.classList.remove("modal-wide");
+  modal.onkeydown = null;
   $("#modalTitle").textContent = title || "";
   $("#modalBody").innerHTML = bodyHTML || "";
   const act = $("#modalActions");
@@ -2229,19 +2507,48 @@ function openModal({ title, bodyHTML, actions = [], dismissable = true }) {
 }
 function closeModal() {
   const modal = $("#modal");
-  if (modal) modal.classList.add("hidden");
+  if (modal) {
+    modal.classList.add("hidden");
+    modal.classList.remove("modal-wide");
+    modal.onkeydown = null;
+  }
 }
 
 // A modal whose body you build imperatively (with live listeners). Reuses the
 // single #modal container — callers are sequential (await), so no nesting.
-function openPanel(title, build) {
+function openPanel(title, build, options = {}) {
   const modal = $("#modal");
   if (!modal) return;
+  const returnFocus = document.activeElement;
+  modal.classList.toggle("modal-wide", !!options.wide);
   $("#modalTitle").textContent = title || "";
   const body = $("#modalBody");
   body.innerHTML = "";
   $("#modalActions").innerHTML = "";
-  const close = () => modal.classList.add("hidden");
+  const close = () => {
+    modal.classList.add("hidden");
+    modal.classList.remove("modal-wide");
+    modal.onkeydown = null;
+    if (returnFocus && typeof returnFocus.focus === "function") returnFocus.focus();
+  };
+  modal.onkeydown = (event) => {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      close();
+      return;
+    }
+    if (event.key !== "Tab") return;
+    const focusable = [...modal.querySelectorAll("button:not([disabled]), [href], input:not([disabled]), [tabindex]:not([tabindex='-1'])")];
+    if (!focusable.length) return;
+    const first = focusable[0], last = focusable[focusable.length - 1];
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first.focus();
+    }
+  };
   build(body, close);
   modal.classList.remove("hidden");
 }
@@ -2320,6 +2627,9 @@ function wireUI() {
   $("#newGameBtn").addEventListener("click", () => beginNewGame());
   const cont = $("#continueBtn");
   if (cont) cont.addEventListener("click", () => continueGame());
+  $("#pokedexBtn")?.addEventListener("click", () => openPokedex());
+  $("#pokedexQuickBtn")?.addEventListener("click", () => openPokedex());
+  $("#upgradesBtn")?.addEventListener("click", () => openUpgradeLab());
   const arenaBtn = $("#arenaBtn");
   if (arenaBtn) arenaBtn.addEventListener("click", () => openArena());
 }

@@ -83,6 +83,24 @@ window.addEventListener("error", (e) => (uncaught = e.error || e.message));
 process.on("unhandledRejection", (e) => (uncaught = e && (e.stack || e.message) || e));
 
 console.log("expedition integration smoke");
+// Seed permanent perks/upgrades without starter unlocks so the standard picker
+// remains stable while run-start bonuses are exercised end to end.
+window.localStorage.setItem("pkbattle:meta:v2", JSON.stringify({
+  version: 2,
+  fragments: 500,
+  unlocks: {
+    explorer_grant: true,
+    ball_belt: true,
+    merchant_license: true,
+  },
+  upgrades: {
+    field_kit_1: true,
+    field_kit_2: true,
+    ball_satchel_1: true,
+    ball_satchel_2: true,
+    travel_fund_1: true,
+  },
+}));
 window.eval(bundle);
 window.document.dispatchEvent(new window.Event("DOMContentLoaded"));
 const doc = window.document;
@@ -120,6 +138,12 @@ const waitFor = (cond, ms = 9000) => new Promise((resolve, reject) => {
     assert.strictEqual(startedMeta.expeditionsStarted, 1, "new Expedition recorded exactly once");
     assert.deepStrictEqual(startedMeta.seen, [1], "starter registered as seen");
     assert.deepStrictEqual(startedMeta.caught, [1], "starter registered as caught");
+    const startedRun = JSON.parse(window.localStorage.getItem("pkbattle:run:v1"));
+    assert.strictEqual(startedRun.gold, 90, "profile grant and Travel Fund apply to starting gold");
+    assert.strictEqual(startedRun.items["poke-ball"], 6, "Ball Belt and both satchel upgrades apply");
+    assert.strictEqual(startedRun.items.potion, 1, "Field Kit II replaces, rather than duplicates, its bonus Potion");
+    assert.strictEqual(startedRun.items["super-potion"], 1, "Field Kit II adds a Super Potion");
+    assert.strictEqual(startedRun.progressionFx.goldMult, 1.1, "battle-gold perk is stored in run effects");
     console.log("  ✓ expedition started, map rendered");
 
     const avail = doc.querySelectorAll("#mapCanvas .map-node.available");

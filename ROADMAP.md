@@ -1,6 +1,6 @@
 # PokéBattle Arena — Updated Product and Implementation Roadmap
 
-Last updated: 2026-07-23
+Last updated: 2026-07-24
 
 ## 1. Purpose
 
@@ -42,15 +42,18 @@ The following systems are already implemented and should be preserved:
 - Pokémon Mutations and run-wide Sigils.
 - Weather-like Sigil effects and several battle-engine modifiers.
 - Persistent Fragments, expedition win count, and an ascended Pokémon Vault.
+- A complete Gen 1 Pokédex overlay with seen, caught, missing, and shiny filters.
+- Data-driven Pokédex milestone perks, including bonus starters and run bonuses.
+- A Fragment Lab with five permanent, stacking account upgrades.
 - Save/continue for active Expeditions.
 - Seedable RNG utilities and pure battle/run modules.
 - Engine, roguelike, DOM, and Expedition smoke tests.
 
 Important gaps in the baseline:
 
-- The Pokédex does not exist.
-- Fragments are earned but cannot be spent.
 - The `ascension` and `startingSigils` fields are scaffolding, not a player flow.
+- Account statistics exist in data but do not yet have a Trainer Profile screen.
+- Active foreground playtime is not yet tracked.
 - Region names and backgrounds do not affect encounters.
 - Wild encounters and some mystery outcomes still use `Math.random()`.
 - Shinies are not represented.
@@ -911,10 +914,10 @@ Implement in this order:
 
 1. `P1.1` — Versioned progression model. **Complete**
 2. `P1.2` — Seen and caught tracking. **Complete**
-3. `P1.3` — Pokédex screen. **Next**
-4. `P1.4` — Pokédex milestone perks.
-5. `P1.5` — Fragment upgrade shop.
-6. `P1.6` — Trainer profile.
+3. `P1.3` — Pokédex screen. **Complete**
+4. `P1.4` — Pokédex milestone perks. **Complete**
+5. `P1.5` — Fragment upgrade shop. **Complete**
+6. `P1.6` — Trainer profile. **Next**
 7. `P2.1` — Biome encounter catalog.
 8. `P2.2` — Deterministic controller rolls.
 9. `P2.3` — Shinies.
@@ -948,10 +951,10 @@ Update this section as chunks ship.
 | --- | --- | --- |
 | P1.1 | Complete | v2 profile, legacy migration, run statistics, and tests shipped 2026-07-24 |
 | P1.2 | Complete | Battle sightings, ownership paths, evolution, and legacy backfill shipped 2026-07-24 |
-| P1.3 | Next | Add the Pokédex UI |
-| P1.4 | Planned | Activate Pokédex perks |
-| P1.5 | Planned | Make Fragments spendable |
-| P1.6 | Planned | Add trainer profile |
+| P1.3 | Complete | 151-entry responsive Pokédex, filters, lazy details, and focus handling shipped 2026-07-24 |
+| P1.4 | Complete | Seven automatic milestones, bonus starters, and snapshotted run effects shipped 2026-07-24 |
+| P1.5 | Complete | Confirmed Fragment purchases, five permanent upgrades, and combined effect previews shipped 2026-07-24 |
+| P1.6 | Next | Add trainer profile and active foreground playtime |
 | P2.1–P2.6 | Backlog | Places and surprise |
 | P3.0–P3.6 | Backlog | Team-building depth |
 | P4.1–P4.7 | Backlog | Replay and challenge |
