@@ -1,7 +1,85 @@
 import { fetchPokemon } from "./api.js";
 
+// Audio is routed through a Web Audio master gain node. This is the one path
+// that lets us control volume + mute on iOS Safari, which ignores script-set
+// HTMLMediaElement.volume. Same-origin media (music, local SFX) is routed
+// through the graph; cross-origin cries fall back to element playback.
+
 export let isMuted = false;
 let sfxVolume = 0.2;
+
+let audioCtx = null;
+let masterGain = null;
+const routed = new WeakSet();
+
+function ensureCtx() {
+  if (audioCtx) return audioCtx;
+  try {
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return null;
+    audioCtx = new AC();
+    masterGain = audioCtx.createGain();
+    masterGain.gain.value = isMuted ? 0 : sfxVolume;
+    masterGain.connect(audioCtx.destination);
+  } catch (_) {
+    audioCtx = null;
+  }
+  return audioCtx;
+}
+
+function applyGain() {
+  if (masterGain) {
+    try {
+      masterGain.gain.value = isMuted ? 0 : sfxVolume;
+    } catch (_) {}
+  }
+}
+
+// Route a same-origin element through the master gain, exactly once.
+function route(el) {
+  if (!ensureCtx() || routed.has(el)) return routed.has(el);
+  try {
+    const src = audioCtx.createMediaElementSource(el);
+    src.connect(masterGain);
+    routed.add(el);
+  } catch (_) {
+    /* cross-origin or already-connected — element plays on its own */
+  }
+  return routed.has(el);
+}
+
+// Play an element, resuming the context on the current user gesture. When the
+// element is routed through the gain node its intrinsic volume is left at 1 so
+// gain is the single source of truth; unrouted elements use element volume.
+function playEl(el, { useGraph = true } = {}) {
+  if (useGraph) {
+    ensureCtx();
+    if (audioCtx && audioCtx.state === "suspended") audioCtx.resume().catch(() => {});
+    const isRouted = route(el);
+    el.volume = isRouted ? 1 : sfxVolume;
+  } else {
+    el.volume = sfxVolume;
+  }
+  el.muted = isMuted;
+  return el.play();
+}
+
+export function setMuted(v) {
+  isMuted = !!v;
+  const music = document.getElementById("battleMusic");
+  if (music) {
+    music.muted = isMuted; // honored on iOS
+    if (!isMuted && music.paused) playEl(music).catch(() => {});
+  }
+  applyGain();
+}
+
+export function setVolume(v) {
+  sfxVolume = Math.max(0, Math.min(1, isNaN(v) ? sfxVolume : v));
+  const music = document.getElementById("battleMusic");
+  if (music && !routed.has(music)) music.volume = sfxVolume;
+  applyGain();
+}
 
 // Maps API move names (e.g., "hydro-pump") to your sound file names.
 const ATTACK_SFX_MAP = {
@@ -192,8 +270,23 @@ export function playSfx(move) {
   }
 
   const sound = new Audio(`assets/sfx/attacks/${sfxFile}`);
-  sound.volume = sfxVolume;
-  sound.play().catch((e) => console.error("Error playing SFX:", e));
+  playEl(sound).catch(() => {});
+}
+
+// Play a one-off sound file (same-origin) through the gain graph.
+export function playFile(url) {
+  if (isMuted) return;
+  try {
+    playEl(new Audio(url)).catch(() => {});
+  } catch (_) {}
+}
+
+function updateMuteIcon(btn) {
+  if (!btn) return;
+  const use = btn.querySelector("use");
+  if (use) use.setAttribute("href", isMuted ? "#i-volume-off" : "#i-volume");
+  btn.setAttribute("aria-pressed", String(isMuted));
+  btn.title = isMuted ? "Unmute" : "Mute";
 }
 
 export function initAudio() {
@@ -201,29 +294,36 @@ export function initAudio() {
   const muteBtn = document.getElementById("muteBtn");
   const volumeSlider = document.getElementById("volumeSlider");
 
-  // Browsers require a user interaction to start audio.
-  const startAudio = () => {
-    music.play().catch((e) => console.error("Music autoplay failed:", e));
-    document.body.removeEventListener("click", startAudio);
+  if (volumeSlider) sfxVolume = parseFloat(volumeSlider.value) || sfxVolume;
+
+  // Unlock + start the music on the first real user gesture (required by
+  // autoplay policies, and to create/resume the AudioContext on iOS).
+  const unlock = () => {
+    ensureCtx();
+    if (audioCtx && audioCtx.state === "suspended") audioCtx.resume().catch(() => {});
+    if (music && !isMuted && music.paused) playEl(music).catch(() => {});
+    events.forEach((ev) => document.removeEventListener(ev, unlock));
   };
-  document.body.addEventListener("click", startAudio);
+  const events = ["pointerdown", "touchstart", "keydown", "click"];
+  events.forEach((ev) => document.addEventListener(ev, unlock, { passive: true }));
 
-  const setVolume = () => {
-    sfxVolume = isMuted ? 0 : parseFloat(volumeSlider.value);
-    music.volume = sfxVolume;
-  };
-
-  muteBtn.addEventListener("click", () => {
-    isMuted = !isMuted;
-    muteBtn.textContent = isMuted ? "Unmute" : "Mute";
-    setVolume();
-  });
-
-  volumeSlider.addEventListener("input", setVolume);
-
-  // Set initial volume
-  sfxVolume = parseFloat(volumeSlider.value);
-  music.volume = sfxVolume;
+  if (muteBtn) {
+    updateMuteIcon(muteBtn);
+    muteBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      setMuted(!isMuted);
+      updateMuteIcon(muteBtn);
+    });
+  }
+  if (volumeSlider) {
+    volumeSlider.value = String(sfxVolume);
+    volumeSlider.addEventListener("input", () => {
+      setVolume(parseFloat(volumeSlider.value));
+      if (sfxVolume > 0 && isMuted) { setMuted(false); updateMuteIcon(muteBtn); }
+    });
+  }
+  // Prime element state.
+  setVolume(sfxVolume);
 }
 // --- END AUDIO SYSTEM ---
 const CRY_CACHE = new Map();
@@ -266,7 +366,8 @@ export async function playCry(mon) {
       (poke.cries && (poke.cries.latest || poke.cries.legacy)) || undefined;
     const a = await getCryAudio(mon.id, cryUrl);
     a.currentTime = 0;
-    a.volume = sfxVolume;
-    await a.play();
+    // Cries may be cross-origin (tainted for Web Audio), so play them on the
+    // element directly rather than through the gain graph.
+    await playEl(a, { useGraph: false });
   } catch (_) {}
 }

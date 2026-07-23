@@ -68,11 +68,22 @@ setTimeout(() => {
     assert.strictEqual(btns.length, 3, "three starter buttons");
     console.log("  ✓ new game reveals 3-starter picker");
 
-    // Menu command buttons are wired.
-    ["fightBtn", "ballInfoBtn", "swapBtn", "runBtn"].forEach((id) =>
-      assert.ok(doc.getElementById(id), id + " present")
-    );
-    console.log("  ✓ battle menu commands present");
+    // Menu command buttons are wired and use SVG icons (no emoji).
+    ["fightBtn", "ballInfoBtn", "swapBtn", "runBtn"].forEach((id) => {
+      const btn = doc.getElementById(id);
+      assert.ok(btn, id + " present");
+      assert.ok(btn.querySelector("svg use"), id + " uses an SVG icon");
+    });
+    console.log("  ✓ battle menu commands present with SVG icons");
+
+    // Ranked Arena entry opens a modal (offline placeholder) without a team.
+    const arenaBtn = doc.getElementById("arenaBtn");
+    assert.ok(arenaBtn, "arena button present");
+    arenaBtn.click();
+    const modal = doc.getElementById("modal");
+    assert.ok(modal && !modal.classList.contains("hidden"), "arena modal opens");
+    assert.ok(/Arena/i.test(doc.getElementById("modalTitle").textContent), "arena modal titled");
+    console.log("  ✓ ranked arena entry opens");
 
     assert.strictEqual(uncaught, null, "no uncaught window error: " + uncaught);
     console.log("\ndom smoke passed");

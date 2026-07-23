@@ -124,52 +124,112 @@
     "light-screen",
     "leech-seed"
   ]);
-  var TRAINERS = [
+  var GYMS = [
     {
-      name: "Youngster Joey",
-      title: "Youngster",
-      intro: "Youngster Joey wants to battle!",
-      team: [16, 19, 21],
-      // Pidgey, Rattata, Spearow
-      reward: { money: 200, balls: 2 },
-      badge: null
+      leader: "Brock",
+      title: "Gym Leader",
+      town: "Pewter",
+      type: "rock",
+      badge: "Boulder",
+      team: [74, 95],
+      intro: "Brock, the Rock-solid trainer, blocks your path!",
+      floor: 12,
+      reward: { money: 600, potions: 2 }
     },
     {
-      name: "Lass Dana",
-      title: "Lass",
-      intro: "Lass Dana challenges you!",
-      team: [43, 69, 63],
-      // Oddish, Bellsprout, Abra
-      reward: { money: 320, potions: 2 },
-      badge: null
+      leader: "Misty",
+      title: "Gym Leader",
+      town: "Cerulean",
+      type: "water",
+      badge: "Cascade",
+      team: [120, 121],
+      intro: "Misty, the Tomboyish Mermaid, dives in!",
+      floor: 18,
+      reward: { money: 800, superPotions: 2 }
     },
     {
-      name: "Bug Catcher Rick",
-      title: "Bug Catcher",
-      intro: "Bug Catcher Rick sends out his swarm!",
-      team: [13, 48, 123, 127],
-      // Weedle, Venonat, Scyther, Pinsir
-      reward: { money: 400, balls: 3 },
-      badge: null
+      leader: "Lt. Surge",
+      title: "Gym Leader",
+      town: "Vermilion",
+      type: "electric",
+      badge: "Thunder",
+      team: [100, 25, 26],
+      intro: "Lt. Surge, the Lightning American, sparks up!",
+      floor: 24,
+      reward: { money: 1e3, balls: 4 }
     },
     {
-      name: "Hiker Bruno",
-      title: "Hiker",
-      intro: "Hiker Bruno blocks the path!",
-      team: [74, 95, 111, 106],
-      // Geodude, Onix, Rhyhorn, Hitmonlee
-      reward: { money: 500, potions: 3 },
-      badge: "Boulder"
+      leader: "Erika",
+      title: "Gym Leader",
+      town: "Celadon",
+      type: "grass",
+      badge: "Rainbow",
+      team: [114, 71, 45],
+      intro: "Erika, the Nature-Loving Princess, greets you.",
+      floor: 29,
+      reward: { money: 1200, superPotions: 3 }
     },
     {
-      name: "Ace Trainer Iris",
-      title: "Ace Trainer",
-      intro: "Ace Trainer Iris means business!",
-      team: [59, 65, 130, 149],
-      // Arcanine, Alakazam, Gyarados, Dragonite
-      reward: { money: 900, hyperPotions: 1, balls: 5 },
-      badge: "Champion"
+      leader: "Koga",
+      title: "Gym Leader",
+      town: "Fuchsia",
+      type: "poison",
+      badge: "Soul",
+      team: [109, 89, 110],
+      intro: "Koga, the Poisonous Ninja Master, appears!",
+      floor: 34,
+      reward: { money: 1400, hyperPotions: 1 }
+    },
+    {
+      leader: "Sabrina",
+      title: "Gym Leader",
+      town: "Saffron",
+      type: "psychic",
+      badge: "Marsh",
+      team: [64, 122, 65],
+      intro: "Sabrina, the Master of Psychic power, awaits.",
+      floor: 40,
+      reward: { money: 1600, ultraBalls: 2 }
+    },
+    {
+      leader: "Blaine",
+      title: "Gym Leader",
+      town: "Cinnabar",
+      type: "fire",
+      badge: "Volcano",
+      team: [58, 77, 59],
+      intro: "Blaine, the Hot-Headed Quiz Master, ignites!",
+      floor: 45,
+      reward: { money: 1800, hyperPotions: 2 }
+    },
+    {
+      leader: "Giovanni",
+      title: "Gym Leader",
+      town: "Viridian",
+      type: "ground",
+      badge: "Earth",
+      team: [111, 51, 112],
+      intro: "Giovanni, the self-proclaimed strongest, sneers.",
+      floor: 50,
+      reward: { money: 2500, ultraBalls: 3, hyperPotions: 2 }
     }
+  ];
+  var CHAMPION = {
+    leader: "Champion Blue",
+    title: "Champion",
+    town: "Indigo Plateau",
+    type: "normal",
+    badge: "Champion",
+    team: [18, 65, 112, 103, 130, 6],
+    // Pidgeot, Alakazam, Rhydon, Exeggutor, Gyarados, Charizard
+    intro: "Your rival stands as Champion. This is the battle you've trained for!",
+    floor: 56,
+    reward: { money: 5e3, ultraBalls: 5, hyperPotions: 3 }
+  };
+  var STARTERS = [
+    { id: 1, name: "Bulbasaur", type: "grass" },
+    { id: 4, name: "Charmander", type: "fire" },
+    { id: 7, name: "Squirtle", type: "water" }
   ];
   var STRUGGLE = {
     name: "Struggle",
@@ -351,6 +411,76 @@
   // src/audio.js
   var isMuted = false;
   var sfxVolume = 0.2;
+  var audioCtx = null;
+  var masterGain = null;
+  var routed = /* @__PURE__ */ new WeakSet();
+  function ensureCtx() {
+    if (audioCtx)
+      return audioCtx;
+    try {
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC)
+        return null;
+      audioCtx = new AC();
+      masterGain = audioCtx.createGain();
+      masterGain.gain.value = isMuted ? 0 : sfxVolume;
+      masterGain.connect(audioCtx.destination);
+    } catch (_) {
+      audioCtx = null;
+    }
+    return audioCtx;
+  }
+  function applyGain() {
+    if (masterGain) {
+      try {
+        masterGain.gain.value = isMuted ? 0 : sfxVolume;
+      } catch (_) {
+      }
+    }
+  }
+  function route(el2) {
+    if (!ensureCtx() || routed.has(el2))
+      return routed.has(el2);
+    try {
+      const src = audioCtx.createMediaElementSource(el2);
+      src.connect(masterGain);
+      routed.add(el2);
+    } catch (_) {
+    }
+    return routed.has(el2);
+  }
+  function playEl(el2, { useGraph = true } = {}) {
+    if (useGraph) {
+      ensureCtx();
+      if (audioCtx && audioCtx.state === "suspended")
+        audioCtx.resume().catch(() => {
+        });
+      const isRouted = route(el2);
+      el2.volume = isRouted ? 1 : sfxVolume;
+    } else {
+      el2.volume = sfxVolume;
+    }
+    el2.muted = isMuted;
+    return el2.play();
+  }
+  function setMuted(v) {
+    isMuted = !!v;
+    const music = document.getElementById("battleMusic");
+    if (music) {
+      music.muted = isMuted;
+      if (!isMuted && music.paused)
+        playEl(music).catch(() => {
+        });
+    }
+    applyGain();
+  }
+  function setVolume(v) {
+    sfxVolume = Math.max(0, Math.min(1, isNaN(v) ? sfxVolume : v));
+    const music = document.getElementById("battleMusic");
+    if (music && !routed.has(music))
+      music.volume = sfxVolume;
+    applyGain();
+  }
   var ATTACK_SFX_MAP = {
     absorb: "Absorb.wav",
     acid: "Acid.wav",
@@ -539,30 +669,64 @@
         sfxFile = GENERIC_SFX_MAP.hit;
     }
     const sound = new Audio(`assets/sfx/attacks/${sfxFile}`);
-    sound.volume = sfxVolume;
-    sound.play().catch((e) => console.error("Error playing SFX:", e));
+    playEl(sound).catch(() => {
+    });
+  }
+  function playFile(url) {
+    if (isMuted)
+      return;
+    try {
+      playEl(new Audio(url)).catch(() => {
+      });
+    } catch (_) {
+    }
+  }
+  function updateMuteIcon(btn) {
+    if (!btn)
+      return;
+    const use = btn.querySelector("use");
+    if (use)
+      use.setAttribute("href", isMuted ? "#i-volume-off" : "#i-volume");
+    btn.setAttribute("aria-pressed", String(isMuted));
+    btn.title = isMuted ? "Unmute" : "Mute";
   }
   function initAudio() {
     const music = document.getElementById("battleMusic");
     const muteBtn = document.getElementById("muteBtn");
     const volumeSlider = document.getElementById("volumeSlider");
-    const startAudio = () => {
-      music.play().catch((e) => console.error("Music autoplay failed:", e));
-      document.body.removeEventListener("click", startAudio);
+    if (volumeSlider)
+      sfxVolume = parseFloat(volumeSlider.value) || sfxVolume;
+    const unlock = () => {
+      ensureCtx();
+      if (audioCtx && audioCtx.state === "suspended")
+        audioCtx.resume().catch(() => {
+        });
+      if (music && !isMuted && music.paused)
+        playEl(music).catch(() => {
+        });
+      events.forEach((ev) => document.removeEventListener(ev, unlock));
     };
-    document.body.addEventListener("click", startAudio);
-    const setVolume = () => {
-      sfxVolume = isMuted ? 0 : parseFloat(volumeSlider.value);
-      music.volume = sfxVolume;
-    };
-    muteBtn.addEventListener("click", () => {
-      isMuted = !isMuted;
-      muteBtn.textContent = isMuted ? "Unmute" : "Mute";
-      setVolume();
-    });
-    volumeSlider.addEventListener("input", setVolume);
-    sfxVolume = parseFloat(volumeSlider.value);
-    music.volume = sfxVolume;
+    const events = ["pointerdown", "touchstart", "keydown", "click"];
+    events.forEach((ev) => document.addEventListener(ev, unlock, { passive: true }));
+    if (muteBtn) {
+      updateMuteIcon(muteBtn);
+      muteBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        setMuted(!isMuted);
+        updateMuteIcon(muteBtn);
+      });
+    }
+    if (volumeSlider) {
+      volumeSlider.value = String(sfxVolume);
+      volumeSlider.addEventListener("input", () => {
+        setVolume(parseFloat(volumeSlider.value));
+        if (sfxVolume > 0 && isMuted) {
+          setMuted(false);
+          updateMuteIcon(muteBtn);
+        }
+      });
+    }
+    setVolume(sfxVolume);
   }
   var CRY_CACHE = /* @__PURE__ */ new Map();
   async function getCryAudio(id, hintUrl) {
@@ -600,8 +764,7 @@
       const cryUrl = poke.cries && (poke.cries.latest || poke.cries.legacy) || void 0;
       const a = await getCryAudio(mon.id, cryUrl);
       a.currentTime = 0;
-      a.volume = sfxVolume;
-      await a.play();
+      await playEl(a, { useGraph: false });
     } catch (_) {
     }
   }
@@ -1024,6 +1187,216 @@
     return "";
   }
 
+  // src/roster.js
+  var ROSTER_MAX = 6;
+  var ROSTER_MIN = 1;
+  var ARENA_LEVEL_CAP = 100;
+  function snapshotMon(mon) {
+    return {
+      id: mon.id,
+      name: mon.name,
+      level: mon.level,
+      types: mon.types.slice(),
+      stats: {
+        maxHp: mon.stats.maxHp,
+        hp: mon.stats.maxHp,
+        // enter the Arena at full health
+        atk: mon.stats.atk,
+        def: mon.stats.def,
+        spa: mon.stats.spa,
+        spd: mon.stats.spd,
+        spe: mon.stats.spe
+      },
+      base_exp: mon.base_exp,
+      capture_rate: mon.capture_rate,
+      spriteFront: mon.spriteFront,
+      spriteBack: mon.spriteBack,
+      artwork: mon.artwork,
+      moves: (mon.moves || []).map((m) => ({
+        name: m.name,
+        key: m.key,
+        power: m.power,
+        accuracy: m.accuracy,
+        type: m.type,
+        damage_class: m.damage_class,
+        pp: m.pp,
+        ppLeft: m.pp,
+        priority: m.priority || 0,
+        category: m.category,
+        drain: m.drain || 0,
+        healing: m.healing || 0,
+        minHits: m.minHits || 1,
+        maxHits: m.maxHits || 1,
+        statChanges: m.statChanges || [],
+        statChance: m.statChance || 0,
+        flinchChance: m.flinchChance || 0,
+        ailment: m.ailment || "none",
+        ailmentChance: m.ailmentChance || 0,
+        highCrit: !!m.highCrit,
+        selfTarget: !!m.selfTarget,
+        isOHKO: !!m.isOHKO
+      })),
+      // Battles start clean.
+      stages: { atk: 0, def: 0, spa: 0, spd: 0, spe: 0, acc: 0, eva: 0 },
+      status: { cond: "none", turns: 0, toxic: 0 }
+    };
+  }
+  function buildRoster(party) {
+    return (party || []).filter((m) => m && m.stats && m.moves && m.moves.length).slice(0, ROSTER_MAX).map(snapshotMon);
+  }
+  function validateRoster(roster, opts = {}) {
+    const max = opts.max || ROSTER_MAX;
+    const min = opts.min || ROSTER_MIN;
+    const levelCap = opts.levelCap || ARENA_LEVEL_CAP;
+    if (!Array.isArray(roster))
+      return { ok: false, reason: "Roster must be a list." };
+    if (roster.length < min)
+      return { ok: false, reason: "You need at least one Pok\xE9mon." };
+    if (roster.length > max)
+      return { ok: false, reason: `A team can have at most ${max}.` };
+    for (const mon of roster) {
+      if (!mon || typeof mon.id !== "number")
+        return { ok: false, reason: "Malformed Pok\xE9mon in roster." };
+      if (!(mon.level >= 1 && mon.level <= levelCap))
+        return { ok: false, reason: `${mon.name || "A Pok\xE9mon"} exceeds the level cap.` };
+      if (!mon.stats || !(mon.stats.maxHp > 0))
+        return { ok: false, reason: `${mon.name || "A Pok\xE9mon"} has invalid stats.` };
+      if (mon.stats.hp !== mon.stats.maxHp)
+        return { ok: false, reason: `${mon.name} must enter at full HP.` };
+      if (!Array.isArray(mon.moves) || !mon.moves.length)
+        return { ok: false, reason: `${mon.name} has no moves.` };
+      if (!mon.moves.some((m) => m.power > 0))
+        return { ok: false, reason: `${mon.name} needs at least one damaging move.` };
+      if (!Array.isArray(mon.types) || !mon.types.length)
+        return { ok: false, reason: `${mon.name} has no type.` };
+    }
+    return { ok: true, count: roster.length };
+  }
+  function rosterPower(roster) {
+    if (!roster || !roster.length)
+      return 0;
+    let sum = 0;
+    for (const m of roster) {
+      const bst = m.stats.maxHp + m.stats.atk + m.stats.def + m.stats.spa + m.stats.spd + m.stats.spe;
+      sum += m.level * 4 + bst;
+    }
+    return Math.round(sum / roster.length);
+  }
+
+  // src/net.js
+  var LS_ENDPOINT = "pkbattle:arena-endpoint";
+  function arenaEndpoint() {
+    try {
+      if (typeof window !== "undefined") {
+        if (window.ARENA_ENDPOINT)
+          return window.ARENA_ENDPOINT;
+        const v = localStorage.getItem(LS_ENDPOINT);
+        if (v)
+          return v;
+      }
+    } catch (_) {
+    }
+    return null;
+  }
+  function isArenaConfigured() {
+    return !!arenaEndpoint();
+  }
+  function makeEmitter() {
+    const map = /* @__PURE__ */ new Map();
+    return {
+      on(ev, cb) {
+        (map.get(ev) || map.set(ev, []).get(ev)).push(cb);
+        return () => this.off(ev, cb);
+      },
+      off(ev, cb) {
+        const a = map.get(ev);
+        if (a)
+          map.set(ev, a.filter((f) => f !== cb));
+      },
+      emit(ev, data) {
+        (map.get(ev) || []).forEach((f) => {
+          try {
+            f(data);
+          } catch (_) {
+          }
+        });
+      }
+    };
+  }
+  var ArenaClient = class {
+    constructor() {
+      this.status = "offline";
+      this.ws = null;
+      this.events = makeEmitter();
+    }
+    on(ev, cb) {
+      return this.events.on(ev, cb);
+    }
+    connect() {
+      const url = arenaEndpoint();
+      if (!url) {
+        this.status = "offline";
+        return Promise.reject(new Error("Ranked Arena is not online yet."));
+      }
+      return new Promise((resolve, reject) => {
+        try {
+          this.status = "connecting";
+          const ws = new WebSocket(url);
+          this.ws = ws;
+          ws.onopen = () => {
+            this.status = "online";
+            this.events.emit("open");
+            resolve();
+          };
+          ws.onclose = () => {
+            this.status = "offline";
+            this.events.emit("close");
+          };
+          ws.onerror = (e) => {
+            this.events.emit("error", e);
+            reject(new Error("Connection failed."));
+          };
+          ws.onmessage = (m) => {
+            let msg;
+            try {
+              msg = JSON.parse(m.data);
+            } catch (_) {
+              return;
+            }
+            if (msg && msg.t)
+              this.events.emit(msg.t, msg);
+          };
+        } catch (e) {
+          this.status = "offline";
+          reject(e);
+        }
+      });
+    }
+    send(obj) {
+      if (this.ws && this.ws.readyState === 1)
+        this.ws.send(JSON.stringify(obj));
+    }
+    queueRanked(roster) {
+      this.status = "queued";
+      this.send({ t: "queue", roster });
+    }
+    sendAction(battleId, turn, action) {
+      this.send({ t: "action", battleId, turn, action });
+    }
+    cancelQueue() {
+      this.send({ t: "dequeue" });
+      this.status = "online";
+    }
+    disconnect() {
+      try {
+        this.ws && this.ws.close();
+      } catch (_) {
+      }
+      this.status = "offline";
+    }
+  };
+  var arena = new ArenaClient();
+
   // src/ui.js
   var $ = (sel) => document.querySelector(sel);
   function el(tag, attrs = {}, txt = "") {
@@ -1108,7 +1481,7 @@
       await sleep(hold);
   }
   var SAVE_KEY = "pkbattle:save:v2";
-  var TRAINER_EVERY = 4;
+  var GYM_EVERY = 3;
   var state = {
     party: [],
     box: [],
@@ -1121,9 +1494,14 @@
     mode: "wild",
     // "wild" | "trainer"
     trainer: null,
+    // active Gym / Champion object
     trainerTeam: [],
     trainerIdx: 0,
-    trainersBeaten: 0,
+    isChampion: false,
+    gymsBeaten: 0,
+    championBeaten: false,
+    championsCleared: 0,
+    ngPlus: 0,
     wins: 0,
     money: 0,
     badges: [],
@@ -1414,6 +1792,23 @@
       bs.innerHTML = "";
       state.badges.forEach((b) => bs.appendChild(el("span", { class: "gym-badge" }, b)));
     }
+    updateObjective();
+  }
+  function updateObjective() {
+    const obj = $("#objective");
+    if (!obj)
+      return;
+    let text;
+    if (state.gymsBeaten < GYMS.length) {
+      const next = GYMS[state.gymsBeaten];
+      text = `Badges ${state.badges.length}/${GYMS.length} \xB7 Next: ${next.town} Gym (${cap(next.type)})`;
+    } else if (!state.championBeaten) {
+      text = `All ${GYMS.length} badges! \xB7 Challenge the Champion`;
+    } else {
+      text = `Champion \xB7 New Game+ ${state.ngPlus}`;
+    }
+    const ng = state.ngPlus > 0 && state.gymsBeaten < GYMS.length ? ` \xB7 NG+${state.ngPlus}` : "";
+    obj.innerHTML = `<svg class="ico"><use href="#i-medal" /></svg> <span>${text}${ng}</span>`;
   }
   function ensureVfx() {
     return document.getElementById("vfx");
@@ -1602,12 +1997,7 @@
       return ballPromise;
     }
     async function throwAndWobble(sx, sy, tx, ty, onHit) {
-      if (!isMuted) {
-        try {
-          new Audio("assets/sfx/battle/attack.wav").play();
-        } catch (_) {
-        }
-      }
+      playFile("assets/sfx/battle/attack.wav");
       const r = 30;
       const arc = clamp(Math.hypot(tx - sx, ty - sy) * 0.25, cssNum("--ball-arc-min", 60), cssNum("--ball-arc-max", 140));
       const img = await ball();
@@ -1927,8 +2317,19 @@
   }
   async function startEncounter() {
     resetStages(state.player);
-    if (state.mode !== "trainer" && state.trainersBeaten < TRAINERS.length && state.wins >= (state.trainersBeaten + 1) * TRAINER_EVERY) {
-      return startTrainerBattle(TRAINERS[state.trainersBeaten]);
+    const ps = $("#playerSprite");
+    if (ps) {
+      ps.style.opacity = "1";
+      ps.style.transform = "none";
+    }
+    if (state.mode !== "trainer") {
+      const g = state.gymsBeaten;
+      if (g < GYMS.length && state.wins >= (g + 1) * GYM_EVERY) {
+        return startGymBattle(GYMS[g], false);
+      }
+      if (g >= GYMS.length && !state.championBeaten && state.wins >= (GYMS.length + 1) * GYM_EVERY) {
+        return startGymBattle(CHAMPION, true);
+      }
     }
     state.mode = "wild";
     state.trainer = null;
@@ -1960,20 +2361,22 @@
     await playCry(mon);
     await backToMenu();
   }
-  async function startTrainerBattle(trainer) {
+  async function startGymBattle(gym, isChampion) {
     state.mode = "trainer";
-    state.trainer = trainer;
+    state.trainer = gym;
+    state.isChampion = isChampion;
     state.trainerIdx = 0;
     setBusy(true);
     show("none");
-    const base = wildLevel();
+    const anchor = Math.max(wildLevel(), gym.floor) + state.ngPlus * 10;
     state.trainerTeam = [];
-    for (let i = 0; i < trainer.team.length; i++) {
-      const lvl = clamp(base + 1 + i, 4, 60);
-      const mon = await buildMon(trainer.team[i], lvl);
+    for (let i = 0; i < gym.team.length; i++) {
+      const lvl = clamp(anchor + i, 4, 100);
+      const mon = await buildMon(gym.team[i], lvl);
       state.trainerTeam.push(mon);
     }
-    await say(trainer.intro, 500);
+    await showBanner(`${gym.title} ${gym.leader}`, 1400);
+    await say(gym.intro, 500);
     await sendTrainerMon(0);
     await backToMenu();
   }
@@ -1984,35 +2387,84 @@
     updateHUD();
     setThemeByType(mon.types);
     await fadeInSprite("#enemySprite");
-    await say(`${state.trainer.title} sent out ${mon.name}!`);
+    await say(`${state.trainer.leader} sent out ${mon.name}!`);
     await playCry(mon);
   }
-  async function onTrainerDefeated() {
-    const t = state.trainer;
-    await say(`You defeated ${t.name}!`, 500);
-    const r = t.reward || {};
-    if (r.money) {
+  function grantRewards(r) {
+    if (!r)
+      return;
+    if (r.money)
       state.money += r.money;
-      await say(`You got \u20BD${r.money} for winning!`);
-    }
     if (r.balls)
       state.items["poke-ball"] += r.balls;
     if (r.potions)
       state.items["potion"] += r.potions;
+    if (r.superPotions)
+      state.items["super-potion"] += r.superPotions;
     if (r.hyperPotions)
       state.items["hyper-potion"] += r.hyperPotions;
-    if (t.badge && !state.badges.includes(t.badge)) {
-      state.badges.push(t.badge);
-      await showBanner(`You earned the ${t.badge} Badge!`, 1500);
+    if (r.ultraBalls)
+      state.items["ultra-ball"] += r.ultraBalls;
+  }
+  async function onTrainerDefeated() {
+    const g = state.trainer;
+    const champ = state.isChampion;
+    await say(`You defeated ${g.leader}!`, 400);
+    grantRewards(g.reward);
+    if (g.reward?.money)
+      await say(`You received \u20BD${g.reward.money} prize money!`);
+    if (g.badge && !state.badges.includes(g.badge)) {
+      state.badges.push(g.badge);
+      if (!champ)
+        await showBanner(`You earned the ${g.badge} Badge!`, 1500);
     }
-    state.trainersBeaten++;
     state.wins++;
     state.mode = "wild";
     state.trainer = null;
     state.trainerTeam = [];
+    state.isChampion = false;
+    if (champ) {
+      await onChampionDefeated();
+      return;
+    }
+    state.gymsBeaten++;
     updateScore();
     save();
-    await sleep(500);
+    await sleep(400);
+    await startEncounter();
+    setBusy(false);
+  }
+  async function onChampionDefeated() {
+    state.championBeaten = true;
+    state.championsCleared++;
+    updateScore();
+    save();
+    await flashWhite("#enemySprite");
+    await openModal({
+      title: "Champion!",
+      bodyHTML: `<p>You stormed the Indigo Plateau and became the <b>Champion</b>!</p><p class="small">Hall of Fame entries: <b>${state.championsCleared}</b> \xB7 New Game+ ${state.ngPlus + 1} unlocks tougher Gyms and higher-level foes. Your team, items and money carry over.</p>`,
+      actions: [
+        { label: "Enter New Game+", primary: true, onClick: () => startNewGamePlus() }
+      ],
+      dismissable: false
+    });
+  }
+  async function startNewGamePlus() {
+    closeModal();
+    state.ngPlus++;
+    state.gymsBeaten = 0;
+    state.championBeaten = false;
+    state.badges = [];
+    state.party.forEach((m) => {
+      m.stats.hp = m.stats.maxHp;
+      m.status = { cond: "none", turns: 0, toxic: 0 };
+      resetStages(m);
+      m.moves.forEach((mv) => mv.ppLeft = mv.pp);
+    });
+    setActive(0);
+    updateScore();
+    save();
+    await say(`New Game+ ${state.ngPlus} begins! The Gyms await, stronger than ever.`, 600);
     await startEncounter();
     setBusy(false);
   }
@@ -2386,8 +2838,11 @@
         money: state.money,
         wins: state.wins,
         badges: state.badges,
-        trainersBeaten: state.trainersBeaten,
-        v: 2
+        gymsBeaten: state.gymsBeaten,
+        championBeaten: state.championBeaten,
+        championsCleared: state.championsCleared,
+        ngPlus: state.ngPlus,
+        v: 3
       };
       localStorage.setItem(SAVE_KEY, JSON.stringify(data));
     } catch (_) {
@@ -2415,7 +2870,10 @@
       state.money = d.money || 0;
       state.wins = d.wins || 0;
       state.badges = d.badges || [];
-      state.trainersBeaten = d.trainersBeaten || 0;
+      state.gymsBeaten = d.gymsBeaten ?? d.trainersBeaten ?? 0;
+      state.championBeaten = !!d.championBeaten;
+      state.championsCleared = d.championsCleared || 0;
+      state.ngPlus = d.ngPlus || 0;
       return true;
     } catch (_) {
       return false;
@@ -2430,7 +2888,10 @@
     state.wins = 0;
     state.money = 500;
     state.badges = [];
-    state.trainersBeaten = 0;
+    state.gymsBeaten = 0;
+    state.championBeaten = false;
+    state.championsCleared = 0;
+    state.ngPlus = 0;
     state.mode = "wild";
     setActive(0);
     await fadeInSprite("#playerSprite");
@@ -2451,12 +2912,7 @@
     view.appendChild(el("div", { class: "panel-head" }, ""));
     view.firstChild.appendChild(el("h3", {}, "Choose your partner"));
     const grid = el("div", { class: "moves-grid" });
-    const starters = [
-      { id: 1, name: "Bulbasaur", type: "grass" },
-      { id: 4, name: "Charmander", type: "fire" },
-      { id: 7, name: "Squirtle", type: "water" }
-    ];
-    starters.forEach((s) => {
+    STARTERS.forEach((s) => {
       const b = el("button", { class: "move-btn" });
       b.style.setProperty("--mtype", TYPE_COLOR[s.type]);
       b.innerHTML = `<span class="mv-name">${s.name}</span><span class="mv-meta"><span>${cap(s.type)} type</span></span>`;
@@ -2478,7 +2934,10 @@
     state.box = [];
     state.wins = 0;
     state.badges = [];
-    state.trainersBeaten = 0;
+    state.gymsBeaten = 0;
+    state.championBeaten = false;
+    state.championsCleared = 0;
+    state.ngPlus = 0;
     state.money = 0;
     state.mode = "wild";
     hideTitle();
@@ -2500,6 +2959,87 @@
     const t = $("#titleScreen");
     if (t)
       t.classList.add("hidden");
+  }
+  function openModal({ title, bodyHTML, actions = [], dismissable = true }) {
+    const modal = $("#modal");
+    if (!modal)
+      return Promise.resolve();
+    $("#modalTitle").textContent = title || "";
+    $("#modalBody").innerHTML = bodyHTML || "";
+    const act = $("#modalActions");
+    act.innerHTML = "";
+    return new Promise((resolve) => {
+      actions.forEach((a) => {
+        const b = el("button", { class: "title-btn" + (a.primary ? " primary" : "") }, a.label);
+        b.onclick = () => {
+          if (a.onClick)
+            a.onClick();
+          resolve(a.value);
+        };
+        act.appendChild(b);
+      });
+      if (dismissable) {
+        const c = el("button", { class: "title-btn" }, "Close");
+        c.onclick = () => {
+          closeModal();
+          resolve(null);
+        };
+        act.appendChild(c);
+      }
+      modal.classList.remove("hidden");
+    });
+  }
+  function closeModal() {
+    const modal = $("#modal");
+    if (modal)
+      modal.classList.add("hidden");
+  }
+  function currentRoster() {
+    const party = state.party && state.party.length ? state.party : savedParty();
+    return buildRoster(party);
+  }
+  function savedParty() {
+    try {
+      const raw = localStorage.getItem(SAVE_KEY);
+      if (!raw)
+        return [];
+      const d = JSON.parse(raw);
+      return (d.party || []).map(ensureRuntime);
+    } catch (_) {
+      return [];
+    }
+  }
+  function openArena() {
+    const roster = currentRoster();
+    const v = validateRoster(roster);
+    if (!v.ok) {
+      return openModal({
+        title: "Ranked Arena",
+        bodyHTML: `<p>${v.reason}</p><p class="small">Grind, catch and level a team in singleplayer, then bring it here for ranked PvP.</p>`,
+        actions: []
+      });
+    }
+    const online = isArenaConfigured();
+    const roster6 = roster.slice(0, 6);
+    const list = roster6.map((m) => `<li><b>${m.name}</b> <span class="small">Lv ${m.level}</span></li>`).join("");
+    openModal({
+      title: "Ranked Arena",
+      bodyHTML: `<p class="small">Your battle-ready team \xB7 Power ${rosterPower(roster)}</p><ul class="roster-list">${list}</ul>` + (online ? `<p class="small">Connecting to the ranked server\u2026</p>` : `<p class="arena-soon">Online ranked battles are coming soon.</p><p class="small">Your team is Arena-ready and will carry straight into 1v1 ranked play the moment servers go live.</p>`),
+      actions: online ? [{ label: "Find Match", primary: true, onClick: () => beginRankedSearch(roster) }] : []
+    });
+  }
+  async function beginRankedSearch(roster) {
+    try {
+      await arena.connect();
+      arena.queueRanked(roster);
+    } catch (e) {
+      closeModal();
+      openModal({
+        title: "Ranked Arena",
+        bodyHTML: `<p>${e.message || "Could not reach the ranked server."}</p>`,
+        actions: []
+      });
+    }
   }
   function wireUI() {
     $("#fightBtn").addEventListener("click", () => {
@@ -2555,6 +3095,9 @@
     const cont = $("#continueBtn");
     if (cont)
       cont.addEventListener("click", () => continueGame());
+    const arenaBtn = $("#arenaBtn");
+    if (arenaBtn)
+      arenaBtn.addEventListener("click", () => openArena());
   }
   function boot() {
     wireUI();
