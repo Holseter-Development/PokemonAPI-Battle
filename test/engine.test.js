@@ -1,0 +1,249 @@
+// Head-less battle-engine tests. Bundled with esbuild (platform=node) and run
+// with `npm test`. Exercises the pure engine with a seeded RNG so results are
+// deterministic and full battles can be simulated without a browser.
+
+import assert from "node:assert";
+import {
+  typeEffect, calcDamage, useMove, applyAilment, canAct, endOfTurn,
+  firstMover, effectiveStat, chooseAIMove, bestMoveIndex, catchSuccess,
+} from "../src/battle.js";
+import { selectMoves, spriteSet } from "../src/api.js";
+import { buildMove } from "../src/data.js";
+
+let passed = 0;
+function test(name, fn) {
+  try {
+    fn();
+    passed++;
+    console.log("  ✓ " + name);
+  } catch (e) {
+    console.error("  ✗ " + name + "\n    " + e.message);
+    process.exitCode = 1;
+  }
+}
+
+// Deterministic LCG so tests are reproducible.
+function makeRng(seed = 12345) {
+  let s = seed >>> 0;
+  return () => {
+    s = (s * 1664525 + 1013904223) >>> 0;
+    return s / 4294967296;
+  };
+}
+
+function mon(over = {}) {
+  return {
+    name: over.name || "Test",
+    level: over.level || 20,
+    types: over.types || ["normal"],
+    stats: Object.assign({ maxHp: 80, hp: 80, atk: 60, def: 60, spa: 60, spd: 60, spe: 60 }, over.stats),
+    stages: Object.assign({ atk: 0, def: 0, spa: 0, spd: 0, spe: 0, acc: 0, eva: 0 }, over.stages),
+    status: over.status || { cond: "none", turns: 0, toxic: 0 },
+    moves: over.moves || [dmgMove()],
+    capture_rate: over.capture_rate || 45,
+  };
+}
+function dmgMove(over = {}) {
+  return Object.assign({
+    name: "Tackle", key: "tackle", power: 40, accuracy: 100, type: "normal",
+    damage_class: "physical", pp: 35, ppLeft: 35, priority: 0, category: "damage",
+    drain: 0, healing: 0, minHits: 1, maxHits: 1, statChanges: [], statChance: 0,
+    flinchChance: 0, ailment: "none", ailmentChance: 0, highCrit: false, selfTarget: false,
+  }, over);
+}
+
+console.log("engine tests");
+
+test("type chart: fire→grass is 2x, water→fire 2x, normal→ghost 0", () => {
+  assert.strictEqual(typeEffect("fire", ["grass"]), 2);
+  assert.strictEqual(typeEffect("water", ["fire"]), 2);
+  assert.strictEqual(typeEffect("normal", ["ghost"]), 0);
+  assert.strictEqual(typeEffect("electric", ["water", "flying"]), 4);
+});
+
+test("damage: neutral hit is >=1, immunity is 0", () => {
+  const rng = makeRng();
+  const a = mon(), d = mon();
+  const { dmg } = calcDamage(a, d, dmgMove(), rng);
+  assert.ok(dmg >= 1, "neutral dmg should be >=1");
+  const ghost = mon({ types: ["ghost"] });
+  const { dmg: d0, eff } = calcDamage(a, ghost, dmgMove(), rng);
+  assert.strictEqual(eff, 0);
+  assert.strictEqual(d0, 0);
+});
+
+test("STAB gives ~1.5x more than non-STAB (avg roll)", () => {
+  const stab = mon({ types: ["normal"] });
+  const noStab = mon({ types: ["water"] });
+  const d = mon({ types: ["bug"] }); // normal neutral vs bug
+  const s = calcDamage(stab, d, dmgMove(), makeRng(), { avg: true, forceCrit: false });
+  const n = calcDamage(noStab, d, dmgMove(), makeRng(), { avg: true, forceCrit: false });
+  assert.ok(s.dmg > n.dmg, "STAB should out-damage non-STAB");
+});
+
+test("stat stages raise damage output", () => {
+  const base = mon();
+  const boosted = mon({ stages: { atk: 2 } });
+  const d = mon();
+  const b = calcDamage(base, d, dmgMove(), makeRng(), { avg: true });
+  const u = calcDamage(boosted, d, dmgMove(), makeRng(), { avg: true });
+  assert.ok(u.dmg > b.dmg, "+2 atk should increase damage");
+});
+
+test("effectiveStat: paralysis quarters speed", () => {
+  const par = mon({ status: { cond: "par", turns: 0, toxic: 0 } });
+  const norm = mon();
+  assert.ok(effectiveStat(par, "spe") < effectiveStat(norm, "spe"));
+});
+
+test("useMove: multi-hit lands 2-5 hits", () => {
+  const a = mon();
+  const d = mon({ stats: { maxHp: 500, hp: 500 } });
+  const move = dmgMove({ name: "Fury", key: "fury-swipes", minHits: 2, maxHits: 5 });
+  const res = useMove(a, d, move, makeRng(7));
+  assert.ok(res.hits.length >= 2 && res.hits.length <= 5, "hits " + res.hits.length);
+});
+
+test("useMove: recoil damages attacker, drain heals", () => {
+  const a = mon({ stats: { maxHp: 200, hp: 100 } });
+  const d = mon({ stats: { maxHp: 300, hp: 300 } });
+  useMove(a, d, dmgMove({ key: "double-edge", drain: -25 }), makeRng(3));
+  assert.ok(a.stats.hp < 100, "recoil should hurt attacker");
+
+  const a2 = mon({ stats: { maxHp: 200, hp: 50 } });
+  const d2 = mon({ stats: { maxHp: 300, hp: 300 } });
+  useMove(a2, d2, dmgMove({ key: "absorb", drain: 50 }), makeRng(3));
+  assert.ok(a2.stats.hp > 50, "drain should heal attacker");
+});
+
+test("useMove: healing move restores HP", () => {
+  const a = mon({ stats: { maxHp: 200, hp: 50 } });
+  const d = mon();
+  const res = useMove(a, d, dmgMove({ key: "recover", power: 0, damage_class: "status", category: "heal", healing: 50 }), makeRng());
+  assert.ok(a.stats.hp > 50 && res.healed > 0);
+});
+
+test("useMove: pure status move applies ailment reliably", () => {
+  const a = mon();
+  const d = mon({ types: ["water"] });
+  const twave = dmgMove({ key: "thunder-wave", power: 0, damage_class: "status", category: "ailment", ailment: "paralysis", ailmentChance: 0, accuracy: 100 });
+  const res = useMove(a, d, twave, makeRng());
+  assert.strictEqual(d.status.cond, "par");
+  assert.ok(res.ailment && res.ailment.cond === "par");
+});
+
+test("useMove: self-target setup raises own stat", () => {
+  const a = mon();
+  const d = mon();
+  const sd = dmgMove({ key: "swords-dance", power: 0, damage_class: "status", category: "net-good-stats", selfTarget: true, statChanges: [{ stat: "atk", change: 2 }], accuracy: null });
+  useMove(a, d, sd, makeRng());
+  assert.strictEqual(a.stages.atk, 2);
+});
+
+test("ailment: fire immune to burn, already-statused blocked", () => {
+  const fire = mon({ types: ["fire"] });
+  assert.strictEqual(applyAilment(fire, "burn", makeRng()).applied, false);
+  const m = mon({ status: { cond: "psn", turns: 0, toxic: 0 } });
+  assert.strictEqual(applyAilment(m, "paralysis", makeRng()).applied, false);
+});
+
+test("endOfTurn: burn/poison chip damage, toxic escalates", () => {
+  const m = mon({ status: { cond: "brn", turns: 0, toxic: 0 } });
+  const r = endOfTurn(m);
+  assert.ok(r.dmg >= 1 && m.stats.hp < m.stats.maxHp);
+  const t = mon({ status: { cond: "tox", turns: 0, toxic: 1 } });
+  const r1 = endOfTurn(t), r2 = endOfTurn(t);
+  assert.ok(r2.dmg > r1.dmg, "toxic should escalate");
+});
+
+test("firstMover: priority beats speed; speed breaks ties", () => {
+  const fast = mon({ stats: { spe: 100 } });
+  const slow = mon({ stats: { spe: 40 } });
+  assert.strictEqual(firstMover(slow, dmgMove({ priority: 1 }), fast, dmgMove(), makeRng()), "a");
+  assert.strictEqual(firstMover(fast, dmgMove(), slow, dmgMove(), makeRng()), "a");
+});
+
+test("chooseAIMove & bestMoveIndex return valid indices", () => {
+  const a = mon({ moves: [dmgMove({ type: "water" }), dmgMove({ type: "grass" })] });
+  const d = mon({ types: ["fire"] });
+  const ai = chooseAIMove(a, d, makeRng());
+  assert.ok(ai >= 0 && ai < 2);
+  const best = bestMoveIndex(a, d);
+  assert.strictEqual(best, 0, "water should be chosen vs fire");
+});
+
+test("selectMoves: <=4 moves, at least one damaging, unique", () => {
+  const fx = (name, cls, power, extra = {}) => ({
+    md: Object.assign({ name, damage_class: { name: cls }, power, accuracy: 100, pp: 20,
+      type: { name: "normal" }, generation: { name: "generation-i" }, meta: {} }, extra), level: 1 });
+  const set = selectMoves([
+    fx("tackle", "physical", 40), fx("scratch", "physical", 40),
+    fx("swords-dance", "status", 0), fx("growl", "status", 0),
+    fx("body-slam", "physical", 85), fx("tackle", "physical", 40),
+  ]);
+  assert.ok(set.length <= 4 && set.length >= 1);
+  assert.ok(set.some((m) => m.power > 0), "needs a damaging move");
+  const names = set.map((m) => m.key);
+  assert.strictEqual(new Set(names).size, names.length, "no dupes");
+});
+
+test("spriteSet prefers animated Gen-V, falls back cleanly", () => {
+  const data = { sprites: {
+    front_default: "front.png", back_default: "back.png",
+    versions: { "generation-v": { "black-white": { animated: { front_default: "af.gif", back_default: "ab.gif" } } } },
+    other: { "official-artwork": { front_default: "art.png" } },
+  } };
+  const s = spriteSet(data);
+  assert.strictEqual(s.front, "af.gif");
+  assert.strictEqual(s.back, "ab.gif");
+  assert.ok(s.animated);
+  const bare = spriteSet({ sprites: { front_default: "f.png" } });
+  assert.strictEqual(bare.front, "f.png");
+  assert.strictEqual(bare.animated, false);
+});
+
+test("catchSuccess: weakened + statused catches more than full HP", () => {
+  const rng = makeRng();
+  let weak = 0, full = 0;
+  for (let i = 0; i < 2000; i++) {
+    if (catchSuccess(mon({ stats: { maxHp: 80, hp: 4 }, status: { cond: "slp", turns: 2, toxic: 0 } }), 1, rng)) weak++;
+    if (catchSuccess(mon({ stats: { maxHp: 80, hp: 80 } }), 1, rng)) full++;
+  }
+  assert.ok(weak > full, `weak ${weak} vs full ${full}`);
+});
+
+// ---- full battle simulation: it must always terminate & stay in-bounds ----
+test("simulated battles terminate and keep HP in range", () => {
+  const rng = makeRng(99);
+  for (let b = 0; b < 300; b++) {
+    const A = mon({ name: "A", types: ["fire"], moves: [
+      dmgMove({ type: "fire", key: "ember", ailment: "burn", ailmentChance: 10 }),
+      dmgMove({ key: "swords-dance", power: 0, damage_class: "status", category: "net-good-stats", selfTarget: true, statChanges: [{ stat: "atk", change: 2 }], accuracy: null }),
+    ] });
+    const B = mon({ name: "B", types: ["grass"], moves: [
+      dmgMove({ type: "grass", key: "vine-whip" }),
+      dmgMove({ type: "normal", key: "quick-attack", priority: 1 }),
+    ] });
+    let turns = 0;
+    while (A.stats.hp > 0 && B.stats.hp > 0 && turns < 300) {
+      turns++;
+      const aMove = A.moves[chooseAIMove(A, B, rng)];
+      const bMove = B.moves[chooseAIMove(B, A, rng)];
+      const order = firstMover(A, aMove, B, bMove, rng) === "a" ? [[A, B, aMove], [B, A, bMove]] : [[B, A, bMove], [A, B, aMove]];
+      for (const [att, def, mv] of order) {
+        if (att.stats.hp <= 0 || def.stats.hp <= 0) continue;
+        const act = canAct(att, rng);
+        if (!act.canAct) continue;
+        useMove(att, def, mv, rng);
+      }
+      for (const m of [A, B]) if (m.stats.hp > 0) endOfTurn(m);
+      for (const m of [A, B]) {
+        assert.ok(m.stats.hp >= 0 && m.stats.hp <= m.stats.maxHp, "hp out of range: " + m.stats.hp);
+        assert.ok(m.stages.atk >= -6 && m.stages.atk <= 6, "stage out of range");
+      }
+    }
+    assert.ok(turns < 300, "battle failed to terminate");
+  }
+});
+
+console.log(`\n${passed} checks passed`);
