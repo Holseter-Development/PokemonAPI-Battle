@@ -47,7 +47,13 @@ export function effectiveStat(mon, key) {
 
 // ---- accuracy & crits --------------------------------------------------
 
+// Does a mon carry a mutation-granted pseudo-ability?
+function hasAbility(mon, tag) {
+  return !!(mon.abilities && mon.abilities.includes(tag));
+}
+
 export function rollHit(move, attacker, defender, rng = Math.random) {
+  if (attacker.trueStrike) return true; // Sharpshooter mutation
   if (move.accuracy == null) return true;
   const net = clamp(stage(attacker, "acc") - stage(defender, "eva"), -6, 6);
   const chance = move.accuracy * accMult(net);
@@ -67,9 +73,15 @@ export function calcDamage(attacker, defender, move, rng = Math.random, opts = {
   const special = move.damage_class === "special";
   let atkStat = special ? effectiveStat(attacker, "spa") : effectiveStat(attacker, "atk");
   const defStat = special ? effectiveStat(defender, "spd") : effectiveStat(defender, "def");
-  if (!special && attacker.status && attacker.status.cond === "brn") {
+  const statused = attacker.status && attacker.status.cond !== "none";
+  const guts = hasAbility(attacker, "guts") && statused;
+  // Burn halves physical Attack — unless Guts (Berserker) ignores it.
+  if (!special && attacker.status && attacker.status.cond === "brn" && !guts) {
     atkStat = Math.max(1, Math.floor(atkStat * 0.5));
   }
+  if (guts) atkStat = Math.floor(atkStat * 1.5); // Berserker: +50% Atk while statused
+  // Levitate (mutation) grants Ground immunity.
+  if (move.type === "ground" && hasAbility(defender, "levitate")) return { dmg: 0, eff: 0, crit: false };
   const eff = typeEffect(move.type, defender.types);
   if (eff === 0) return { dmg: 0, eff: 0, crit: false };
 
@@ -79,10 +91,15 @@ export function calcDamage(attacker, defender, move, rng = Math.random, opts = {
     ) + 2
   );
   const randFactor = opts.avg ? 0.925 : 0.85 + rng() * 0.15;
-  const stab = attacker.types.includes(move.type) ? 1.5 : 1.0;
+  const stabMult = attacker.adaptive ? 2.0 : 1.5; // Adaptive/Primeval mutation
+  const stab = attacker.types.includes(move.type) ? stabMult : 1.0;
   let dmg = Math.max(1, Math.floor(base * randFactor * stab * eff));
   const crit = opts.forceCrit || rollCrit(attacker, move, rng);
   if (crit) dmg = Math.floor(dmg * 1.8);
+  // Aegis (multiscale): halves damage while the defender is at full HP.
+  if (hasAbility(defender, "multiscale") && defender.stats.hp >= defender.stats.maxHp) {
+    dmg = Math.max(1, Math.floor(dmg * 0.5));
+  }
   return { dmg, eff, crit };
 }
 
@@ -232,6 +249,13 @@ export function useMove(attacker, defender, move, rng = Math.random) {
       res.recoil = Math.max(1, Math.floor((res.totalDmg * -move.drain) / 100));
       attacker.stats.hp = clamp(attacker.stats.hp - res.recoil, 0, attacker.stats.maxHp);
       res.log.push(`${attacker.name} is hit with recoil!`);
+    } else if (attacker.lifesteal > 0 && res.totalDmg > 0) {
+      // Vampiric mutation: heal a fraction of damage dealt.
+      const leech = Math.max(1, Math.floor(res.totalDmg * attacker.lifesteal));
+      const before = attacker.stats.hp;
+      attacker.stats.hp = clamp(attacker.stats.hp + leech, 0, attacker.stats.maxHp);
+      res.drain = attacker.stats.hp - before;
+      if (res.drain > 0) res.log.push(`${attacker.name} sapped health!`);
     }
     res.targetFainted = defender.stats.hp <= 0;
   }
@@ -442,4 +466,14 @@ export function effText(mult) {
   if (mult >= 2) return "It's super effective!";
   if (mult <= 0.5) return "It's not very effective...";
   return "";
+}
+
+// Regenerator (mutation): heal 1/3 max HP when switched out. Returns HP healed.
+export function switchOutHeal(mon) {
+  if (mon && mon.stats.hp > 0 && mon.abilities && mon.abilities.includes("regenerator")) {
+    const before = mon.stats.hp;
+    mon.stats.hp = clamp(mon.stats.hp + Math.floor(mon.stats.maxHp / 3), 0, mon.stats.maxHp);
+    return mon.stats.hp - before;
+  }
+  return 0;
 }

@@ -25,6 +25,7 @@ import {
   battleScore,
   bestSwitch,
   catchSuccess,
+  switchOutHeal,
   effText,
 } from "./battle.js";
 import {
@@ -37,8 +38,18 @@ import {
   STRUGGLE,
   cap,
 } from "./data.js";
-import { buildRoster, validateRoster, rosterPower } from "./roster.js";
+import { buildRoster, validateRoster, rosterPower, snapshotMon } from "./roster.js";
 import { arena, isArenaConfigured } from "./net.js";
+import { randomSeedString } from "./rng.js";
+import {
+  NODE, createRun, availableNext, travelTo, markResolved, currentNode,
+  nodeById, offerSigils, offerMutations, rollShop, rollMysteryEvent, rollGold,
+  encounterLevel, checkWipe, withRng,
+} from "./run.js";
+import {
+  SIGILS, MUTATIONS, applyMutation, aggregateSigils, emptyEffects, RARITY_COLOR,
+} from "./mutations.js";
+import { sampleDistinct } from "./rng.js";
 import { $, el, show, typeText, setText } from "./ui.js";
 
 console.info("PokéBattle Arena — build v1.0");
@@ -62,35 +73,30 @@ async function say(str, hold = 260) {
 
 // ---------------------------------------------------------------- state ----
 
-const SAVE_KEY = "pkbattle:save:v2";
-const GYM_EVERY = 3; // wild wins between Gym challenges
+const RUN_KEY = "pkbattle:run:v1";
+const VAULT_KEY = "pkbattle:vault:v1";
+const META_KEY = "pkbattle:meta:v1";
 
 const state = {
-  party: [],
-  box: [],
+  party: [],       // === run.team while an expedition is active
+  box: [],         // === run.box
   active: 0,
   player: null,
   enemy: null,
   busy: false,
   auto: false,
   started: false,
-  mode: "wild", // "wild" | "trainer"
-  trainer: null, // active Gym / Champion object
+  mode: "map",     // "map" | "wild" | "trainer"
+  trainer: null,   // active Elite / Champion boss
   trainerTeam: [],
   trainerIdx: 0,
   isChampion: false,
-  gymsBeaten: 0,
-  championBeaten: false,
-  championsCleared: 0,
-  ngPlus: 0,
-  wins: 0,
-  money: 0,
-  badges: [],
-  items: {
-    "poke-ball": 10, "great-ball": 2, "ultra-ball": 0,
-    potion: 3, "super-potion": 1, "hyper-potion": 0,
-    antidote: 1, "parlyz-heal": 1, awakening: 1, "burn-heal": 1, "ice-heal": 1,
-  },
+  run: null,       // the active Expedition (see run.js)
+  battle: null,    // { kind, onWin, onLose, onFlee } for the current node battle
+  sigilFx: emptyEffects(),
+  vault: [],       // persistent ascended roster (for ranked)
+  meta: { fragments: 0, expeditionsWon: 0 },
+  items: null,     // aliased to run.items during a run
 };
 
 function setBusy(v) {
@@ -364,30 +370,24 @@ function updateHUD() {
 
 function updateScore() {
   const w = $("#winCount"), m = $("#moneyCount"), bs = $("#badgeStrip");
-  if (w) w.textContent = state.wins;
-  if (m) m.textContent = state.money;
-  if (bs) {
-    bs.innerHTML = "";
-    state.badges.forEach((b) => bs.appendChild(el("span", { class: "gym-badge" }, b)));
-  }
+  if (w) w.textContent = state.meta.fragments; // Fragments (meta-currency)
+  if (m) m.textContent = state.run ? state.run.gold : 0; // run gold
+  if (bs) bs.innerHTML = "";
   updateObjective();
 }
 
-// The campaign's north star, shown in the top bar so there's always a goal.
+// The Expedition's north star, shown in the top bar so there's always a goal.
 function updateObjective() {
   const obj = $("#objective");
   if (!obj) return;
   let text;
-  if (state.gymsBeaten < GYMS.length) {
-    const next = GYMS[state.gymsBeaten];
-    text = `Badges ${state.badges.length}/${GYMS.length} · Next: ${next.town} Gym (${cap(next.type)})`;
-  } else if (!state.championBeaten) {
-    text = `All ${GYMS.length} badges! · Challenge the Champion`;
+  if (state.run && state.started) {
+    const region = (currentNode(state.run)?.region ?? 0) + 1;
+    text = `Expedition · Region ${region}/${state.run.config.regions} · Depth ${state.run.visited.length}`;
   } else {
-    text = `Champion · New Game+ ${state.ngPlus}`;
+    text = `Vault: ${state.vault.length} · Expeditions won: ${state.meta.expeditionsWon}`;
   }
-  const ng = state.ngPlus > 0 && state.gymsBeaten < GYMS.length ? ` · NG+${state.ngPlus}` : "";
-  obj.innerHTML = `<svg class="ico"><use href="#i-medal" /></svg> <span>${text}${ng}</span>`;
+  obj.innerHTML = `<svg class="ico"><use href="#i-medal" /></svg> <span>${text}</span>`;
 }
 
 // ---------------------------------------------------------------- FX -------
@@ -774,7 +774,7 @@ async function backToMenu() {
   maybeAuto();
 }
 
-// ---- faints & transitions ----
+// ---- faints & battle completion ----
 
 function xpFor(enemy) {
   const base = Math.max(1, Math.floor(((enemy.base_exp || 64) * enemy.level) / 7));
@@ -785,7 +785,7 @@ async function onEnemyFaint() {
   await playCry(state.enemy);
   await faintOut("#enemySprite");
   await say(`${labelFor(state.enemy, true)} fainted!`);
-  await gainXP(state.player, xpFor(state.enemy));
+  await gainXP(state.player, Math.round(xpFor(state.enemy) * (state.sigilFx.xpMult || 1)));
 
   if (state.mode === "trainer") {
     state.trainerIdx++;
@@ -795,17 +795,11 @@ async function onEnemyFaint() {
       await backToMenu();
       return;
     }
-    await onTrainerDefeated();
-    return;
   }
-
-  state.wins++;
-  maybeAwardDrops();
-  updateScore();
-  save();
-  await sleep(500);
-  await startEncounter();
-  setBusy(false);
+  const cb = state.battle && state.battle.onWin;
+  state.battle = null;
+  if (cb) await cb({ defeated: true });
+  else goToMap();
 }
 
 async function onPlayerFaint() {
@@ -818,8 +812,6 @@ async function onPlayerFaint() {
     .map(({ i }) => i);
   if (healthyIdx.length) {
     if (state.auto) {
-      // Auto-play picks its own replacement so battles keep flowing.
-      const cur = battleScore(state.player, state.enemy);
       const pick = bestSwitch(state.party, state.active, state.enemy, 0, 0) ?? healthyIdx[0];
       await say("Choose your next Pokémon!");
       await swapTo(pick, true);
@@ -831,61 +823,27 @@ async function onPlayerFaint() {
     setBusy(false);
     return;
   }
-  // Whiteout.
-  await say("You have no Pokémon left to fight...", 400);
-  await say("You scurry back to the Pokémon Center.");
-  state.party.forEach((m) => {
-    m.stats.hp = m.stats.maxHp;
-    m.status = { cond: "none", turns: 0, toxic: 0 };
-    resetStages(m);
-    m.moves.forEach((mv) => (mv.ppLeft = mv.pp));
-  });
-  state.money = Math.max(0, Math.floor(state.money * 0.5));
-  state.mode = "wild";
-  state.trainer = null;
-  state.wins = Math.max(0, state.wins - 1);
-  setActive(0);
-  save();
-  await sleep(700);
-  await startEncounter();
-  setBusy(false);
+  // Whole team down → the Expedition ends.
+  await say("Your whole team has fainted...", 500);
+  const cb = state.battle && state.battle.onLose;
+  state.battle = null;
+  if (cb) await cb();
+  else await backToTitle();
 }
 
-// ---- encounters ----
+// ---- battle setup (shared by every battle node) ----
 
-function wildLevel() {
-  return clamp(4 + Math.floor(state.wins / 2.5), 4, 55);
+// Recompute the aggregated sigil effects for the coming battle.
+function beginBattleEffects() {
+  state.sigilFx = aggregateSigils(state.run ? state.run.sigils : []);
 }
 
-async function startEncounter() {
-  resetStages(state.player);
-  // The active Pokémon must always be visible entering a new encounter — a
-  // whiteout faints the player sprite (opacity 0) without ever switching, so
-  // restore it here rather than leave the battle running with no visible mon.
-  const ps = $("#playerSprite");
-  if (ps) { ps.style.opacity = "1"; ps.style.transform = "none"; }
-
-  // Campaign milestone: a Gym, or the Champion once all badges are earned.
-  if (state.mode !== "trainer") {
-    const g = state.gymsBeaten;
-    if (g < GYMS.length && state.wins >= (g + 1) * GYM_EVERY) {
-      return startGymBattle(GYMS[g], false);
-    }
-    if (g >= GYMS.length && !state.championBeaten && state.wins >= (GYMS.length + 1) * GYM_EVERY) {
-      return startGymBattle(CHAMPION, true);
-    }
-  }
-
-  state.mode = "wild";
-  state.trainer = null;
-  state.trainerTeam = [];
-  show("menu");
-
-  const level = wildLevel();
+// Build a level-appropriate wild Pokémon (non-legendary, gentle BST bias).
+async function makeWildMon(level) {
   let mon = null, poke = null;
   for (let tries = 0; tries < 12; tries++) {
     const eid = 1 + Math.floor(Math.random() * GEN1_MAX_ID);
-    if (eid >= 144 && eid <= 151) continue; // no legendaries in the wild
+    if (eid >= 144 && eid <= 151) continue;
     poke = await fetchPokemon(eid);
     const bst = poke.stats.reduce((a, s) => a + s.base_stat, 0);
     if (bst <= 360 || tries > 8) {
@@ -897,35 +855,43 @@ async function startEncounter() {
   }
   mon.moves = await fetchMoveset(poke, mon.level);
   if (!mon.moves.length) mon.moves = [{ ...STRUGGLE, name: "Tackle", key: "tackle", power: 40, pp: 35, ppLeft: 35, drain: 0 }];
-
-  state.enemy = mon;
-  updateHUD();
-  setThemeByType(mon.types);
-  await fadeInSprite("#enemySprite");
-  await say(`A wild ${mon.name} appeared!`);
-  await playCry(mon);
-  await backToMenu();
+  return mon;
 }
 
-async function startGymBattle(gym, isChampion) {
-  state.mode = "trainer";
-  state.trainer = gym;
-  state.isChampion = isChampion;
-  state.trainerIdx = 0;
-  setBusy(true);
-  show("none");
-  // Gyms anchor to a floor level (scaled by New Game+) so they stay a real
-  // challenge even if you under-grind; later team slots are a touch stronger.
-  const anchor = Math.max(wildLevel(), gym.floor) + state.ngPlus * 10;
-  state.trainerTeam = [];
-  for (let i = 0; i < gym.team.length; i++) {
-    const lvl = clamp(anchor + i, 4, 100);
-    const mon = await buildMon(gym.team[i], lvl);
-    state.trainerTeam.push(mon);
+// spec: { kind:'battle', enemy } | { kind:'elite'|'champion', boss, team }
+//       + onWin(info), onLose(), onFlee()
+async function startBattle(spec) {
+  state.battle = spec;
+  state.mode = spec.kind === "battle" ? "wild" : "trainer";
+  state.isChampion = spec.kind === "champion";
+  beginBattleEffects();
+  hideMapScreen();
+  // Never lead with a fainted Pokémon (e.g. after resuming a saved run).
+  if (!state.player || state.player.stats.hp <= 0) {
+    const idx = state.party.findIndex((m) => m.stats.hp > 0);
+    if (idx >= 0) setActive(idx);
   }
-  await showBanner(`${gym.title} ${gym.leader}`, 1400);
-  await say(gym.intro, 500);
-  await sendTrainerMon(0);
+  resetStages(state.player);
+  const ps = $("#playerSprite");
+  if (ps) { ps.style.opacity = "1"; ps.style.transform = "none"; }
+
+  if (spec.kind === "battle") {
+    state.enemy = spec.enemy;
+    state.trainer = null; state.trainerTeam = [];
+    ensureRuntime(state.enemy);
+    updateHUD();
+    setThemeByType(state.enemy.types);
+    await fadeInSprite("#enemySprite");
+    await say(`A wild ${state.enemy.name} appeared!`);
+    await playCry(state.enemy);
+  } else {
+    state.trainer = spec.boss;
+    state.trainerTeam = spec.team;
+    state.trainerIdx = 0;
+    await showBanner(`${spec.boss.title} ${spec.boss.leader}`, 1300);
+    await say(spec.boss.intro, 400);
+    await sendTrainerMon(0);
+  }
   await backToMenu();
 }
 
@@ -940,97 +906,542 @@ async function sendTrainerMon(idx) {
   await playCry(mon);
 }
 
-function grantRewards(r) {
-  if (!r) return;
-  if (r.money) state.money += r.money;
-  if (r.balls) state.items["poke-ball"] += r.balls;
-  if (r.potions) state.items["potion"] += r.potions;
-  if (r.superPotions) state.items["super-potion"] += r.superPotions;
-  if (r.hyperPotions) state.items["hyper-potion"] += r.hyperPotions;
-  if (r.ultraBalls) state.items["ultra-ball"] += r.ultraBalls;
+// ---- Expedition lifecycle ----
+
+const DEFAULT_ITEMS = () => ({
+  "poke-ball": 3, "great-ball": 0, "ultra-ball": 0,
+  potion: 1, "super-potion": 0, "hyper-potion": 0,
+  antidote: 0, "parlyz-heal": 0, awakening: 0, "burn-heal": 0, "ice-heal": 0,
+});
+
+async function startExpedition(starterMon) {
+  const seed = randomSeedString();
+  const run = createRun(seed, {});
+  run.items = DEFAULT_ITEMS();
+  run.team = [starterMon];
+  run.box = [];
+  run.gyms = withRng(run, (rng) => sampleDistinct(rng, GYMS.map((_, i) => i), run.config.regions, () => 1));
+  state.run = run;
+  state.party = run.team;
+  state.box = run.box;
+  state.items = run.items;
+  state.active = 0;
+  state.player = run.team[0];
+  state.started = true;
+  state.battle = null;
+  saveRun();
+  await say("Your Expedition begins! Chart a path to the Champion.", 400);
+  showMap();
 }
 
-async function onTrainerDefeated() {
-  const g = state.trainer;
-  const champ = state.isChampion;
-  await say(`You defeated ${g.leader}!`, 400);
-  grantRewards(g.reward);
-  if (g.reward?.money) await say(`You received ₽${g.reward.money} prize money!`);
-  if (g.badge && !state.badges.includes(g.badge)) {
-    state.badges.push(g.badge);
-    if (!champ) await showBanner(`You earned the ${g.badge} Badge!`, 1500);
-  }
-  state.wins++;
-  state.mode = "wild";
-  state.trainer = null;
-  state.trainerTeam = [];
-  state.isChampion = false;
+function bindRun(run) {
+  run.team = (run.team || []).map(ensureRuntime);
+  run.box = (run.box || []).map(ensureRuntime);
+  if (!run.items) run.items = DEFAULT_ITEMS();
+  if (!run.sigils) run.sigils = [];
+  state.run = run;
+  state.party = run.team;
+  state.box = run.box;
+  state.items = run.items;
+  state.active = clamp(run.active || 0, 0, run.team.length - 1);
+  state.player = run.team[state.active];
+  state.started = true;
+  state.battle = null;
+}
 
-  if (champ) {
-    await onChampionDefeated();
-    return;
-  }
-  state.gymsBeaten++;
-  updateScore();
-  save();
-  await sleep(400);
-  await startEncounter();
+async function continueExpedition() {
+  const run = loadRun();
+  if (!run || !run.team || !run.team.length) return beginNewGame();
+  bindRun(run);
+  hideTitle();
+  setActive(state.active);
+  showMap();
+}
+
+// ---- the map screen ----
+
+function showMapScreen() { const m = $("#mapScreen"); if (m) m.classList.remove("hidden"); }
+function hideMapScreen() { const m = $("#mapScreen"); if (m) m.classList.add("hidden"); }
+
+function showMap() {
+  state.mode = "map";
+  state.battle = null;
   setBusy(false);
+  renderRunHud();
+  renderMap();
+  updateScore();
+  showMapScreen();
 }
 
-async function onChampionDefeated() {
-  state.championBeaten = true;
-  state.championsCleared++;
-  updateScore();
-  save();
-  await flashWhite("#enemySprite");
-  await openModal({
-    title: "Champion!",
-    bodyHTML:
-      `<p>You stormed the Indigo Plateau and became the <b>Champion</b>!</p>` +
-      `<p class="small">Hall of Fame entries: <b>${state.championsCleared}</b> · New Game+ ${state.ngPlus + 1} unlocks tougher Gyms and higher-level foes. Your team, items and money carry over.</p>`,
-    actions: [
-      { label: "Enter New Game+", primary: true, onClick: () => startNewGamePlus() },
-    ],
-    dismissable: false,
+// Advance to the map after a node resolves (and mark the node done).
+function goToMap() {
+  if (state.run) { markResolved(state.run, { won: false }); saveRun(); }
+  showMap();
+}
+
+const NODE_GLYPH = {
+  [NODE.BATTLE]: "W", [NODE.ELITE]: "E", [NODE.SHOP]: "$",
+  [NODE.REST]: "+", [NODE.MYSTERY]: "?", [NODE.CHAMPION]: "★",
+};
+const NODE_NAME = {
+  [NODE.BATTLE]: "Wild", [NODE.ELITE]: "Elite", [NODE.SHOP]: "Shop",
+  [NODE.REST]: "Rest", [NODE.MYSTERY]: "Mystery", [NODE.CHAMPION]: "Champion",
+};
+
+function renderMap() {
+  const canvas = $("#mapCanvas");
+  if (!canvas || !state.run) return;
+  canvas.innerHTML = "";
+  const map = state.run.map;
+  const avail = new Set(availableNext(state.run).map((n) => n.id));
+  const visited = new Set(state.run.visited);
+  for (let r = map.totalRows - 1; r >= 0; r--) {
+    const rowEl = el("div", { class: "map-row" });
+    rowEl.style.gridTemplateColumns = `repeat(${map.width}, 1fr)`;
+    const byCol = {};
+    map.rows[r].forEach((id) => { byCol[map.nodes[id].col] = id; });
+    for (let c = 0; c < map.width; c++) {
+      const slot = el("div", { class: "map-slot" });
+      const id = byCol[c];
+      if (id) {
+        const node = map.nodes[id];
+        const btn = el("button", { class: "map-node type-" + node.type, title: NODE_NAME[node.type] });
+        btn.dataset.id = id;
+        btn.style.setProperty("--type", TYPE_COLOR[node.type] || "#7a88a8");
+        btn.textContent = NODE_GLYPH[node.type] || "?";
+        if (id === state.run.position) btn.classList.add("current");
+        else if (visited.has(id)) btn.classList.add("visited");
+        if (avail.has(id)) { btn.classList.add("available"); btn.onclick = () => onSelectNode(node); }
+        else if (id !== state.run.position) btn.disabled = true;
+        slot.appendChild(btn);
+      }
+      rowEl.appendChild(slot);
+    }
+    canvas.appendChild(rowEl);
+  }
+  if (typeof requestAnimationFrame === "function") requestAnimationFrame(renderMapEdges);
+}
+
+function renderMapEdges() {
+  const canvas = $("#mapCanvas");
+  if (!canvas || !state.run) return;
+  const old = canvas.querySelector("svg.map-edges");
+  if (old) old.remove();
+  const NS = "http://www.w3.org/2000/svg";
+  const svg = document.createElementNS(NS, "svg");
+  svg.setAttribute("class", "map-edges");
+  const crect = canvas.getBoundingClientRect();
+  const center = (id) => {
+    const b = canvas.querySelector(`[data-id="${id}"]`);
+    if (!b) return null;
+    const r = b.getBoundingClientRect();
+    return { x: r.left - crect.left + r.width / 2, y: r.top - crect.top + r.height / 2 + canvas.scrollTop };
+  };
+  for (const node of Object.values(state.run.map.nodes)) {
+    const a = center(node.id);
+    if (!a) continue;
+    for (const e of node.edges) {
+      const b = center(e);
+      if (!b) continue;
+      const line = document.createElementNS(NS, "line");
+      line.setAttribute("x1", a.x); line.setAttribute("y1", a.y);
+      line.setAttribute("x2", b.x); line.setAttribute("y2", b.y);
+      svg.appendChild(line);
+    }
+  }
+  canvas.insertBefore(svg, canvas.firstChild);
+}
+
+async function onSelectNode(node) {
+  if (state.busy) return;
+  if (!availableNext(state.run).some((n) => n.id === node.id)) return;
+  travelTo(state.run, node.id);
+  // Deliberately not saved until the node resolves (goToMap): quitting mid-node
+  // then continues from the last *completed* node instead of soft-locking on an
+  // unresolved position.
+  hideMapScreen();
+  await resolveNode(node);
+}
+
+function renderRunHud() {
+  const hud = $("#runHud");
+  if (!hud || !state.run) return;
+  const run = state.run;
+  const region = (currentNode(run)?.region ?? 0) + 1;
+  const sig = run.sigils
+    .map((id) => `<span class="sig-chip" style="--rar:${RARITY_COLOR[SIGILS[id].rarity]}" title="${SIGILS[id].desc}">${SIGILS[id].name}</span>`)
+    .join("");
+  const team = run.team
+    .map((m) => `<span class="team-chip ${m.stats.hp > 0 ? "" : "ko"}">${m.name}<i>${m.stats.hp}/${m.stats.maxHp}</i></span>`)
+    .join("");
+  hud.innerHTML =
+    `<div class="run-stats">` +
+    `<span class="run-stat" title="Run seed">Seed <b>${run.seed}</b></span>` +
+    `<span class="run-stat">Region <b>${region}/${run.config.regions}</b></span>` +
+    `<span class="run-stat">Depth <b>${run.visited.length}</b></span>` +
+    `<span class="run-stat">Gold <b>${run.gold}</b></span>` +
+    `<span class="run-stat">Balls <b>${run.items["poke-ball"] || 0}</b></span>` +
+    `</div>` +
+    `<div class="run-sigils">${sig || '<span class="small">No sigils yet</span>'}</div>` +
+    `<div class="run-team">${team}</div>`;
+}
+
+// ---- node resolvers ----
+
+async function resolveNode(node) {
+  switch (node.type) {
+    case NODE.BATTLE: return resolveBattleNode(node);
+    case NODE.ELITE: return resolveEliteNode(node);
+    case NODE.CHAMPION: return resolveChampionNode(node);
+    case NODE.SHOP: return resolveShopNode(node);
+    case NODE.REST: return resolveRestNode(node);
+    case NODE.MYSTERY: return resolveMysteryNode(node);
+    default: return goToMap();
+  }
+}
+
+async function resolveBattleNode(node) {
+  setBusy(true);
+  const mon = await makeWildMon(encounterLevel(state.run));
+  setBusy(false);
+  await startBattle({
+    kind: "battle", enemy: mon,
+    onWin: (info) => afterBattleWin(info),
+    onLose: () => runWipe(),
+    onFlee: () => goToMap(),
   });
 }
 
-async function startNewGamePlus() {
-  closeModal();
-  state.ngPlus++;
-  state.gymsBeaten = 0;
-  state.championBeaten = false;
-  state.badges = [];
-  state.party.forEach((m) => {
+async function afterBattleWin(info = {}) {
+  if (info.caught) {
+    ensureRuntime(info.caught);
+    if (state.run.team.length < 6) state.run.team.push(info.caught);
+    else { state.run.box.push(info.caught); await say(`${info.caught.name} was sent to storage.`); }
+  }
+  const gold = Math.round(rollGold(state.run, NODE.BATTLE) * (state.sigilFx.goldMult || 1));
+  state.run.gold += gold;
+  if (gold) floatToast(`+${gold} gold`);
+  goToMap();
+}
+
+async function buildBossTeam(boss) {
+  const anchor = Math.max(encounterLevel(state.run), boss.floor) + state.run.ascension * 10;
+  const team = [];
+  for (let i = 0; i < boss.team.length; i++) {
+    team.push(await buildMon(boss.team[i], clamp(anchor + i, 4, 100)));
+  }
+  return team;
+}
+
+async function resolveEliteNode(node) {
+  setBusy(true);
+  const gymIdx = state.run.gyms && state.run.gyms[node.region] != null
+    ? state.run.gyms[node.region] : node.region % GYMS.length;
+  const gym = GYMS[gymIdx];
+  const team = await buildBossTeam(gym);
+  setBusy(false);
+  await startBattle({
+    kind: "elite", boss: gym, team,
+    onWin: () => afterEliteWin(gym),
+    onLose: () => runWipe(),
+  });
+}
+
+async function afterEliteWin(gym) {
+  const gold = Math.round(rollGold(state.run, NODE.ELITE) * (state.sigilFx.goldMult || 1));
+  state.run.gold += gold;
+  await say(`You defeated ${gym.leader}! +${gold} gold.`, 400);
+  const sig = await offerDraft("sigil");
+  if (sig) { if (!state.run.sigils.includes(sig.id)) state.run.sigils.push(sig.id); await say(`Attuned the ${sig.name} Sigil!`); }
+  goToMap();
+}
+
+async function resolveChampionNode(node) {
+  setBusy(true);
+  const team = await buildBossTeam(CHAMPION);
+  setBusy(false);
+  await startBattle({
+    kind: "champion", boss: CHAMPION, team,
+    onWin: () => runVictory(),
+    onLose: () => runWipe(),
+  });
+}
+
+// ---- utility nodes ----
+
+function healTeam() {
+  state.run.team.forEach((m) => {
     m.stats.hp = m.stats.maxHp;
     m.status = { cond: "none", turns: 0, toxic: 0 };
     resetStages(m);
     m.moves.forEach((mv) => (mv.ppLeft = mv.pp));
   });
-  setActive(0);
-  updateScore();
-  save();
-  await say(`New Game+ ${state.ngPlus} begins! The Gyms await, stronger than ever.`, 600);
-  await startEncounter();
-  setBusy(false);
+  if (state.player) updateHUD();
 }
 
-function maybeAwardDrops() {
-  if (Math.random() < 0.22) {
-    const g = Math.random() < 0.5 ? 1 : 2;
-    state.items["poke-ball"] += g;
-    floatToast(`Found ${g} Poké Ball${g > 1 ? "s" : ""}!`);
-  }
-  if (Math.random() < 0.12) {
-    const r = Math.random();
-    const key = r < 0.6 ? "potion" : r < 0.9 ? "super-potion" : "hyper-potion";
-    state.items[key]++;
-  }
-  if (Math.random() < 0.1) state.money += 20 + Math.floor(Math.random() * 40);
+async function resolveRestNode(node) {
+  const choice = await new Promise((resolve) => {
+    openPanel("Rest Site", (body, close) => {
+      body.appendChild(el("p", { class: "small" }, "A safe place to recover or reshape your team."));
+      const heal = el("button", { class: "title-btn primary" }, "Heal team fully");
+      heal.onclick = () => { close(); resolve("heal"); };
+      const mut = el("button", { class: "title-btn" }, "Graft a Mutation");
+      mut.onclick = () => { close(); resolve("mutate"); };
+      body.appendChild(heal); body.appendChild(mut);
+    });
+  });
+  if (choice === "heal") { healTeam(); await say("Your team is fully rested."); }
+  else if (choice === "mutate") await graftMutationFlow();
+  goToMap();
 }
+
+async function graftMutationFlow() {
+  const opt = await offerDraft("mutation");
+  if (!opt) return;
+  const mon = await pickTeamMember(`Graft ${opt.name} onto…`);
+  if (!mon) return;
+  applyMutation(mon, opt.id);
+  if (mon === state.player) updateHUD();
+  await say(`${mon.name} gained the ${opt.name} mutation!`);
+}
+
+async function resolveShopNode(node) {
+  const stock = rollShop(state.run);
+  await openShop(stock);
+  goToMap();
+}
+
+function openShop(stock) {
+  return new Promise((resolve) => {
+    openPanel("Poké Mart", (body, close) => {
+      const render = () => {
+        body.innerHTML = "";
+        body.appendChild(el("div", { class: "small shop-gold" }, `Gold: ${state.run.gold}`));
+        stock.forEach((it) => {
+          if (it.sold) return;
+          const row = el("div", { class: "shop-row" });
+          const label = it.rarity ? `${it.name} (${it.rarity})` : it.name;
+          row.appendChild(el("span", {}, `${label} — ${it.price}g`));
+          const buy = el("button", { class: "use-btn" }, "Buy");
+          buy.disabled = state.run.gold < it.price;
+          buy.onclick = async () => { await buyItem(it); it.sold = true; render(); };
+          row.appendChild(buy);
+          body.appendChild(row);
+        });
+        const leave = el("button", { class: "title-btn" }, "Leave");
+        leave.onclick = () => { close(); resolve(); };
+        body.appendChild(leave);
+      };
+      render();
+    });
+  });
+}
+
+async function buyItem(it) {
+  if (state.run.gold < it.price) return;
+  state.run.gold -= it.price;
+  if (it.kind === "item") {
+    if (it.id === "heal") healTeam();
+    else state.run.items[it.id] = (state.run.items[it.id] || 0) + 1;
+  } else if (it.kind === "mutation") {
+    // Applied to the active Pokémon (avoids a nested picker over the shop).
+    applyMutation(state.player, it.id);
+    updateHUD();
+  } else if (it.kind === "sigil") {
+    if (!state.run.sigils.includes(it.id)) state.run.sigils.push(it.id);
+  }
+  renderRunHud();
+  saveRun();
+}
+
+async function resolveMysteryNode(node) {
+  const ev = rollMysteryEvent(state.run);
+  const choice = await new Promise((resolve) => {
+    openPanel(ev.title, (body, close) => {
+      body.appendChild(el("p", { class: "small" }, ev.desc));
+      ev.choices.forEach((ch) => {
+        const b = el("button", { class: "title-btn" }, ch.label);
+        b.onclick = () => { close(); resolve(ch); };
+        body.appendChild(b);
+      });
+    });
+  });
+  await applyEventEffect(choice.effect || { kind: "none" });
+  goToMap();
+}
+
+async function applyEventEffect(effect) {
+  const run = state.run;
+  switch (effect.kind) {
+    case "heal": healTeam(); await say("Your team recovered fully."); break;
+    case "balls": run.items["poke-ball"] = (run.items["poke-ball"] || 0) + (effect.amount || 1); await say(`You found ${effect.amount || 1} Poké Ball!`); break;
+    case "gold": run.gold += effect.amount || 0; await say(`You found ${effect.amount || 0} gold!`); break;
+    case "sigil": { const s = await offerDraft("sigil"); if (s && !run.sigils.includes(s.id)) { run.sigils.push(s.id); await say(`Attuned the ${s.name} Sigil!`); } break; }
+    case "recruit": {
+      const mon = await makeWildMon(encounterLevel(run));
+      if (run.team.length < 6) run.team.push(mon); else run.box.push(mon);
+      await say(`The egg hatched into ${mon.name}!`);
+      break;
+    }
+    case "tutor": {
+      if (run.gold >= (effect.cost || 0)) { run.gold -= effect.cost || 0; state.player.moves.forEach((mv) => (mv.ppLeft = mv.pp)); await say("Your Pokémon's moves were honed. (PP restored)"); }
+      else await say("You can't afford it.");
+      break;
+    }
+    case "coinflip": {
+      if (run.gold >= (effect.stake || 0)) {
+        if (Math.random() < 0.5) { run.gold += effect.stake; await say(`You won ${effect.stake} gold!`); }
+        else { run.gold -= effect.stake; await say(`You lost ${effect.stake} gold...`); }
+      } else await say("Not enough gold to bet.");
+      break;
+    }
+    case "gamble": {
+      if (run.gold >= (effect.cost || 0)) {
+        run.gold -= effect.cost || 0;
+        const roll = Math.random();
+        if (roll < 0.4) { const g = 80 + Math.floor(Math.random() * 80); run.gold += g; await say(`The well rewards you with ${g} gold!`); }
+        else if (roll < 0.7) { await graftMutationFlow(); }
+        else await say("The well stays silent...");
+      } else await say("You can't spare the gold.");
+      break;
+    }
+    case "mutationThenScar": {
+      await graftMutationFlow();
+      const victim = state.run.team[Math.floor(Math.random() * state.run.team.length)];
+      const statKeys = ["atk", "def", "spa", "spd", "spe"];
+      const k = statKeys[Math.floor(Math.random() * statKeys.length)];
+      victim.stats[k] = Math.max(1, Math.floor(victim.stats[k] * 0.85));
+      await say(`...but the shrine's curse weakened ${victim.name}.`);
+      break;
+    }
+    default: break;
+  }
+  renderRunHud();
+  saveRun();
+}
+
+// ---- reward drafts ----
+
+// Present three rarity-weighted options; resolves to the chosen def or null.
+function offerDraft(kind) {
+  const options = kind === "sigil" ? offerSigils(state.run, 3) : offerMutations(state.run, 3);
+  return new Promise((resolve) => {
+    openPanel(kind === "sigil" ? "Choose a Sigil" : "Choose a Mutation", (body, close) => {
+      const grid = el("div", { class: "draft-grid" });
+      options.forEach((opt) => {
+        const card = el("div", { class: "draft-card" });
+        card.style.setProperty("--rar", RARITY_COLOR[opt.rarity] || "#888");
+        card.innerHTML =
+          `<div class="draft-name">${opt.name}</div>` +
+          `<div class="draft-rar">${opt.rarity}</div>` +
+          `<div class="draft-desc small">${opt.desc}</div>`;
+        card.onclick = () => { close(); resolve(opt); };
+        grid.appendChild(card);
+      });
+      body.appendChild(grid);
+      const skip = el("button", { class: "title-btn" }, "Skip");
+      skip.onclick = () => { close(); resolve(null); };
+      body.appendChild(skip);
+    });
+  });
+}
+
+function pickTeamMember(title) {
+  const team = state.run.team;
+  return new Promise((resolve) => {
+    openPanel(title, (body, close) => {
+      team.forEach((m) => {
+        const b = el("button", { class: "title-btn" }, `${m.name} · Lv ${m.level} · ${m.stats.hp}/${m.stats.maxHp} HP`);
+        b.onclick = () => { close(); resolve(m); };
+        body.appendChild(b);
+      });
+      if (!team.length) { const c = el("button", { class: "title-btn" }, "OK"); c.onclick = () => { close(); resolve(null); }; body.appendChild(c); }
+    });
+  });
+}
+
+// ---- run end ----
+
+async function runVictory() {
+  markResolved(state.run, { won: true });
+  state.meta.expeditionsWon++;
+  const frags = 60 + state.run.visited.length * 4 + state.run.ascension * 30;
+  state.meta.fragments += frags;
+  saveMeta();
+  await flashWhite("#enemySprite");
+  await new Promise((resolve) => {
+    openPanel("Champion!", (body, close) => {
+      body.appendChild(el("p", {}, "You conquered the Expedition and became Champion!"));
+      body.appendChild(el("p", { class: "small" }, `+${frags} Fragments. Choose one Pokémon to ascend into your Vault for ranked play:`));
+      state.run.team.forEach((m) => {
+        const b = el("button", { class: "title-btn primary" }, `Ascend ${m.name} (Lv ${m.level})`);
+        b.onclick = () => { ascendToVault(m); close(); resolve(); };
+        body.appendChild(b);
+      });
+      const skip = el("button", { class: "title-btn" }, "Ascend none");
+      skip.onclick = () => { close(); resolve(); };
+      body.appendChild(skip);
+    });
+  });
+  clearRun();
+  await backToTitle();
+}
+
+async function runWipe() {
+  if (state.run) { state.run.over = true; state.run.won = false; }
+  const frags = 15 + (state.run ? state.run.visited.length : 0) * 3;
+  state.meta.fragments += frags;
+  saveMeta();
+  await openModal({
+    title: "Expedition Ended",
+    bodyHTML: `<p>Your team was defeated.</p><p class="small">You reached ${state.run ? state.run.visited.length : 0} nodes and earned ${frags} Fragments toward permanent unlocks.</p>`,
+    actions: [{ label: "Return to Title", primary: true, onClick: () => {} }],
+    dismissable: false,
+  });
+  clearRun();
+  await backToTitle();
+}
+
+async function backToTitle() {
+  state.started = false;
+  state.mode = "map";
+  state.battle = null;
+  hideMapScreen();
+  closeModal();
+  const t = $("#titleScreen");
+  if (t) t.classList.remove("hidden");
+  refreshTitleButtons();
+  updateScore();
+}
+
+function refreshTitleButtons() {
+  const cont = $("#continueBtn");
+  if (cont) cont.classList.toggle("hidden", !hasRun());
+}
+
+// ---- persistence: run / vault / meta ----
+
+function saveRun() {
+  try {
+    if (state.run) {
+      state.run.active = state.active;
+      localStorage.setItem(RUN_KEY, JSON.stringify(state.run));
+    }
+  } catch (_) {}
+  saveVault();
+  saveMeta();
+}
+const save = saveRun; // legacy call sites
+function hasRun() { try { return !!localStorage.getItem(RUN_KEY); } catch (_) { return false; } }
+function loadRun() { try { const raw = localStorage.getItem(RUN_KEY); return raw ? JSON.parse(raw) : null; } catch (_) { return null; } }
+function clearRun() { try { localStorage.removeItem(RUN_KEY); } catch (_) {} state.run = null; state.battle = null; state.started = false; }
+function loadVault() { try { return JSON.parse(localStorage.getItem(VAULT_KEY) || "[]"); } catch (_) { return []; } }
+function saveVault() { try { localStorage.setItem(VAULT_KEY, JSON.stringify(state.vault || [])); } catch (_) {} }
+function loadMeta() { try { return Object.assign({ fragments: 0, expeditionsWon: 0 }, JSON.parse(localStorage.getItem(META_KEY) || "{}")); } catch (_) { return { fragments: 0, expeditionsWon: 0 }; } }
+function saveMeta() { try { localStorage.setItem(META_KEY, JSON.stringify(state.meta)); } catch (_) {} }
+function ascendToVault(mon) { state.vault.push(snapshotMon(mon)); saveVault(); }
+
 function floatToast(txt) {
-  // Non-blocking little note in the banner slot.
   showBanner(txt, 900);
 }
 
@@ -1098,8 +1509,10 @@ async function swapTo(idx, forced = false) {
   setBusy(true);
   const from = state.player, to = state.party[idx];
   await say(`${from.name}, come back!`);
+  const regen = switchOutHeal(from); // Regenerator mutation
   await faintOut("#playerSprite").catch(() => {});
   setActive(idx);
+  if (regen > 0) floatToast(`${from.name} regenerated ${regen} HP`);
   await fadeInSprite("#playerSprite");
   await say(`Go, ${to.name}!`);
   await playCry(to);
@@ -1196,14 +1609,18 @@ async function useCureKey(key) {
   await enemyFreeTurn();
 }
 
-const BALL_BONUS = { "poke-ball": 1, "great-ball": 1.5, "ultra-ball": 2 };
+// Roguelike catching: balls are a scarce resource, but a throw almost always
+// works — the decision is *whether to spend the ball*, not a dice roll. A catch
+// resolves the battle node as a win (you can't catch a fainted foe, so the risk
+// lives in not over-hitting).
 async function throwBall(key = "poke-ball") {
   if (state.busy) return;
-  if (state.mode === "trainer") { await say("You can't catch a trainer's Pokémon!"); return; }
-  if ((state.items[key] || 0) <= 0) { await say("None left!"); return; }
+  if (state.mode === "trainer") { await say("You can't catch a boss's Pokémon!"); return; }
+  if ((state.items[key] || 0) <= 0) { await say("You're out of Poké Balls!"); return; }
   setBusy(true);
   show("none");
   state.items[key]--;
+  renderRunHud();
   await say(`You threw a ${cap(key.replace(/-/g, " "))}!`, 120);
 
   const canvas = $("#fxCanvas");
@@ -1215,7 +1632,7 @@ async function throwBall(key = "poke-ball") {
   const enemyImg = $("#enemySprite");
   try {
     const handle = await fx.throwAndWobble(sx, sy, tx, ty, () => { enemyImg.style.opacity = "0"; });
-    const success = catchSuccess(state.enemy, BALL_BONUS[key] || 1);
+    const success = Math.random() < 0.92; // near-guaranteed
     await handle.shake(success ? 3 : Math.floor(Math.random() * 2) + 1);
     if (success) {
       handle.clear();
@@ -1224,14 +1641,11 @@ async function throwBall(key = "poke-ball") {
       mon.stats.hp = state.enemy.stats.hp;
       mon.status = state.enemy.status;
       mon.sprite = mon.spriteFront;
-      if (state.party.length < 6) state.party.push(mon);
-      else { state.box.push(mon); await say(`${mon.name} was sent to the PC Box!`); }
-      maybeAwardDrops();
-      state.wins++;
-      updateScore();
-      save();
-      await sleep(700);
-      await startEncounter();
+      const cb = state.battle && state.battle.onWin;
+      state.battle = null;
+      await sleep(500);
+      if (cb) await cb({ caught: mon });
+      else goToMap();
       setBusy(false);
     } else {
       handle.clear();
@@ -1309,10 +1723,10 @@ function bestPotion() {
 }
 
 async function maybeAuto() {
-  if (!state.auto || state.busy || !state.started) return;
+  if (!state.auto || state.busy || !state.started || !state.battle) return;
   if (!state.player || !state.enemy || state.player.stats.hp <= 0) return;
   await sleep(420);
-  if (state.busy || state.player.stats.hp <= 0) return;
+  if (state.busy || !state.battle || state.player.stats.hp <= 0) return;
   const hpF = state.player.stats.hp / state.player.stats.maxHp;
   const enemyHpF = state.enemy.stats.hp / state.enemy.stats.maxHp;
 
@@ -1335,47 +1749,7 @@ async function maybeAuto() {
   if (idx != null) return fightRound(state.player.moves[idx]);
 
   if (state.mode === "trainer") { const m = state.player.moves[0]; if (m) return fightRound(m); }
-  await say("Got away safely!");
-  await sleep(300);
-  await startEncounter();
-}
-
-// ---------------------------------------------------------------- save -----
-
-function save() {
-  try {
-    const data = {
-      party: state.party, box: state.box, active: state.active,
-      items: state.items, money: state.money, wins: state.wins,
-      badges: state.badges, gymsBeaten: state.gymsBeaten,
-      championBeaten: state.championBeaten, championsCleared: state.championsCleared,
-      ngPlus: state.ngPlus, v: 3,
-    };
-    localStorage.setItem(SAVE_KEY, JSON.stringify(data));
-  } catch (_) {}
-}
-function hasSave() {
-  try { return !!localStorage.getItem(SAVE_KEY); } catch (_) { return false; }
-}
-function loadSave() {
-  try {
-    const raw = localStorage.getItem(SAVE_KEY);
-    if (!raw) return false;
-    const d = JSON.parse(raw);
-    if (!d.party || !d.party.length) return false;
-    state.party = d.party.map(ensureRuntime);
-    state.box = (d.box || []).map(ensureRuntime);
-    state.active = clamp(d.active || 0, 0, state.party.length - 1);
-    state.items = Object.assign(state.items, d.items || {});
-    state.money = d.money || 0;
-    state.wins = d.wins || 0;
-    state.badges = d.badges || [];
-    state.gymsBeaten = d.gymsBeaten ?? d.trainersBeaten ?? 0;
-    state.championBeaten = !!d.championBeaten;
-    state.championsCleared = d.championsCleared || 0;
-    state.ngPlus = d.ngPlus || 0;
-    return true;
-  } catch (_) { return false; }
+  await fleeBattle();
 }
 
 // ---------------------------------------------------------------- flow -----
@@ -1384,22 +1758,9 @@ async function chooseStarter(id) {
   setBusy(true);
   const mon = await buildMon(id, 5);
   mon.sprite = mon.spriteBack || mon.spriteFront;
-  state.party = [mon];
-  state.box = [];
-  state.wins = 0;
-  state.money = 500;
-  state.badges = [];
-  state.gymsBeaten = 0;
-  state.championBeaten = false;
-  state.championsCleared = 0;
-  state.ngPlus = 0;
-  state.mode = "wild";
-  setActive(0);
-  await fadeInSprite("#playerSprite");
-  await say(`You chose ${mon.name}! Your journey begins.`, 500);
+  await say(`You chose ${mon.name}!`, 300);
   await playCry(mon);
-  save();
-  await startEncounter();
+  await startExpedition(mon);
   setBusy(false);
 }
 
@@ -1426,24 +1787,18 @@ function showStarterPicker() {
 }
 
 async function beginNewGame() {
-  try { localStorage.removeItem(SAVE_KEY); } catch (_) {}
-  state.party = []; state.box = []; state.wins = 0; state.badges = [];
-  state.gymsBeaten = 0; state.championBeaten = false; state.championsCleared = 0;
-  state.ngPlus = 0; state.money = 0; state.mode = "wild";
+  clearRun();
+  state.party = []; state.box = [];
   hideTitle();
   state.started = true;
   updateScore();
-  await say("Welcome! Choose your starter to begin.", 200);
+  await say("A new Expedition awaits. Choose your partner.", 200);
   showStarterPicker();
 }
 
 async function continueGame() {
-  if (!loadSave()) return beginNewGame();
-  hideTitle();
-  state.started = true;
-  setActive(state.active);
-  updateScore();
-  await startEncounter();
+  if (!hasRun()) return beginNewGame();
+  await continueExpedition();
 }
 
 function hideTitle() {
@@ -1479,21 +1834,26 @@ function closeModal() {
   if (modal) modal.classList.add("hidden");
 }
 
+// A modal whose body you build imperatively (with live listeners). Reuses the
+// single #modal container — callers are sequential (await), so no nesting.
+function openPanel(title, build) {
+  const modal = $("#modal");
+  if (!modal) return;
+  $("#modalTitle").textContent = title || "";
+  const body = $("#modalBody");
+  body.innerHTML = "";
+  $("#modalActions").innerHTML = "";
+  const close = () => modal.classList.add("hidden");
+  build(body, close);
+  modal.classList.remove("hidden");
+}
+
 // ---------------------------------------------------------------- arena ----
 
-// Read the saved/active party into a validated, PvP-ready roster.
+// The persistent Vault (ascended Pokémon) is what ranked play draws from.
 function currentRoster() {
-  const party = state.party && state.party.length ? state.party : savedParty();
-  return buildRoster(party);
-}
-function savedParty() {
-  try {
-    const raw = localStorage.getItem(SAVE_KEY);
-    if (!raw) return [];
-    const d = JSON.parse(raw);
-    return (d.party || []).map(ensureRuntime);
-  } catch (_) { return [];
-  }
+  if (state.vault && state.vault.length) return buildRoster(state.vault);
+  return buildRoster(loadVault());
 }
 
 // The Ranked Arena entry point. Today it validates your team and shows a
@@ -1505,7 +1865,7 @@ function openArena() {
   if (!v.ok) {
     return openModal({
       title: "Ranked Arena",
-      bodyHTML: `<p>${v.reason}</p><p class="small">Grind, catch and level a team in singleplayer, then bring it here for ranked PvP.</p>`,
+      bodyHTML: `<p>Your Vault is empty.</p><p class="small">Win an Expedition and <b>ascend</b> a Pokémon into your Vault — that's the team you bring to 1v1 ranked PvP.</p>`,
       actions: [],
     });
   }
@@ -1550,15 +1910,9 @@ function wireUI() {
   $("#fightBtn").addEventListener("click", () => { if (!state.busy) { renderMoves(); show("moves"); } });
   $("#ballInfoBtn").addEventListener("click", () => { if (!state.busy) openBag(); });
   $("#swapBtn").addEventListener("click", () => { if (!state.busy) { renderParty(); show("swap"); } });
-  $("#runBtn").addEventListener("click", async () => {
-    if (state.busy) return;
-    if (state.mode === "trainer") { await say("You can't run from a trainer battle!"); return; }
-    setBusy(true);
-    await say("Got away safely!");
-    await sleep(300);
-    await startEncounter();
-    setBusy(false);
-  });
+  $("#runBtn").addEventListener("click", () => { if (!state.busy) fleeBattle(); });
+  const mapBtn = $("#mapBtn");
+  if (mapBtn) mapBtn.addEventListener("click", () => { if (!state.busy && state.run) showMap(); });
   $("#backBtn").addEventListener("click", async () => { if (!state.busy) { show("menu"); await say("What will you do?", 0); } });
   $("#swapBackBtn").addEventListener("click", async () => { if (!state.busy) { show("menu"); await say("What will you do?", 0); } });
   $("#boxOpenBtn").addEventListener("click", () => openBox());
@@ -1573,15 +1927,14 @@ function wireUI() {
 }
 
 function boot() {
+  state.vault = loadVault();
+  state.meta = loadMeta();
   wireUI();
   initAudio();
   updateScore();
-  if (hasSave()) {
-    const cont = $("#continueBtn");
-    if (cont) cont.classList.remove("hidden");
-  }
-  // Auto-play ticker for continuous battling.
-  setInterval(() => { if (state.auto && state.started) maybeAuto(); }, 1100);
+  refreshTitleButtons();
+  // Auto-play ticker: only acts during an active battle.
+  setInterval(() => { if (state.auto && state.started && state.battle) maybeAuto(); }, 1100);
 }
 
 if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", boot);

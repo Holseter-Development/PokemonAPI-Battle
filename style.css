@@ -526,6 +526,77 @@ button.use-btn:active { transform: translateY(2px); }
 .small { font-size: 12px; color: var(--muted); }
 .hidden { display: none !important; }
 
+/* ---- Expedition map ----------------------------------------------------- */
+.map-screen {
+  position: absolute; inset: 0; z-index: 20; display: flex; flex-direction: column;
+  background:
+    radial-gradient(900px 500px at 50% -10%, rgba(60,80,130,.35), transparent 60%),
+    linear-gradient(180deg, #0e1526, #0a0e1a);
+}
+.run-hud {
+  padding: 12px 14px; border-bottom: 1px solid var(--panel-line);
+  background: rgba(12,18,30,.7); backdrop-filter: blur(8px);
+  display: flex; flex-direction: column; gap: 8px;
+}
+.run-stats { display: flex; flex-wrap: wrap; gap: 8px; }
+.run-stat {
+  background: rgba(255,255,255,.06); border: 1px solid var(--panel-line);
+  border-radius: 8px; padding: 4px 10px; font-size: 12px; color: var(--muted);
+}
+.run-stat b { color: var(--ink); }
+.run-sigils { display: flex; flex-wrap: wrap; gap: 6px; min-height: 4px; }
+.sig-chip {
+  font-size: 11px; font-weight: 700; padding: 3px 9px; border-radius: 999px;
+  color: #0c1018; background: var(--rar, #7a88a8); box-shadow: 0 0 10px -2px var(--rar, #7a88a8);
+}
+.run-team { display: flex; flex-wrap: wrap; gap: 6px; }
+.team-chip {
+  font-size: 12px; font-weight: 700; padding: 3px 9px; border-radius: 8px;
+  background: rgba(80,200,120,.15); border: 1px solid rgba(80,200,120,.35); color: #cfeedd;
+}
+.team-chip i { font-style: normal; opacity: .7; margin-left: 6px; font-variant-numeric: tabular-nums; }
+.team-chip.ko { background: rgba(255,80,100,.12); border-color: rgba(255,80,100,.3); color: #f2b8c0; }
+
+.map-scroll { flex: 1; overflow: auto; padding: 20px 10px; }
+.map-canvas { position: relative; display: flex; flex-direction: column; gap: 26px; max-width: 560px; margin: 0 auto; }
+.map-row { display: grid; gap: 10px; position: relative; z-index: 1; }
+.map-slot { display: flex; align-items: center; justify-content: center; min-height: 46px; }
+.map-node {
+  width: 44px; height: 44px; border-radius: 50%; border: 2px solid var(--type, #7a88a8);
+  background: rgba(20,28,44,.9); color: #fff; font-weight: 900; font-size: 17px; cursor: default;
+  display: grid; place-items: center; position: relative; transition: transform .1s ease, box-shadow .2s ease;
+}
+.map-node.visited { opacity: .4; }
+.map-node.current { box-shadow: 0 0 0 3px var(--accent); }
+.map-node.available {
+  cursor: pointer; box-shadow: 0 0 16px -2px var(--type, #7a88a8);
+  background: color-mix(in srgb, var(--type, #7a88a8) 30%, #141c2c);
+  animation: node-pulse 1.6s ease-in-out infinite;
+}
+.map-node.available:hover { transform: scale(1.12); }
+@keyframes node-pulse { 0%,100% { box-shadow: 0 0 14px -3px var(--type); } 50% { box-shadow: 0 0 22px 1px var(--type); } }
+.map-node:disabled { cursor: default; }
+.map-edges { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 0; pointer-events: none; overflow: visible; }
+.map-edges line { stroke: rgba(150,170,210,.28); stroke-width: 2; }
+.map-legend {
+  display: flex; flex-wrap: wrap; gap: 12px; justify-content: center;
+  padding: 8px; border-top: 1px solid var(--panel-line); background: rgba(12,18,30,.6);
+}
+.map-legend b { color: var(--accent); }
+
+/* draft cards + shop rows (rendered inside the modal) */
+.draft-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 10px; margin: 6px 0 12px; }
+.draft-card {
+  border: 1px solid var(--rar, #888); border-radius: 12px; padding: 12px; cursor: pointer;
+  background: color-mix(in srgb, var(--rar, #888) 12%, #131a2b); text-align: left;
+  transition: transform .08s ease, box-shadow .2s ease;
+}
+.draft-card:hover { transform: translateY(-2px); box-shadow: 0 6px 18px -6px var(--rar, #888); }
+.draft-name { font-weight: 800; }
+.draft-rar { font-size: 10px; text-transform: uppercase; letter-spacing: .5px; color: var(--rar, #888); font-weight: 800; margin-bottom: 4px; }
+.shop-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 7px 0; border-bottom: 1px solid var(--panel-line); }
+.shop-gold { margin-bottom: 8px; font-weight: 700; }
+
 /* ---- responsive --------------------------------------------------------- */
 @media (max-width: 720px) {
   /* Fill the whole viewport: wrapper is a flex column, the battle screen
