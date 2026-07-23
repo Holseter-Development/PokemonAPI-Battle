@@ -15,7 +15,7 @@ export const NODE = {
   MYSTERY: "mystery",
 };
 
-export const RUN_CONFIG = { regions: 3, rowsPerRegion: 5, width: 4, paths: 6 };
+export const RUN_CONFIG = { regions: 3, rowsPerRegion: 7, width: 4, paths: 6 };
 
 // ---- map generation ----------------------------------------------------
 
@@ -69,14 +69,11 @@ export function generateMap(rng, cfg = RUN_CONFIG) {
     .filter((n) => !n.type)
     .sort((a, b) => (a.row - b.row) || (a.col - b.col));
   for (const n of rest) {
-    if (n.row === 0) { n.type = NODE.BATTLE; continue; }          // gentle start
-    if (preBoss(n.row)) { n.type = NODE.REST; continue; }         // heal before boss
     const local = n.row % rowsPerRegion;
-    // Weighted pool; no shops/rests in the first two rows of a region.
-    const pool = local <= 1
-      ? [{ item: NODE.BATTLE, weight: 78 }, { item: NODE.MYSTERY, weight: 22 }]
-      : [{ item: NODE.BATTLE, weight: 58 }, { item: NODE.MYSTERY, weight: 24 },
-         { item: NODE.SHOP, weight: 10 }, { item: NODE.REST, weight: 8 }];
+    if (local <= 1) { n.type = NODE.BATTLE; continue; }           // two recruitment chances
+    if (preBoss(n.row)) { n.type = NODE.REST; continue; }         // heal before boss
+    const pool = [{ item: NODE.BATTLE, weight: 58 }, { item: NODE.MYSTERY, weight: 24 },
+      { item: NODE.SHOP, weight: 10 }, { item: NODE.REST, weight: 8 }];
     let t = rng() * pool.reduce((s, e) => s + e.weight, 0);
     for (const e of pool) { t -= e.weight; if (t < 0) { n.type = e.item; break; } }
     if (!n.type) n.type = NODE.BATTLE;
@@ -86,7 +83,7 @@ export function generateMap(rng, cfg = RUN_CONFIG) {
   for (let reg = 0; reg < regions; reg++) {
     const inReg = Object.values(nodes).filter((n) => n.region === reg && n.type !== NODE.CHAMPION && n.type !== NODE.ELITE);
     if (!inReg.some((n) => n.type === NODE.SHOP)) {
-      const cand = inReg.filter((n) => n.type === NODE.BATTLE && !preBoss(n.row) && n.row % rowsPerRegion !== 0);
+      const cand = inReg.filter((n) => n.type === NODE.BATTLE && !preBoss(n.row) && n.row % rowsPerRegion > 1);
       if (cand.length) pick(rng, cand).type = NODE.SHOP;
     }
   }

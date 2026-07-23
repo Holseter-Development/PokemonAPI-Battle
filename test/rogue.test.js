@@ -143,6 +143,7 @@ test("map: bosses single-node, champion last, fully connected", () => {
   for (const seed of ["one", "two", "three", "seedD", "seedE"]) {
     const map = generateMap(makeRng(hashSeed(seed)));
     const { rowsPerRegion, totalRows, regions } = map;
+    assert.strictEqual(rowsPerRegion, 7, "each region has five route nodes, a Rest, and a boss");
     // boss rows have exactly one node
     for (let R = rowsPerRegion - 1; R < totalRows; R += rowsPerRegion) {
       const inRow = map.rows[R];
@@ -160,6 +161,14 @@ test("map: bosses single-node, champion last, fully connected", () => {
     // pre-boss rows are Rests
     for (let R = rowsPerRegion - 2; R < totalRows; R += rowsPerRegion) {
       for (const id of map.rows[R]) assert.strictEqual(map.nodes[id].type, NODE.REST, `pre-boss should rest (${seed})`);
+    }
+    // Every route begins with two guaranteed recruitment opportunities.
+    for (let reg = 0; reg < regions; reg++) {
+      for (const local of [0, 1]) {
+        const row = map.rows[reg * rowsPerRegion + local];
+        assert.ok(row.length > 0 && row.every((id) => map.nodes[id].type === NODE.BATTLE),
+          `region ${reg} row ${local} should be all Wild battles (${seed})`);
+      }
     }
     // one shop per region
     for (let reg = 0; reg < regions; reg++) {

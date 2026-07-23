@@ -1807,7 +1807,7 @@
     REST: "rest",
     MYSTERY: "mystery"
   };
-  var RUN_CONFIG = { regions: 3, rowsPerRegion: 5, width: 4, paths: 6 };
+  var RUN_CONFIG = { regions: 3, rowsPerRegion: 7, width: 4, paths: 6 };
   function generateMap(rng, cfg = RUN_CONFIG) {
     const { regions, rowsPerRegion, width, paths } = cfg;
     const totalRows = regions * rowsPerRegion;
@@ -1857,7 +1857,8 @@
     const preBoss = (r) => isBossRow(r + 1);
     const rest = Object.values(nodes).filter((n) => !n.type).sort((a, b) => a.row - b.row || a.col - b.col);
     for (const n of rest) {
-      if (n.row === 0) {
+      const local = n.row % rowsPerRegion;
+      if (local <= 1) {
         n.type = NODE.BATTLE;
         continue;
       }
@@ -1865,8 +1866,7 @@
         n.type = NODE.REST;
         continue;
       }
-      const local = n.row % rowsPerRegion;
-      const pool = local <= 1 ? [{ item: NODE.BATTLE, weight: 78 }, { item: NODE.MYSTERY, weight: 22 }] : [
+      const pool = [
         { item: NODE.BATTLE, weight: 58 },
         { item: NODE.MYSTERY, weight: 24 },
         { item: NODE.SHOP, weight: 10 },
@@ -1886,7 +1886,7 @@
     for (let reg = 0; reg < regions; reg++) {
       const inReg = Object.values(nodes).filter((n) => n.region === reg && n.type !== NODE.CHAMPION && n.type !== NODE.ELITE);
       if (!inReg.some((n) => n.type === NODE.SHOP)) {
-        const cand = inReg.filter((n) => n.type === NODE.BATTLE && !preBoss(n.row) && n.row % rowsPerRegion !== 0);
+        const cand = inReg.filter((n) => n.type === NODE.BATTLE && !preBoss(n.row) && n.row % rowsPerRegion > 1);
         if (cand.length)
           pick(rng, cand).type = NODE.SHOP;
       }
@@ -3119,6 +3119,7 @@
   async function startBattle(spec) {
     $("#starterScreen")?.classList.add("hidden");
     $(".screen")?.classList.remove("starter-mode");
+    clearEnemyPresentation();
     state.battle = spec;
     state.mode = spec.kind === "battle" ? "wild" : "trainer";
     state.isChampion = spec.kind === "champion";
@@ -3429,7 +3430,9 @@
     if (!availableNext(state.run).some((n) => n.id === node.id))
       return;
     travelTo(state.run, node.id);
-    hideMapScreen();
+    const combatNode = node.type === NODE.BATTLE || node.type === NODE.ELITE || node.type === NODE.CHAMPION;
+    if (!combatNode)
+      hideMapScreen();
     await resolveNode(node);
   }
   function renderRunHud() {
@@ -4386,6 +4389,30 @@
     }
     setText("");
     setThemeByType(["normal"]);
+  }
+  function clearEnemyPresentation() {
+    state.enemy = null;
+    const sprite = $("#enemySprite");
+    if (sprite) {
+      sprite.style.opacity = "0";
+      sprite.style.transform = "none";
+      sprite.removeAttribute("src");
+      delete sprite.dataset.src;
+    }
+    for (const sel of ["#enemyTypes", "#enemyParty"]) {
+      const node = $(sel);
+      if (node)
+        node.innerHTML = "";
+    }
+    for (const sel of ["#enemyName", "#enemyLevel", "#enemyHpText"]) {
+      const node = $(sel);
+      if (node)
+        node.textContent = "";
+    }
+    const hp = $("#enemyHpFill");
+    if (hp)
+      hp.style.width = "0%";
+    $("#enemyStatus")?.classList.add("hidden");
   }
   async function beginNewGame() {
     clearRun();

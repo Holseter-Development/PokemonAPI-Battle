@@ -162,6 +162,21 @@ const waitFor = (cond, ms = 9000) => new Promise((resolve, reject) => {
     console.log("  ✓ auto-played the battle back to the map");
 
     assert.ok(!uncaught, "no uncaught error: " + uncaught);
+
+    // The map remains over the battle layer while the next encounter loads,
+    // and the previous enemy image is replaced before the map is removed.
+    const staleSprite = doc.getElementById("enemySprite");
+    staleSprite.setAttribute("src", "old-enemy.png");
+    staleSprite.dataset.src = "old-enemy.png";
+    staleSprite.style.opacity = "1";
+    const secondNode = doc.querySelector("#mapCanvas .map-node.available");
+    assert.ok(secondNode, "second guaranteed Wild node is reachable");
+    secondNode.click();
+    assert.ok(!doc.getElementById("mapScreen").classList.contains("hidden"), "map covers encounter loading");
+    await waitFor(() => doc.getElementById("mapScreen").classList.contains("hidden"));
+    assert.ok(!/old-enemy/.test(staleSprite.getAttribute("src") || ""), "previous enemy sprite is cleared");
+    console.log("  âœ“ next battle replaces the previous enemy without a stale flash");
+
     console.log("\nexpedition integration smoke passed");
     process.exit(0);
   } catch (e) {

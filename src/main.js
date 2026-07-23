@@ -931,6 +931,7 @@ async function makeWildMon(level, openingType = null) {
 async function startBattle(spec) {
   $("#starterScreen")?.classList.add("hidden");
   $(".screen")?.classList.remove("starter-mode");
+  clearEnemyPresentation();
   state.battle = spec;
   state.mode = spec.kind === "battle" ? "wild" : "trainer";
   state.isChampion = spec.kind === "champion";
@@ -1208,7 +1209,8 @@ async function onSelectNode(node) {
   // Deliberately not saved until the node resolves (goToMap): quitting mid-node
   // then continues from the last *completed* node instead of soft-locking on an
   // unresolved position.
-  hideMapScreen();
+  const combatNode = node.type === NODE.BATTLE || node.type === NODE.ELITE || node.type === NODE.CHAMPION;
+  if (!combatNode) hideMapScreen();
   await resolveNode(node);
 }
 
@@ -2021,6 +2023,28 @@ function clearBattlePresentation() {
   }
   setText("");
   setThemeByType(["normal"]);
+}
+
+function clearEnemyPresentation() {
+  state.enemy = null;
+  const sprite = $("#enemySprite");
+  if (sprite) {
+    sprite.style.opacity = "0";
+    sprite.style.transform = "none";
+    sprite.removeAttribute("src");
+    delete sprite.dataset.src;
+  }
+  for (const sel of ["#enemyTypes", "#enemyParty"]) {
+    const node = $(sel);
+    if (node) node.innerHTML = "";
+  }
+  for (const sel of ["#enemyName", "#enemyLevel", "#enemyHpText"]) {
+    const node = $(sel);
+    if (node) node.textContent = "";
+  }
+  const hp = $("#enemyHpFill");
+  if (hp) hp.style.width = "0%";
+  $("#enemyStatus")?.classList.add("hidden");
 }
 
 async function beginNewGame() {
