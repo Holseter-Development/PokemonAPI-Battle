@@ -2312,6 +2312,52 @@
     profile.bestDepth = Math.max(nonNegativeInt(profile.bestDepth), nonNegativeInt(depth));
     return profile.bestDepth;
   }
+  var PLAYTIME_MAX_CHUNK_MS = 6e4;
+  function accumulatePlayTime(profile, elapsedMs, maxChunkMs = PLAYTIME_MAX_CHUNK_MS) {
+    if (!profile)
+      return 0;
+    const cap2 = Number.isFinite(maxChunkMs) && maxChunkMs > 0 ? maxChunkMs : PLAYTIME_MAX_CHUNK_MS;
+    const raw = Math.floor(Number(elapsedMs));
+    const delta = Number.isFinite(raw) ? Math.min(Math.max(0, raw), cap2) : 0;
+    profile.playTimeMs = nonNegativeInt(profile.playTimeMs) + delta;
+    return profile.playTimeMs;
+  }
+  function formatPlayTime(ms) {
+    const totalSeconds = Math.floor(nonNegativeInt(ms) / 1e3);
+    const hours = Math.floor(totalSeconds / 3600);
+    const minutes = Math.floor(totalSeconds % 3600 / 60);
+    const seconds = totalSeconds % 60;
+    if (hours > 0)
+      return `${hours}h ${minutes}m`;
+    if (minutes > 0)
+      return `${minutes}m`;
+    return `${seconds}s`;
+  }
+  function profileSummary(profile, vaultSize = 0) {
+    const p = normalizeProgression(profile);
+    const counts = progressionCounts(p);
+    const started = Math.max(p.expeditionsStarted, p.expeditionsWon);
+    const winRate = started > 0 ? p.expeditionsWon / started : 0;
+    return {
+      expeditionsStarted: started,
+      expeditionsWon: p.expeditionsWon,
+      winRate,
+      winRatePct: Math.round(winRate * 100),
+      currentWinStreak: p.currentWinStreak,
+      bestWinStreak: p.bestWinStreak,
+      bestDepth: p.bestDepth,
+      playTimeMs: p.playTimeMs,
+      playTime: formatPlayTime(p.playTimeMs),
+      seen: counts.seen,
+      caught: counts.caught,
+      shinyCaught: counts.shinyCaught,
+      dexTotal: GEN1_DEX_SIZE,
+      vaultSize: nonNegativeInt(vaultSize),
+      purchasedUpgrades: UPGRADE_CATALOG.filter((upgrade) => p.upgrades[upgrade.id]),
+      milestoneUnlocks: POKEDEX_MILESTONES.filter((milestone) => p.unlocks[milestone.id]),
+      masterResearcher: !!p.unlocks.master_researcher
+    };
+  }
   function recordRunResult(profile, won) {
     if (won) {
       profile.expeditionsWon = nonNegativeInt(profile.expeditionsWon) + 1;
@@ -4496,6 +4542,32 @@
     } catch (_) {
     }
   }
+  var playTimeMark = null;
+  function isPageVisible() {
+    return typeof document === "undefined" || document.visibilityState !== "hidden";
+  }
+  function startPlayTimeClock() {
+    playTimeMark = isPageVisible() ? Date.now() : null;
+  }
+  function flushPlayTime() {
+    if (playTimeMark == null)
+      return;
+    const now = Date.now();
+    const elapsed = now - playTimeMark;
+    playTimeMark = now;
+    if (elapsed <= 0)
+      return;
+    accumulatePlayTime(state.meta, elapsed);
+    saveMeta();
+  }
+  function handleVisibilityChange() {
+    if (isPageVisible()) {
+      playTimeMark = Date.now();
+    } else {
+      flushPlayTime();
+      playTimeMark = null;
+    }
+  }
   function ascendToVault(mon) {
     state.vault.push(snapshotMon(mon));
     saveVault();
@@ -5154,6 +5226,73 @@
       parts.push("+10% battle gold");
     return parts.length ? parts.join(" \xB7 ") : "No permanent run bonuses yet";
   }
+  function openProfile() {
+    flushPlayTime();
+    const summary = profileSummary(state.meta, state.vault ? state.vault.length : 0);
+    openPanel("Trainer Profile", (body, close) => {
+      const shell = el("div", { class: "profile-shell" });
+      const statCard = (label, value, sub) => {
+        const card = el("div", { class: "profile-stat" });
+        card.appendChild(el("b", {}, String(value)));
+        card.appendChild(el("small", {}, label));
+        if (sub)
+          card.appendChild(el("span", { class: "profile-stat-sub" }, sub));
+        return card;
+      };
+      const stats = el("div", { class: "profile-stats" });
+      stats.append(
+        statCard("Won / Started", `${summary.expeditionsWon} / ${summary.expeditionsStarted}`, `${summary.winRatePct}% win rate`),
+        statCard("Win Streak", summary.currentWinStreak, `Best ${summary.bestWinStreak}`),
+        statCard("Best Depth", summary.bestDepth, "nodes cleared"),
+        statCard("Playtime", summary.playTime, "active foreground"),
+        statCard("Pok\xE9dex", `${summary.caught} / ${summary.dexTotal}`, `${summary.seen} seen`),
+        statCard("Shinies", summary.shinyCaught, "caught"),
+        statCard("Vault", summary.vaultSize, "ascended")
+      );
+      if (summary.masterResearcher) {
+        stats.appendChild(statCard("Badge", "\u2605", "Master Researcher"));
+      }
+      shell.appendChild(stats);
+      const badges = [
+        ...summary.expeditionsWon > 0 ? [{ name: "Champion", desc: "Toppled the Champion." }] : [],
+        ...summary.milestoneUnlocks.map((milestone) => ({ name: milestone.name, desc: milestone.desc }))
+      ];
+      const achieveSection = el("section", { class: "profile-section" });
+      achieveSection.appendChild(el("h3", {}, "Achievements"));
+      if (badges.length) {
+        const list = el("div", { class: "profile-badges" });
+        for (const badge of badges) {
+          const chip = el("div", { class: "profile-badge", title: badge.desc });
+          chip.appendChild(el("b", {}, badge.name));
+          chip.appendChild(el("span", {}, badge.desc));
+          list.appendChild(chip);
+        }
+        achieveSection.appendChild(list);
+      } else {
+        achieveSection.appendChild(el("p", { class: "small profile-empty" }, "Win Expeditions and fill the Pok\xE9dex to earn badges."));
+      }
+      shell.appendChild(achieveSection);
+      const upgradeSection = el("section", { class: "profile-section" });
+      upgradeSection.appendChild(el("h3", {}, "Purchased upgrades"));
+      if (summary.purchasedUpgrades.length) {
+        const list = el("ul", { class: "profile-upgrades" });
+        for (const upgrade of summary.purchasedUpgrades) {
+          const item = el("li", {});
+          item.appendChild(el("b", {}, upgrade.name));
+          item.appendChild(el("span", {}, upgrade.desc));
+          list.appendChild(item);
+        }
+        upgradeSection.appendChild(list);
+      } else {
+        upgradeSection.appendChild(el("p", { class: "small profile-empty" }, "Spend Fragments in the Fragment Lab for permanent run bonuses."));
+      }
+      shell.appendChild(upgradeSection);
+      const closeButton = el("button", { class: "title-btn profile-close" }, "Close Profile");
+      closeButton.onclick = close;
+      shell.appendChild(closeButton);
+      body.appendChild(shell);
+    }, { wide: true });
+  }
   function openUpgradeLab() {
     openPanel("Fragment Lab", (body, close) => {
       let confirming = null;
@@ -5385,6 +5524,7 @@
     const cont = $("#continueBtn");
     if (cont)
       cont.addEventListener("click", () => continueGame());
+    $("#profileBtn")?.addEventListener("click", () => openProfile());
     $("#pokedexBtn")?.addEventListener("click", () => openPokedex());
     $("#pokedexQuickBtn")?.addEventListener("click", () => openPokedex());
     $("#upgradesBtn")?.addEventListener("click", () => openUpgradeLab());
@@ -5406,6 +5546,11 @@
         requestAnimationFrame(renderMapEdges);
       }
     });
+    startPlayTimeClock();
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    window.addEventListener("pagehide", flushPlayTime);
+    window.addEventListener("beforeunload", flushPlayTime);
+    setInterval(flushPlayTime, 3e4);
     setInterval(() => {
       if (state.auto && state.started && state.battle)
         maybeAuto();

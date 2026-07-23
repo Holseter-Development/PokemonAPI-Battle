@@ -14,6 +14,10 @@ import {
   recordExpeditionStart,
   recordBestDepth,
   recordRunResult,
+  accumulatePlayTime,
+  formatPlayTime,
+  profileSummary,
+  PLAYTIME_MAX_CHUNK_MS,
 } from "../src/progression.js";
 import {
   GEN1_NAMES,
@@ -242,6 +246,76 @@ test("Fragment Lab purchases enforce prerequisites, funds, permanence, and exact
   poor.fragments = 74;
   assert.strictEqual(purchaseUpgrade(poor, "field_kit_1").reason, "funds");
   assert.strictEqual(poor.fragments, 74);
+});
+
+test("playtime accumulates active slices but clamps suspended background gaps", () => {
+  const profile = defaultProgression();
+  assert.strictEqual(accumulatePlayTime(profile, 15000), 15000);
+  assert.strictEqual(accumulatePlayTime(profile, 30000), 45000);
+  // A long background suspension is clamped to the per-flush cap.
+  assert.strictEqual(
+    accumulatePlayTime(profile, 6 * 60 * 60 * 1000),
+    45000 + PLAYTIME_MAX_CHUNK_MS,
+    "a multi-hour gap cannot inflate playtime beyond one capped chunk",
+  );
+  // Negative, non-finite, and zero deltas never move the total.
+  const total = profile.playTimeMs;
+  assert.strictEqual(accumulatePlayTime(profile, -500), total);
+  assert.strictEqual(accumulatePlayTime(profile, NaN), total);
+  assert.strictEqual(accumulatePlayTime(profile, 0), total);
+});
+
+test("playtime formats hours, minutes, and legacy zero defaults", () => {
+  assert.strictEqual(formatPlayTime(0), "0s");
+  assert.strictEqual(formatPlayTime(45000), "45s");
+  assert.strictEqual(formatPlayTime(90000), "1m");
+  assert.strictEqual(formatPlayTime(3_600_000), "1h 0m");
+  assert.strictEqual(formatPlayTime(3_930_000), "1h 5m");
+  assert.strictEqual(formatPlayTime(Infinity), "0s", "non-finite playtime falls back to zero");
+});
+
+test("profile summary derives win rate, completion, and earned rewards", () => {
+  const profile = defaultProgression();
+  profile.expeditionsStarted = 4;
+  profile.expeditionsWon = 3;
+  profile.currentWinStreak = 2;
+  profile.bestWinStreak = 5;
+  profile.bestDepth = 18;
+  profile.playTimeMs = 3_930_000;
+  profile.seen = [1, 2, 3];
+  profile.caught = [1, 2];
+  profile.shinyCaught = [1];
+  profile.unlocks = { explorer_grant: true, master_researcher: true };
+  profile.upgrades = { field_kit_1: true, travel_fund_1: true };
+
+  const summary = profileSummary(profile, 3);
+  assert.strictEqual(summary.expeditionsStarted, 4);
+  assert.strictEqual(summary.expeditionsWon, 3);
+  assert.strictEqual(summary.winRatePct, 75);
+  assert.strictEqual(summary.currentWinStreak, 2);
+  assert.strictEqual(summary.bestWinStreak, 5);
+  assert.strictEqual(summary.bestDepth, 18);
+  assert.strictEqual(summary.playTime, "1h 5m");
+  assert.strictEqual(summary.seen, 3);
+  assert.strictEqual(summary.caught, 2);
+  assert.strictEqual(summary.shinyCaught, 1);
+  assert.strictEqual(summary.vaultSize, 3);
+  assert.strictEqual(summary.masterResearcher, true);
+  assert.deepStrictEqual(summary.purchasedUpgrades.map((u) => u.id), ["field_kit_1", "travel_fund_1"]);
+  assert.deepStrictEqual(summary.milestoneUnlocks.map((m) => m.id), ["explorer_grant", "master_researcher"]);
+});
+
+test("profile summary yields safe zero defaults for a legacy/empty save", () => {
+  const summary = profileSummary({});
+  assert.strictEqual(summary.expeditionsStarted, 0);
+  assert.strictEqual(summary.expeditionsWon, 0);
+  assert.strictEqual(summary.winRate, 0, "no started runs cannot divide by zero");
+  assert.strictEqual(summary.winRatePct, 0);
+  assert.strictEqual(summary.bestDepth, 0);
+  assert.strictEqual(summary.vaultSize, 0);
+  assert.strictEqual(summary.playTime, "0s");
+  assert.deepStrictEqual(summary.purchasedUpgrades, []);
+  assert.deepStrictEqual(summary.milestoneUnlocks, []);
 });
 
 console.log(`\n${passed} checks passed`);

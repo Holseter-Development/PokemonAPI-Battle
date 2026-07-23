@@ -69,6 +69,8 @@ import {
   recordExpeditionStart,
   recordBestDepth,
   recordRunResult,
+  accumulatePlayTime,
+  profileSummary,
 } from "./progression.js";
 import {
   DEX_FILTERS,
@@ -1836,6 +1838,37 @@ function saveMeta() {
     localStorage.setItem(META_KEY, JSON.stringify(state.meta));
   } catch (_) {}
 }
+// ---- active-foreground playtime clock ----
+// We only accumulate while the page is visible. Each flush adds the real gap
+// since the last mark, but accumulatePlayTime caps a single slice so a tab that
+// was suspended/throttled in the background can't inject phantom hours.
+let playTimeMark = null;
+function isPageVisible() {
+  return typeof document === "undefined" || document.visibilityState !== "hidden";
+}
+function startPlayTimeClock() {
+  playTimeMark = isPageVisible() ? Date.now() : null;
+}
+function flushPlayTime() {
+  if (playTimeMark == null) return;
+  const now = Date.now();
+  const elapsed = now - playTimeMark;
+  playTimeMark = now;
+  if (elapsed <= 0) return;
+  accumulatePlayTime(state.meta, elapsed);
+  saveMeta();
+}
+function handleVisibilityChange() {
+  if (isPageVisible()) {
+    // Returning to the foreground: start a fresh slice; hidden time is dropped.
+    playTimeMark = Date.now();
+  } else {
+    // Leaving the foreground: bank what we have, then stop the clock.
+    flushPlayTime();
+    playTimeMark = null;
+  }
+}
+
 function ascendToVault(mon) { state.vault.push(snapshotMon(mon)); saveVault(); }
 
 function floatToast(txt) {
@@ -2475,6 +2508,79 @@ function describeProgressionEffects(effects) {
   return parts.length ? parts.join(" · ") : "No permanent run bonuses yet";
 }
 
+// The Trainer Profile: a read-only home for account identity and progress.
+function openProfile() {
+  flushPlayTime();
+  const summary = profileSummary(state.meta, state.vault ? state.vault.length : 0);
+  openPanel("Trainer Profile", (body, close) => {
+    const shell = el("div", { class: "profile-shell" });
+
+    const statCard = (label, value, sub) => {
+      const card = el("div", { class: "profile-stat" });
+      card.appendChild(el("b", {}, String(value)));
+      card.appendChild(el("small", {}, label));
+      if (sub) card.appendChild(el("span", { class: "profile-stat-sub" }, sub));
+      return card;
+    };
+
+    const stats = el("div", { class: "profile-stats" });
+    stats.append(
+      statCard("Won / Started", `${summary.expeditionsWon} / ${summary.expeditionsStarted}`, `${summary.winRatePct}% win rate`),
+      statCard("Win Streak", summary.currentWinStreak, `Best ${summary.bestWinStreak}`),
+      statCard("Best Depth", summary.bestDepth, "nodes cleared"),
+      statCard("Playtime", summary.playTime, "active foreground"),
+      statCard("Pokédex", `${summary.caught} / ${summary.dexTotal}`, `${summary.seen} seen`),
+      statCard("Shinies", summary.shinyCaught, "caught"),
+      statCard("Vault", summary.vaultSize, "ascended"),
+    );
+    if (summary.masterResearcher) {
+      stats.appendChild(statCard("Badge", "★", "Master Researcher"));
+    }
+    shell.appendChild(stats);
+
+    const badges = [
+      ...(summary.expeditionsWon > 0 ? [{ name: "Champion", desc: "Toppled the Champion." }] : []),
+      ...summary.milestoneUnlocks.map((milestone) => ({ name: milestone.name, desc: milestone.desc })),
+    ];
+    const achieveSection = el("section", { class: "profile-section" });
+    achieveSection.appendChild(el("h3", {}, "Achievements"));
+    if (badges.length) {
+      const list = el("div", { class: "profile-badges" });
+      for (const badge of badges) {
+        const chip = el("div", { class: "profile-badge", title: badge.desc });
+        chip.appendChild(el("b", {}, badge.name));
+        chip.appendChild(el("span", {}, badge.desc));
+        list.appendChild(chip);
+      }
+      achieveSection.appendChild(list);
+    } else {
+      achieveSection.appendChild(el("p", { class: "small profile-empty" }, "Win Expeditions and fill the Pokédex to earn badges."));
+    }
+    shell.appendChild(achieveSection);
+
+    const upgradeSection = el("section", { class: "profile-section" });
+    upgradeSection.appendChild(el("h3", {}, "Purchased upgrades"));
+    if (summary.purchasedUpgrades.length) {
+      const list = el("ul", { class: "profile-upgrades" });
+      for (const upgrade of summary.purchasedUpgrades) {
+        const item = el("li", {});
+        item.appendChild(el("b", {}, upgrade.name));
+        item.appendChild(el("span", {}, upgrade.desc));
+        list.appendChild(item);
+      }
+      upgradeSection.appendChild(list);
+    } else {
+      upgradeSection.appendChild(el("p", { class: "small profile-empty" }, "Spend Fragments in the Fragment Lab for permanent run bonuses."));
+    }
+    shell.appendChild(upgradeSection);
+
+    const closeButton = el("button", { class: "title-btn profile-close" }, "Close Profile");
+    closeButton.onclick = close;
+    shell.appendChild(closeButton);
+    body.appendChild(shell);
+  }, { wide: true });
+}
+
 function openUpgradeLab() {
   openPanel("Fragment Lab", (body, close) => {
     let confirming = null;
@@ -2691,6 +2797,7 @@ function wireUI() {
   $("#newGameBtn").addEventListener("click", () => beginNewGame());
   const cont = $("#continueBtn");
   if (cont) cont.addEventListener("click", () => continueGame());
+  $("#profileBtn")?.addEventListener("click", () => openProfile());
   $("#pokedexBtn")?.addEventListener("click", () => openPokedex());
   $("#pokedexQuickBtn")?.addEventListener("click", () => openPokedex());
   $("#upgradesBtn")?.addEventListener("click", () => openUpgradeLab());
@@ -2712,6 +2819,13 @@ function boot() {
       requestAnimationFrame(renderMapEdges);
     }
   });
+  // Active-foreground playtime: start the clock, bank it periodically, and flush
+  // on tab hide / navigation so a lost tab doesn't lose the current slice.
+  startPlayTimeClock();
+  document.addEventListener("visibilitychange", handleVisibilityChange);
+  window.addEventListener("pagehide", flushPlayTime);
+  window.addEventListener("beforeunload", flushPlayTime);
+  setInterval(flushPlayTime, 30000);
   // Auto-play ticker: only acts during an active battle.
   setInterval(() => { if (state.auto && state.started && state.battle) maybeAuto(); }, 1100);
 }

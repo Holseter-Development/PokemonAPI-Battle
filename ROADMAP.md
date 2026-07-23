@@ -917,8 +917,8 @@ Implement in this order:
 3. `P1.3` — Pokédex screen. **Complete**
 4. `P1.4` — Pokédex milestone perks. **Complete**
 5. `P1.5` — Fragment upgrade shop. **Complete**
-6. `P1.6` — Trainer profile. **Next**
-7. `P2.1` — Biome encounter catalog.
+6. `P1.6` — Trainer profile. **Complete**
+7. `P2.1` — Biome encounter catalog. **Next**
 8. `P2.2` — Deterministic controller rolls.
 9. `P2.3` — Shinies.
 10. `P2.4` — Alpha encounters.
@@ -954,8 +954,9 @@ Update this section as chunks ship.
 | P1.3 | Complete | 151-entry responsive Pokédex, filters, lazy details, and focus handling shipped 2026-07-24 |
 | P1.4 | Complete | Seven automatic milestones, bonus starters, and snapshotted run effects shipped 2026-07-24 |
 | P1.5 | Complete | Confirmed Fragment purchases, five permanent upgrades, and combined effect previews shipped 2026-07-24 |
-| P1.6 | Next | Add trainer profile and active foreground playtime |
-| P2.1–P2.6 | Backlog | Places and surprise |
+| P1.6 | Complete | Trainer Profile screen, run history summary, and capped active-foreground playtime shipped 2026-07-24 |
+| P2.1 | Next | Biome encounter catalog |
+| P2.2–P2.6 | Backlog | Places and surprise |
 | P3.0–P3.6 | Backlog | Team-building depth |
 | P4.1–P4.7 | Backlog | Replay and challenge |
 | P5.1–P5.3 | Deferred | Multi-target battle formats |

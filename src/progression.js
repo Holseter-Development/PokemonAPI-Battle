@@ -196,6 +196,62 @@ export function recordBestDepth(profile, depth) {
   return profile.bestDepth;
 }
 
+// Cap a single playtime flush so a suspended or throttled background tab that
+// wakes after a long gap cannot inject hours of phantom "active" playtime.
+export const PLAYTIME_MAX_CHUNK_MS = 60000;
+
+// Add one bounded slice of active foreground time. `elapsedMs` is the real gap
+// since the last flush; anything above `maxChunkMs` is treated as background
+// suspension and clamped away. Returns the new total.
+export function accumulatePlayTime(profile, elapsedMs, maxChunkMs = PLAYTIME_MAX_CHUNK_MS) {
+  if (!profile) return 0;
+  const cap = Number.isFinite(maxChunkMs) && maxChunkMs > 0 ? maxChunkMs : PLAYTIME_MAX_CHUNK_MS;
+  const raw = Math.floor(Number(elapsedMs));
+  const delta = Number.isFinite(raw) ? Math.min(Math.max(0, raw), cap) : 0;
+  profile.playTimeMs = nonNegativeInt(profile.playTimeMs) + delta;
+  return profile.playTimeMs;
+}
+
+// Human-readable playtime. Legacy/zero profiles render as "0m".
+export function formatPlayTime(ms) {
+  const totalSeconds = Math.floor(nonNegativeInt(ms) / 1000);
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  if (hours > 0) return `${hours}h ${minutes}m`;
+  if (minutes > 0) return `${minutes}m`;
+  return `${seconds}s`;
+}
+
+// Pure account snapshot for the Trainer Profile screen. Derives win rate,
+// completion, and the earned upgrade/badge lists so the UI stays presentational
+// and legacy saves fall back to sensible zero/default values.
+export function profileSummary(profile, vaultSize = 0) {
+  const p = normalizeProgression(profile);
+  const counts = progressionCounts(p);
+  const started = Math.max(p.expeditionsStarted, p.expeditionsWon);
+  const winRate = started > 0 ? p.expeditionsWon / started : 0;
+  return {
+    expeditionsStarted: started,
+    expeditionsWon: p.expeditionsWon,
+    winRate,
+    winRatePct: Math.round(winRate * 100),
+    currentWinStreak: p.currentWinStreak,
+    bestWinStreak: p.bestWinStreak,
+    bestDepth: p.bestDepth,
+    playTimeMs: p.playTimeMs,
+    playTime: formatPlayTime(p.playTimeMs),
+    seen: counts.seen,
+    caught: counts.caught,
+    shinyCaught: counts.shinyCaught,
+    dexTotal: GEN1_DEX_SIZE,
+    vaultSize: nonNegativeInt(vaultSize),
+    purchasedUpgrades: UPGRADE_CATALOG.filter((upgrade) => p.upgrades[upgrade.id]),
+    milestoneUnlocks: POKEDEX_MILESTONES.filter((milestone) => p.unlocks[milestone.id]),
+    masterResearcher: !!p.unlocks.master_researcher,
+  };
+}
+
 export function recordRunResult(profile, won) {
   if (won) {
     profile.expeditionsWon = nonNegativeInt(profile.expeditionsWon) + 1;
