@@ -2303,6 +2303,30 @@
       return { kind: "event", event: pickEventInline(rng) };
     });
   }
+  function resolveCoinflip(run, stake) {
+    const s = Math.max(0, stake || 0);
+    const won = withRng(run, (rng) => rng() < 0.5);
+    return { won, delta: won ? s : -s };
+  }
+  function resolveWishingWell(run) {
+    return withRng(run, (rng) => {
+      const roll = rng();
+      if (roll < 0.4)
+        return { outcome: "gold", gold: randRange(rng, 80, 159) };
+      if (roll < 0.7)
+        return { outcome: "mutation" };
+      return { outcome: "nothing" };
+    });
+  }
+  var SHRINE_SCAR_STATS = ["atk", "def", "spa", "spd", "spe"];
+  function resolveShrineScar(run) {
+    const teamLen = (run.team || []).length;
+    return withRng(run, (rng) => {
+      const victimIndex = teamLen ? Math.floor(rng() * teamLen) : -1;
+      const stat = SHRINE_SCAR_STATS[Math.floor(rng() * SHRINE_SCAR_STATS.length)];
+      return { victimIndex, stat };
+    });
+  }
   function encounterLevel(run) {
     const depth = run.visited?.length || 0;
     const ascension = run.ascension || 0;
@@ -2948,6 +2972,19 @@
     if (hold)
       await sleep(hold);
   }
+  function showOutcome(lines, title = "Result") {
+    const list = (Array.isArray(lines) ? lines : [lines]).filter(Boolean);
+    if (!list.length)
+      return Promise.resolve();
+    return new Promise((resolve) => {
+      openPanel(title, (body, close) => {
+        list.forEach((line) => body.appendChild(el("p", {}, line)));
+        const ok = el("button", { class: "title-btn primary" }, "Continue");
+        ok.onclick = () => close();
+        body.appendChild(ok);
+      }, { onClose: resolve });
+    });
+  }
   var RUN_KEY = "pkbattle:run:v1";
   var VAULT_KEY = "pkbattle:vault:v1";
   var META_KEY = "pkbattle:meta:v2";
@@ -2996,14 +3033,19 @@
     }
     return { added: true, unlocks };
   }
-  async function announceCaughtProgress(registration) {
+  function caughtProgressLines(registration) {
     if (!registration.added)
-      return;
+      return [];
     const counts = progressionCounts(state.meta);
-    await say(`Pok\xE9dex updated: ${counts.caught}/${GEN1_DEX_SIZE} species caught.`);
+    const lines = [`Pok\xE9dex updated: ${counts.caught}/${GEN1_DEX_SIZE} species caught.`];
     for (const unlocked of registration.unlocks) {
-      await say(`Permanent perk unlocked: ${unlocked.name} \u2014 ${unlocked.desc}`);
+      lines.push(`Permanent perk unlocked: ${unlocked.name} \u2014 ${unlocked.desc}`);
     }
+    return lines;
+  }
+  async function announceCaughtProgress(registration) {
+    for (const line of caughtProgressLines(registration))
+      await say(line);
   }
   function backfillOwnedPokemon(...groups) {
     let added = 0;
@@ -4459,24 +4501,29 @@
         body.appendChild(mut);
       });
     });
+    const lines = [];
     if (choice === "heal") {
       healTeam();
-      await say("Your team is fully rested.");
-    } else if (choice === "mutate")
-      await graftMutationFlow();
+      lines.push("Your team is fully rested.");
+    } else if (choice === "mutate") {
+      const m = await graftMutationFlow();
+      if (m)
+        lines.push(m);
+    }
+    await showOutcome(lines, "Rest Site");
     goToMap();
   }
   async function graftMutationFlow() {
     const opt = await offerDraft("mutation");
     if (!opt)
-      return;
+      return null;
     const mon = await pickTeamMember(`Graft ${opt.name} onto\u2026`);
     if (!mon)
-      return;
+      return null;
     applyMutation(mon, opt.id);
     if (mon === state.player)
       updateHUD();
-    await say(`${mon.name} gained the ${opt.name} mutation!`);
+    return `${mon.name} gained the ${opt.name} mutation!`;
   }
   async function resolveShopNode(node) {
     const stock = rollShop(state.run);
@@ -4577,7 +4624,8 @@
         });
       });
     });
-    await applyEventEffect(choice.effect || { kind: "none" });
+    const lines = await applyEventEffect(choice.effect || { kind: "none" });
+    await showOutcome(lines, ev.title);
     goToMap();
   }
   function paidChoiceAmount(effect) {
@@ -4663,24 +4711,25 @@
   }
   async function applyEventEffect(effect) {
     const run = state.run;
+    const msgs = [];
     switch (effect.kind) {
       case "heal":
         healTeam();
-        await say("Your team recovered fully.");
+        msgs.push("Your team recovered fully.");
         break;
       case "balls":
         run.items["poke-ball"] = (run.items["poke-ball"] || 0) + (effect.amount || 1);
-        await say(`You found ${effect.amount || 1} Pok\xE9 Ball!`);
+        msgs.push(`You found ${effect.amount || 1} Pok\xE9 Ball!`);
         break;
       case "gold":
         run.gold += effect.amount || 0;
-        await say(`You found ${effect.amount || 0} gold!`);
+        msgs.push(`You found ${effect.amount || 0} gold!`);
         break;
       case "sigil": {
         const s = await offerDraft("sigil");
         if (s && !run.sigils.includes(s.id)) {
           run.sigils.push(s.id);
-          await say(`Attuned the ${s.name} Sigil!`);
+          msgs.push(`Attuned the ${s.name} Sigil!`);
         }
         break;
       }
@@ -4691,55 +4740,56 @@
           run.team.push(mon);
         else
           run.box.push(mon);
-        await say(`The egg hatched into ${mon.name}!`);
-        await announceCaughtProgress(registerPokemonProgress(mon, "caught", false));
+        msgs.push(`The egg hatched into ${mon.name}!`);
+        msgs.push(...caughtProgressLines(registerPokemonProgress(mon, "caught", false)));
         break;
       }
       case "tutor": {
         if (run.gold >= (effect.cost || 0)) {
           run.gold -= effect.cost || 0;
           state.player.moves.forEach((mv) => mv.ppLeft = mv.pp);
-          await say("Your Pok\xE9mon's moves were honed. (PP restored)");
+          msgs.push("Your Pok\xE9mon's moves were honed. (PP restored)");
         } else
-          await say("You can't afford it.");
+          msgs.push("You can't afford it.");
         break;
       }
       case "coinflip": {
         if (run.gold >= (effect.stake || 0)) {
-          if (Math.random() < 0.5) {
-            run.gold += effect.stake;
-            await say(`You won ${effect.stake} gold!`);
-          } else {
-            run.gold -= effect.stake;
-            await say(`You lost ${effect.stake} gold...`);
-          }
+          const { won, delta } = resolveCoinflip(run, effect.stake);
+          run.gold += delta;
+          msgs.push(won ? `You won ${effect.stake} gold!` : `You lost ${effect.stake} gold...`);
         } else
-          await say("Not enough gold to bet.");
+          msgs.push("Not enough gold to bet.");
         break;
       }
       case "gamble": {
         if (run.gold >= (effect.cost || 0)) {
           run.gold -= effect.cost || 0;
-          const roll = Math.random();
-          if (roll < 0.4) {
-            const g = 80 + Math.floor(Math.random() * 80);
-            run.gold += g;
-            await say(`The well rewards you with ${g} gold!`);
-          } else if (roll < 0.7) {
-            await graftMutationFlow();
+          const result = resolveWishingWell(run);
+          if (result.outcome === "gold") {
+            run.gold += result.gold;
+            msgs.push(`The well rewards you with ${result.gold} gold!`);
+          } else if (result.outcome === "mutation") {
+            const m = await graftMutationFlow();
+            msgs.push(m || "The well's gift slips through your fingers.");
           } else
-            await say("The well stays silent...");
+            msgs.push("The well stays silent...");
         } else
-          await say("You can't spare the gold.");
+          msgs.push("You can't spare the gold.");
         break;
       }
       case "mutationThenScar": {
-        await graftMutationFlow();
-        const victim = state.run.team[Math.floor(Math.random() * state.run.team.length)];
-        const statKeys = ["atk", "def", "spa", "spd", "spe"];
-        const k = statKeys[Math.floor(Math.random() * statKeys.length)];
-        victim.stats[k] = Math.max(1, Math.floor(victim.stats[k] * 0.85));
-        await say(`...but the shrine's curse weakened ${victim.name}.`);
+        const m = await graftMutationFlow();
+        if (m)
+          msgs.push(m);
+        const { victimIndex, stat } = resolveShrineScar(run);
+        const victim = run.team[victimIndex];
+        if (victim) {
+          victim.stats[stat] = Math.max(1, Math.floor(victim.stats[stat] * 0.85));
+          if (victim === state.player)
+            updateHUD();
+          msgs.push(`...but the shrine's curse weakened ${victim.name}.`);
+        }
         break;
       }
       default:
@@ -4747,6 +4797,7 @@
     }
     renderRunHud();
     saveRun();
+    return msgs;
   }
   function offerDraft(kind) {
     const options = kind === "sigil" ? offerSigils(state.run, 3) : offerMutations(state.run, 3);
@@ -5806,6 +5857,8 @@
       modal.onkeydown = null;
       if (returnFocus && typeof returnFocus.focus === "function")
         returnFocus.focus();
+      if (typeof options.onClose === "function")
+        options.onClose();
     };
     modal.onkeydown = (event) => {
       if (event.key === "Escape") {

@@ -14,7 +14,8 @@ import {
   currentNode, checkWipe, offerSigils, offerMutations, rollShop,
   rollMysteryEvent, rollMysteryEncounter, pickTrainerReward, TRAINER_REWARDS,
   MYSTERY_TRAINER_CHANCE, rollGold, encounterLevel, bossMemberLevel, RUN_CONFIG,
-  eventGoldCost,
+  eventGoldCost, resolveCoinflip, resolveWishingWell, resolveShrineScar,
+  SHRINE_SCAR_STATS,
 } from "../src/run.js";
 import { WANDERING_TRAINERS, GEN1_MAX_ID } from "../src/data.js";
 
@@ -355,6 +356,77 @@ test("fainted high-level reserves do not inflate encounters", () => {
   // Boss level keys off the strongest *living* mon (5), not the fainted level-40
   // reserve. Champion keeps its two-level cushion above that parity: 5 + 2 = 7.
   assert.strictEqual(bossMemberLevel(run, 0, true), 7, "Champion keeps a bounded two-level step over your best");
+});
+
+// ---- P2.2: deterministic Mystery outcome rolls ----
+const scarRun = (seed) => {
+  const run = createRun(seed);
+  run.team = [
+    { name: "A", stats: { atk: 100, def: 100, spa: 100, spd: 100, spe: 100 } },
+    { name: "B", stats: { atk: 100, def: 100, spa: 100, spd: 100, spe: 100 } },
+    { name: "C", stats: { atk: 100, def: 100, spa: 100, spd: 100, spe: 100 } },
+  ];
+  return run;
+};
+
+test("resolveCoinflip: deterministic per rng state and signs the stake", () => {
+  const a = createRun("COIN"), b = clone(a);
+  const ra = resolveCoinflip(a, 60), rb = resolveCoinflip(b, 60);
+  assert.deepStrictEqual(ra, rb, "same seed + state reproduces the flip");
+  assert.strictEqual(ra.delta, ra.won ? 60 : -60, "delta is the signed stake");
+  // Advancing the run's rng between flips can change the outcome (it is a roll).
+  const run = createRun("COIN2");
+  const first = resolveCoinflip(run, 10);
+  const second = resolveCoinflip(run, 10);
+  assert.ok(typeof first.won === "boolean" && typeof second.won === "boolean");
+});
+
+test("resolveCoinflip: both wins and losses occur across seeds", () => {
+  let wins = 0, losses = 0;
+  for (let i = 0; i < 60; i++) (resolveCoinflip(createRun("CF" + i), 10).won ? wins++ : losses++);
+  assert.ok(wins > 0 && losses > 0, `saw wins (${wins}) and losses (${losses})`);
+});
+
+test("resolveWishingWell: deterministic, all outcomes reachable, gold in range", () => {
+  const a = createRun("WELL"), b = clone(a);
+  assert.deepStrictEqual(resolveWishingWell(a), resolveWishingWell(b), "same seed reproduces the well");
+  const seen = new Set();
+  for (let i = 0; i < 300; i++) {
+    const r = resolveWishingWell(createRun("WW" + i));
+    seen.add(r.outcome);
+    if (r.outcome === "gold") assert.ok(r.gold >= 80 && r.gold <= 159, `gold in range (${r.gold})`);
+    else assert.strictEqual(r.gold, undefined, "non-gold outcomes carry no gold");
+  }
+  for (const o of ["gold", "mutation", "nothing"]) assert.ok(seen.has(o), `well can roll "${o}"`);
+});
+
+test("resolveShrineScar: deterministic; victim index and stat stay in range", () => {
+  const a = scarRun("SCAR"), b = clone(a);
+  assert.deepStrictEqual(resolveShrineScar(a), resolveShrineScar(b), "same seed reproduces the scar");
+  const stats = new Set(SHRINE_SCAR_STATS);
+  for (let i = 0; i < 60; i++) {
+    const r = resolveShrineScar(scarRun("SC" + i));
+    assert.ok(r.victimIndex >= 0 && r.victimIndex < 3, `victim in team (${r.victimIndex})`);
+    assert.ok(stats.has(r.stat), `stat is real (${r.stat})`);
+  }
+  // An empty team yields no victim so the controller can skip the scar safely.
+  const empty = createRun("EMPTY"); empty.team = [];
+  assert.strictEqual(resolveShrineScar(empty).victimIndex, -1, "empty team has no victim");
+});
+
+test("mystery rolls: restoring rng state does not reroll a pending outcome", () => {
+  // Simulates save → reload before the player confirms: the same result stands.
+  const run = createRun("SAVE");
+  const before = run.rngState;
+  const first = resolveWishingWell(run);
+  run.rngState = before;
+  assert.deepStrictEqual(resolveWishingWell(run), first, "reload reproduces the pending well");
+
+  const coinRun = createRun("SAVE2");
+  const coinState = coinRun.rngState;
+  const flip = resolveCoinflip(coinRun, 40);
+  coinRun.rngState = coinState;
+  assert.deepStrictEqual(resolveCoinflip(coinRun, 40), flip, "reload reproduces the pending flip");
 });
 
 console.log(`\n${passed} checks passed`);
