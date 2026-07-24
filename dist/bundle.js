@@ -2314,8 +2314,12 @@
     return Math.min(curve, strongest + 1 + ascension * 2);
   }
   function bossMemberLevel(run, memberIndex = 0, champion = false) {
+    const living = (run.team || []).filter((m) => m?.stats?.hp > 0 && Number.isFinite(m.level));
+    const strongest = living.length ? Math.max(...living.map((m) => m.level)) : encounterLevel(run);
+    const ascension = run.ascension || 0;
     const bossStep = champion ? 2 : 0;
-    return Math.min(100, encounterLevel(run) + bossStep + Math.floor(Math.max(0, memberIndex) / 2));
+    const ramp = Math.floor(Math.max(0, memberIndex) / 2);
+    return Math.min(100, Math.max(1, strongest + ascension * 2 + bossStep + ramp));
   }
   function eventGoldCost(run, nominal) {
     const n = Math.max(0, nominal || 0);
@@ -3112,7 +3116,7 @@
     }
     updateHUD();
   }
-  var SHARED_XP_FRACTION = 0.5;
+  var SHARED_XP_FRACTION = 0.7;
   async function gainSharedXP(mon, amount) {
     if (!mon || !mon.growth || mon.stats.hp <= 0 || amount <= 0)
       return;

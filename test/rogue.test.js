@@ -320,8 +320,13 @@ test("encounters and Elite bosses stay near an under-levelled living party", () 
     team: [{ level: 5, stats: { hp: 18 } }],
   };
   assert.strictEqual(encounterLevel(run), 6, "route cannot race far beyond a level 5 partner");
-  assert.strictEqual(bossMemberLevel(run, 0, false), 6, "first Elite member fights at parity with the encounter level");
-  assert.strictEqual(bossMemberLevel(run, 2, false), 7, "boss team ramps gradually");
+  // The Elite lead sits at parity with your strongest Pokémon (5), not the
+  // encounter level (6) — so a level-spread team is not out-levelled by the boss.
+  assert.strictEqual(bossMemberLevel(run, 0, false), 5, "first Elite member fights at parity with your best");
+  assert.strictEqual(bossMemberLevel(run, 2, false), 6, "boss team ramps gradually");
+  // A stronger best raises the boss one-for-one (still parity, never above).
+  const stronger = { visited: new Array(6), ascension: 0, team: [{ level: 9, stats: { hp: 20 } }, { level: 6, stats: { hp: 10 } }] };
+  assert.strictEqual(bossMemberLevel(stronger, 0, false), 9, "Elite lead matches the strongest living mon");
 });
 
 test("paid Mystery costs stay affordable and never exceed the flavor amount", () => {
@@ -347,7 +352,9 @@ test("fainted high-level reserves do not inflate encounters", () => {
     ],
   };
   assert.strictEqual(encounterLevel(run), 6);
-  assert.strictEqual(bossMemberLevel(run, 0, true), 8, "Champion keeps a bounded two-level step");
+  // Boss level keys off the strongest *living* mon (5), not the fainted level-40
+  // reserve. Champion keeps its two-level cushion above that parity: 5 + 2 = 7.
+  assert.strictEqual(bossMemberLevel(run, 0, true), 7, "Champion keeps a bounded two-level step over your best");
 });
 
 console.log(`\n${passed} checks passed`);

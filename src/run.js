@@ -368,14 +368,20 @@ export function encounterLevel(run) {
   return Math.min(curve, strongest + 1 + ascension * 2);
 }
 
-// Expedition bosses scale from the fair encounter level (already one above your
-// strongest living Pokémon) rather than the original eight-Gym campaign floors.
-// Elites fight at that parity so an early Gym is a genuine step up without
-// out-levelling — and one-shotting — an under-levelled team; only the Champion
-// keeps a real two-level cushion. Later team members rise only gradually.
+// Expedition bosses build on the player's *strongest living* Pokémon rather than
+// the eight-Gym campaign floors — and importantly on that strongest level
+// directly, NOT the encounter level (which is one higher). An Elite therefore
+// opens at parity with your best Pokémon instead of above it, so a full but
+// level-spread team isn't out-levelled and one-shot before type advantages
+// matter. Only the Champion keeps a real two-level cushion; later members ramp
+// gently, ascension adds difficulty, and fainted reserves never count.
 export function bossMemberLevel(run, memberIndex = 0, champion = false) {
+  const living = (run.team || []).filter((m) => m?.stats?.hp > 0 && Number.isFinite(m.level));
+  const strongest = living.length ? Math.max(...living.map((m) => m.level)) : encounterLevel(run);
+  const ascension = run.ascension || 0;
   const bossStep = champion ? 2 : 0;
-  return Math.min(100, encounterLevel(run) + bossStep + Math.floor(Math.max(0, memberIndex) / 2));
+  const ramp = Math.floor(Math.max(0, memberIndex) / 2);
+  return Math.min(100, Math.max(1, strongest + ascension * 2 + bossStep + ramp));
 }
 
 // Effective gold cost for a paid Mystery choice. Early expeditions are cash-poor,
