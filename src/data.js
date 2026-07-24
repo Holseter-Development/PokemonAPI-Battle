@@ -1,4 +1,4 @@
-// data.js — static game data: type chart, colours, trainers, and the
+// data.js - static game data: type chart, colours, trainers, and the
 // generic PokéAPI-move → game-move translator. Kept DOM-free and importable
 // from both the browser bundle and the headless test harness.
 
@@ -35,7 +35,7 @@ export const CHART = {
 
 export const TYPES = Object.keys(CHART);
 
-// Vivid accent colour per type — used for badges, sparks and HUD glow.
+// Vivid accent colour per type - used for badges, sparks and HUD glow.
 export const TYPE_COLOR = {
   normal: "#a8a878",
   fire: "#f0803c",

@@ -1,8 +1,8 @@
-// net.js — the client boundary for online play. This is the seam the future
+// net.js - the client boundary for online play. This is the seam the future
 // authoritative Railway server plugs into. It is intentionally thin and
 // side-effect free on import: with no endpoint configured it reports "offline"
 // so the Arena UI can render a "coming soon" state today, and light up the
-// moment ARENA_ENDPOINT is set — no other code needs to change.
+// moment ARENA_ENDPOINT is set - no other code needs to change.
 //
 // Protocol (planned, server-authoritative):
 //   client → server : { t:"queue", roster }              // enter ranked queue

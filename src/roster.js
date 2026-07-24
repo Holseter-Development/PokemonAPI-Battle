@@ -1,4 +1,4 @@
-// roster.js — the portable bridge between singleplayer and the PvP "Arena".
+// roster.js - the portable bridge between singleplayer and the PvP "Arena".
 // A roster is the serializable, battle-ready snapshot of a player's team that
 // gets sent to the matchmaker. Kept pure and DOM-free so the *same* code can
 // validate rosters on the authoritative server (see the multiplayer plan).

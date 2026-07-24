@@ -1,4 +1,4 @@
-// ui.js — low-level DOM helpers, panel switching and the typewriter text
+// ui.js - low-level DOM helpers, panel switching and the typewriter text
 // renderer used by the message box.
 
 export const $ = (sel) => document.querySelector(sel);

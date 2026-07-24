@@ -1,5 +1,5 @@
 /* ==========================================================================
-   PokéBattle Arena — style.css
+   PokéBattle Arena - style.css
    A modern Game Boy × Showdown hybrid: glassy HUD, neon type accents,
    animated arena, responsive from phone to 4K.
    ========================================================================== */
@@ -645,7 +645,7 @@ button.use-btn:active { transform: translateY(2px); }
   100% { opacity: 0; transform: translate(-50%,-120%) scale(1.04); }
 }
 
-/* shiny Pokémon — entrance sparkles, marker glow, and roster highlights */
+/* shiny Pokémon - entrance sparkles, marker glow, and roster highlights */
 .vfx .shiny-spark {
   position: absolute; width: var(--sz, 9px); height: var(--sz, 9px);
   transform: translate(-50%, -50%) rotate(45deg); pointer-events: none;
@@ -750,8 +750,13 @@ img.shiny-sprite { filter: drop-shadow(0 0 5px rgba(255,210,110,.6)); }
   border-radius: 8px; padding: 4px 14px;
 }
 .title-sub { color: var(--muted); margin: 18px 0 20px; font-size: 15px; }
+/* Anchored to the bottom-right corner of the title screen rather than sitting
+   under the subtitle, so the audio control stays out of the menu's way. */
 .title-audio {
-  justify-content: center; margin: 0 auto 24px; padding: 6px 12px;
+  position: fixed; z-index: 3;
+  right: max(16px, env(safe-area-inset-right));
+  bottom: max(16px, env(safe-area-inset-bottom));
+  justify-content: center; margin: 0; padding: 6px 12px;
   background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.12);
   border-radius: 999px; width: max-content;
 }
@@ -1714,7 +1719,7 @@ img.shiny-sprite { filter: drop-shadow(0 0 5px rgba(255,210,110,.6)); }
   .title-inner { padding: 20px 16px; }
   .title-poke, .title-battle { font-size: clamp(44px, 15vw, 84px); }
   .title-sub { margin: 12px 0 16px; font-size: 14px; }
-  .title-audio { margin-bottom: 18px; padding: 5px; }
+  .title-audio { padding: 5px; }
   .title-actions { gap: 10px; width: min(360px, 100%); }
   .title-btn { padding: 14px 22px; font-size: 16px; }
   .title-hint { margin-top: 18px; font-size: 12px; }

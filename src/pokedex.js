@@ -1,4 +1,4 @@
-// pokedex.js — small local Gen-1 index used by the Pokédex UI. Keeping names
+// pokedex.js - small local Gen-1 index used by the Pokédex UI. Keeping names
 // local avoids making 151 API requests merely to render the collection grid.
 
 export const GEN1_NAMES = [

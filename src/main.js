@@ -1,4 +1,4 @@
-// main.js — the battle controller. Wires the pure engine (battle.js) to the DOM,
+// main.js - the battle controller. Wires the pure engine (battle.js) to the DOM,
 // drives animation timing, and owns high-level game flow: title screen,
 // encounters, trainer battles, catching, party/box, save/load and auto-play.
 
@@ -84,7 +84,7 @@ import {
 } from "./pokedex.js";
 import { $, el, show, typeText, setText } from "./ui.js";
 
-console.info("PokéBattle Arena — build v1.0");
+console.info("PokéBattle Arena - build v1.0");
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 function cssNum(name, fallback) {
@@ -103,7 +103,7 @@ async function say(str, hold = 260) {
   if (hold) await sleep(hold);
 }
 
-// Show map-node outcome lines in the modal — which sits above the map overlay —
+// Show map-node outcome lines in the modal - which sits above the map overlay -
 // with a Continue button, so results are readable at the player's own pace. The
 // battle text box `say()` writes to is hidden behind the opaque map screen while
 // a node resolves, so mystery / rest outcomes must surface here instead of
@@ -181,7 +181,7 @@ function caughtProgressLines(registration) {
   const counts = progressionCounts(state.meta);
   const lines = [`Pokédex updated: ${counts.caught}/${GEN1_DEX_SIZE} species caught.`];
   for (const unlocked of registration.unlocks) {
-    lines.push(`Permanent perk unlocked: ${unlocked.name} — ${unlocked.desc}`);
+    lines.push(`Permanent perk unlocked: ${unlocked.name} - ${unlocked.desc}`);
   }
   return lines;
 }
@@ -314,7 +314,7 @@ async function gainXP(mon, amount) {
 const SHARED_XP_FRACTION = 0.7;
 
 // Level the non-active party up quietly (no banners, sparkles, or sprite
-// animation — those belong to the active Pokémon on screen).
+// animation - those belong to the active Pokémon on screen).
 async function gainSharedXP(mon, amount) {
   if (!mon || !mon.growth || mon.stats.hp <= 0 || amount <= 0) return;
   mon.xp += amount;
@@ -680,7 +680,7 @@ async function fadeInSprite(sel) {
 
 // A brief sparkle burst over a sprite, used for a shiny Pokémon's entrance.
 // Cosmetic only, so it draws on Math.random and no-ops safely head-less (no
-// layout box) — the shiny label/registration still fire regardless.
+// layout box) - the shiny label/registration still fire regardless.
 async function shinySparkle(sel) {
   const node = $(sel);
   const layer = $("#vfx");
@@ -1225,7 +1225,7 @@ async function startBattle(spec) {
     // the player knows this foe is stronger and harder to catch before acting.
     if (state.enemy.alpha) {
       await showBanner(`⚔ Alpha ${state.enemy.name}!`, 1300);
-      await say(`It's an Alpha — ${state.enemy.alpha.name} aura (${state.enemy.alpha.desc}). It won't be caught easily!`);
+      await say(`It's an Alpha - ${state.enemy.alpha.name} aura (${state.enemy.alpha.desc}). It won't be caught easily!`);
     }
     registerPokemonProgress(state.enemy, "seen");
     if (entryStatus) await say(`${state.enemy.name} was poisoned by Toxic Spikes!`);
@@ -1564,7 +1564,7 @@ async function resolveBattleNode(node) {
   // A small seeded chance upgrades this into an Alpha: two levels above the route
   // target with one visible aura buff (see rollWildAlpha / applyAlphaModifier).
   // Never on the run's opening encounter, which is authored as a fair starter
-  // matchup (see pickWildSpecies) — Alphas begin from the second battle onward.
+  // matchup (see pickWildSpecies) - Alphas begin from the second battle onward.
   const alpha = state.run.visited.length > 0 ? rollWildAlpha(state.run) : null;
   const baseLevel = encounterLevel(state.run);
   const mon = await makeWildMon(alpha ? alphaLevel(baseLevel) : baseLevel, speciesId, { shiny });
@@ -1607,7 +1607,7 @@ async function grantAlphaReward(alpha) {
   const bonus = alphaGoldBonus(run);
   run.gold += bonus;
   renderRunHud();
-  await say(`Alpha bonus! The ${alpha.name} aura fades — +${bonus} gold and a mutation.`, 400);
+  await say(`Alpha bonus! The ${alpha.name} aura fades - +${bonus} gold and a mutation.`, 400);
   const line = await graftMutationFlow();
   await say(line || "You passed on the Alpha's mutation.");
   saveRun();
@@ -1718,7 +1718,7 @@ function openShop(stock) {
           if (it.sold) return;
           const row = el("div", { class: "shop-row" });
           const label = it.rarity ? `${it.name} (${it.rarity})` : it.name;
-          row.appendChild(el("span", {}, `${label} — ${it.price}g`));
+          row.appendChild(el("span", {}, `${label} - ${it.price}g`));
           const buy = el("button", { class: "use-btn" }, "Buy");
           buy.disabled = state.run.gold < it.price;
           buy.onclick = async () => { await buyItem(it); it.sold = true; render(); };
@@ -1772,7 +1772,7 @@ async function resolveMysteryNode(node) {
         if (nominal != null) {
           const amount = eventGoldCost(state.run, nominal);
           if (amount <= 0) {
-            disabled = true; // flat broke — nothing to spend
+            disabled = true; // flat broke - nothing to spend
           } else {
             effect = { ...baseEffect };
             if (baseEffect.cost != null) effect.cost = amount;
@@ -1862,7 +1862,7 @@ async function grantTrainerReward(reward) {
       const mon = await makeWildMon(encounterLevel(run), speciesId, { shiny: rollRunShiny() });
       if (run.team.length < 6) run.team.push(mon);
       else run.box.push(mon);
-      await say(`The trainer gave you ${reward.label || "an Egg"} — it hatched into ${mon.name}!`);
+      await say(`The trainer gave you ${reward.label || "an Egg"} - it hatched into ${mon.name}!`);
       await announceCaughtProgress(registerPokemonProgress(mon, "caught", false));
       break;
     }
@@ -1990,7 +1990,7 @@ async function runVictory() {
     openPanel("Champion!", (body, close) => {
       body.appendChild(el("p", {}, "You conquered the Expedition and became Champion!"));
       body.appendChild(el("p", { class: "small" }, `+${frags} Fragments. Choose one Pokémon to ascend into your Vault for ranked play:`));
-      if (earnedShinyCharm) body.appendChild(el("p", { class: "small" }, "✦ You earned the Shiny Charm — shiny Pokémon now appear more often on future Expeditions."));
+      if (earnedShinyCharm) body.appendChild(el("p", { class: "small" }, "✦ You earned the Shiny Charm - shiny Pokémon now appear more often on future Expeditions."));
       state.run.team.forEach((m) => {
         const b = el("button", { class: "title-btn primary" }, `Ascend ${shinyMark(m)}${m.name} (Lv ${m.level})`);
         b.onclick = () => { ascendToVault(m); close(); resolve(); };
@@ -2186,7 +2186,7 @@ async function swapTo(idx, forced = false) {
   // A fainted Pokémon has already been recalled and hidden by onPlayerFaint's
   // faintOut. Replaying the "come back!" recall here would flash the fainted
   // sprite back to full opacity (faintOut starts at opacity 1) before fading it
-  // out a second time — the "reappear into a ball, then vanish" glitch. Only
+  // out a second time - the "reappear into a ball, then vanish" glitch. Only
   // recall a Pokémon that is still conscious.
   let regen = 0;
   if (from.stats.hp > 0) {
@@ -2293,7 +2293,7 @@ async function useCureKey(key) {
 }
 
 // Roguelike catching: balls are a scarce resource, but a throw almost always
-// works — the decision is *whether to spend the ball*, not a dice roll. A catch
+// works - the decision is *whether to spend the ball*, not a dice roll. A catch
 // resolves the battle node as a win (you can't catch a fainted foe, so the risk
 // lives in not over-hitting).
 async function throwBall(key = "poke-ball") {
@@ -2357,7 +2357,7 @@ function openBox() {
   if (!view) { view = el("div", { id: "boxView", class: "panel hidden" }); box.appendChild(view); }
   view.innerHTML = "";
   const head = el("div", { class: "panel-head" });
-  head.appendChild(el("h3", {}, `PC Box — ${state.box.length}`));
+  head.appendChild(el("h3", {}, `PC Box - ${state.box.length}`));
   const back = el("button", { class: "small ghost" }, "◂ Back");
   back.onclick = () => show("swap");
   head.appendChild(back);
@@ -2936,7 +2936,7 @@ function closeModal() {
 }
 
 // A modal whose body you build imperatively (with live listeners). Reuses the
-// single #modal container — callers are sequential (await), so no nesting.
+// single #modal container - callers are sequential (await), so no nesting.
 function openPanel(title, build, options = {}) {
   const modal = $("#modal");
   if (!modal) return;
@@ -2992,7 +2992,7 @@ function openArena() {
   if (!v.ok) {
     return openModal({
       title: "Ranked Arena",
-      bodyHTML: `<p>Your Vault is empty.</p><p class="small">Win an Expedition and <b>ascend</b> a Pokémon into your Vault — that's the team you bring to 1v1 ranked PvP.</p>`,
+      bodyHTML: `<p>Your Vault is empty.</p><p class="small">Win an Expedition and <b>ascend</b> a Pokémon into your Vault - that's the team you bring to 1v1 ranked PvP.</p>`,
       actions: [],
     });
   }
@@ -3017,7 +3017,7 @@ function openArena() {
 }
 
 async function beginRankedSearch(roster) {
-  // Placeholder wiring against the net boundary — no-op until the server exists.
+  // Placeholder wiring against the net boundary - no-op until the server exists.
   try {
     await arena.connect();
     arena.queueRanked(roster);

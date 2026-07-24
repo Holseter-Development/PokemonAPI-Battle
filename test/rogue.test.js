@@ -325,7 +325,7 @@ test("encounters and Elite bosses stay near an under-levelled living party", () 
   };
   assert.strictEqual(encounterLevel(run), 6, "route cannot race far beyond a level 5 partner");
   // The Elite lead sits at parity with your strongest Pokémon (5), not the
-  // encounter level (6) — so a level-spread team is not out-levelled by the boss.
+  // encounter level (6) - so a level-spread team is not out-levelled by the boss.
   assert.strictEqual(bossMemberLevel(run, 0, false), 5, "first Elite member fights at parity with your best");
   assert.strictEqual(bossMemberLevel(run, 2, false), 6, "boss team ramps gradually");
   // A stronger best raises the boss one-for-one (still parity, never above).

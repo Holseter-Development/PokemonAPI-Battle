@@ -1,4 +1,4 @@
-// battle.js — the pure, DOM-free battle engine. Everything here operates on
+// battle.js - the pure, DOM-free battle engine. Everything here operates on
 // plain "mon" objects and an injectable rng so it can be exercised head-less
 // by the test harness. The controller (main.js) drives animation from the
 // structured results these functions return.
@@ -75,7 +75,7 @@ export function calcDamage(attacker, defender, move, rng = Math.random, opts = {
   const defStat = special ? effectiveStat(defender, "spd") : effectiveStat(defender, "def");
   const statused = attacker.status && attacker.status.cond !== "none";
   const guts = hasAbility(attacker, "guts") && statused;
-  // Burn halves physical Attack — unless Guts (Berserker) ignores it.
+  // Burn halves physical Attack - unless Guts (Berserker) ignores it.
   if (!special && attacker.status && attacker.status.cond === "brn" && !guts) {
     atkStat = Math.max(1, Math.floor(atkStat * 0.5));
   }
