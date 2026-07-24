@@ -715,12 +715,21 @@ img.shiny-sprite { filter: drop-shadow(0 0 5px rgba(255,210,110,.6)); }
 
 /* ---- title screen ------------------------------------------------------- */
 .title-screen {
-  position: fixed; inset: 0; z-index: 50; display: grid; place-items: center;
+  position: fixed; inset: 0; z-index: 50;
+  display: flex; flex-direction: column; align-items: center;
+  /* `margin:auto` on the inner block centres it, yet lets it scroll into view
+     instead of clipping at the top when the content is taller than a short
+     viewport. */
+  overflow-y: auto; -webkit-overflow-scrolling: touch;
   background: radial-gradient(1000px 700px at 50% 20%, #1a2540 0%, #070a12 70%);
-  overflow: hidden; transition: opacity .5s ease, visibility .5s ease;
+  transition: opacity .5s ease, visibility .5s ease;
 }
 .title-screen.hidden { opacity: 0; visibility: hidden; pointer-events: none; }
-.title-inner { position: relative; z-index: 2; text-align: center; padding: 24px; }
+.title-inner {
+  position: relative; z-index: 2; text-align: center; width: 100%;
+  max-width: 480px; margin: auto;
+  padding: max(24px, env(safe-area-inset-top)) 24px max(24px, env(safe-area-inset-bottom));
+}
 .title-logo { font-weight: 900; line-height: 1; display: flex; flex-direction: column; align-items: center; gap: 2px; }
 .title-poke, .title-battle { font-size: clamp(46px, 11vw, 108px); letter-spacing: -1px; }
 .title-poke {
@@ -746,11 +755,21 @@ img.shiny-sprite { filter: drop-shadow(0 0 5px rgba(255,210,110,.6)); }
   background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.12);
   border-radius: 999px; width: max-content;
 }
-.title-actions { display: flex; gap: 14px; justify-content: center; flex-wrap: wrap; }
+/* Vertical menu stack: every action shares one width so the buttons read as a
+   consistent set instead of hugging their (variable-length) labels. */
+.title-actions {
+  display: flex; flex-direction: column; align-items: stretch; gap: 12px;
+  width: min(340px, 100%); margin-inline: auto;
+}
 .title-btn {
-  border: none; cursor: pointer; padding: 15px 34px; border-radius: 999px; font-size: 17px; font-weight: 800;
+  border: none; cursor: pointer; padding: 15px 28px; border-radius: 999px; font-size: 17px; font-weight: 800;
   color: #fff; background: rgba(255,255,255,.1); border: 1px solid rgba(255,255,255,.2);
   transition: transform .08s ease, filter .15s ease;
+}
+/* Actions buttons fill the shared column width and centre their label. */
+.title-actions .title-btn {
+  width: 100%; text-align: center;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .title-btn.primary { background: linear-gradient(180deg, #ff6b6b, #d6353f); box-shadow: 0 6px 20px rgba(214,53,63,.5); }
 .title-btn:hover { filter: brightness(1.1); }
@@ -1685,8 +1704,20 @@ img.shiny-sprite { filter: drop-shadow(0 0 5px rgba(255,210,110,.6)); }
   .tagline { display: none; }
   .brand-text h1 { font-size: 17px; }
   .chip { padding: 4px 8px; font-size: 12px; }
-  .audio-controls input[type="range"] { width: 64px; }
+  /* Mobile keeps only the mute button; the slider is desktop-only where a
+     precise drag target makes sense. */
+  [data-volume-slider] { display: none; }
   .foot { display: none; }
+
+  /* Title screen: tighten spacing so the whole menu fits a phone without a
+     scroll, and give the mute pill room for just the button. */
+  .title-inner { padding: 20px 16px; }
+  .title-poke, .title-battle { font-size: clamp(44px, 15vw, 84px); }
+  .title-sub { margin: 12px 0 16px; font-size: 14px; }
+  .title-audio { margin-bottom: 18px; padding: 5px; }
+  .title-actions { gap: 10px; width: min(360px, 100%); }
+  .title-btn { padding: 14px 22px; font-size: 16px; }
+  .title-hint { margin-top: 18px; font-size: 12px; }
 
   .screen {
     flex: 1 1 auto;
