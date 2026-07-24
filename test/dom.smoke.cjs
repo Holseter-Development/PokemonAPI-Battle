@@ -87,27 +87,33 @@ assert.ok(modal.classList.contains("hidden"), "Pokédex closes");
 
 doc.getElementById("upgradesBtn").click();
 assert.ok(!modal.classList.contains("hidden") && modal.classList.contains("modal-wide"), "Fragment Lab opens");
-assert.strictEqual(doc.querySelectorAll(".upgrade-card").length, 5, "all permanent upgrades render");
+assert.strictEqual(doc.querySelectorAll(".skill-branch").length, 3, "the skill tree renders three branches");
+assert.ok(doc.querySelectorAll(".skill-node").length >= 15, "the tree offers far more than the original five nodes");
 assert.match(doc.querySelector(".upgrade-balance").textContent, /1000/, "Fragment balance is visible");
-const upgradeCard = (name) => [...doc.querySelectorAll(".upgrade-card")]
-  .find((card) => card.querySelector("h3").textContent === name);
-assert.strictEqual(upgradeCard("Field Kit II").querySelector(".upgrade-buy").textContent, "Locked", "Level II starts prerequisite-locked");
-const buyUpgrade = (name) => {
-  let button = upgradeCard(name).querySelector(".upgrade-buy");
+assert.match(doc.querySelector(".upgrade-progress").textContent, /0 \//, "unlocked-node progress is shown");
+const skillNode = (name) => [...doc.querySelectorAll(".skill-node")]
+  .find((card) => card.querySelector("h3").textContent.includes(name));
+// A tier-2 node is prerequisite-locked until its parent is bought.
+assert.strictEqual(skillNode("Field Kit II").querySelector(".upgrade-buy").textContent, "Locked", "tier-2 nodes start prerequisite-locked");
+const buyNode = (name) => {
+  let button = skillNode(name).querySelector(".upgrade-buy");
   assert.ok(!button.disabled, name + " is affordable");
   button.click();
-  button = upgradeCard(name).querySelector(".upgrade-buy");
+  button = skillNode(name).querySelector(".upgrade-buy");
   assert.match(button.textContent, /Confirm/, name + " requires confirmation");
   button.click();
-  assert.strictEqual(upgradeCard(name).querySelector(".upgrade-buy").textContent, "Owned", name + " becomes permanent");
+  assert.strictEqual(skillNode(name).querySelector(".upgrade-buy").textContent, "Owned", name + " becomes permanent");
 };
-["Field Kit I", "Ball Satchel I", "Travel Fund I", "Field Kit II", "Ball Satchel II"].forEach(buyUpgrade);
-assert.match(doc.querySelector(".upgrade-balance").textContent, /150/, "exact purchase costs are deducted");
-assert.strictEqual(doc.querySelectorAll(".upgrade-card.owned").length, 5, "maxed Lab shows every upgrade as owned");
+// Buy down a branch: the tier-2 node unlocks only after its tier-1 prerequisite.
+buyNode("Field Kit I");   // 75
+buyNode("Field Kit II");  // 225 (unlocked by Field Kit I)
+assert.strictEqual(skillNode("Field Kit III").querySelector(".upgrade-buy").textContent.trim(), "Buy · 420 ◈", "tier-3 unlocks once tier-2 is owned");
+assert.match(doc.querySelector(".upgrade-balance").textContent, /700/, "exact purchase costs are deducted (1000-75-225)");
+assert.strictEqual(doc.querySelectorAll(".skill-node.owned").length, 2, "owned nodes are marked in the tree");
 const purchasedMeta = JSON.parse(window.localStorage.getItem("pkbattle:meta:v2"));
-assert.strictEqual(Object.values(purchasedMeta.upgrades).filter(Boolean).length, 5, "purchases persist immediately");
+assert.strictEqual(purchasedMeta.upgrades.field_kit_1 && purchasedMeta.upgrades.field_kit_2, true, "purchases persist immediately");
 doc.querySelector(".upgrade-close").click();
-console.log("  ✓ Pokédex filters and Fragment Lab render from migrated progression");
+console.log("  ✓ Pokédex filters and Fragment Lab skill tree render from migrated progression");
 
 // Trainer Profile summarizes account identity and reflects earned upgrades.
 doc.getElementById("profileBtn").click();
@@ -117,7 +123,7 @@ assert.ok(profileStats.some((text) => /2 \/ 2/.test(text)), "won/started reflect
 assert.ok(profileStats.some((text) => /100%/.test(text)), "win rate derives from legacy record");
 assert.ok(profileStats.some((text) => /Playtime/.test(text)), "playtime stat is present");
 assert.ok(profileStats.some((text) => /1 \/ 151/.test(text)), "Pokédex completion reflects backfilled catch");
-assert.strictEqual(doc.querySelectorAll(".profile-upgrades li").length, 5, "purchased upgrades are listed");
+assert.strictEqual(doc.querySelectorAll(".profile-upgrades li").length, 2, "purchased upgrades are listed");
 assert.ok(/Champion/.test(doc.querySelector(".profile-badges").textContent), "Champion badge shows for a prior win");
 doc.querySelector(".profile-close").click();
 assert.ok(modal.classList.contains("hidden"), "Trainer Profile closes");

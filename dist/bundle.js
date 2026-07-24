@@ -1432,6 +1432,91 @@
     return 0;
   }
 
+  // src/rival.js
+  var RIVAL_NAME = "Blue";
+  var RIVAL_TITLE = "Rival";
+  var RIVAL_SPRITE = "assets/sprites/silver.png";
+  var STARTER_LINES = {
+    4: [4, 5, 6],
+    // Charmander → Charmeleon → Charizard
+    7: [7, 8, 9],
+    // Squirtle → Wartortle → Blastoise
+    1: [1, 2, 3]
+    // Bulbasaur → Ivysaur → Venusaur
+  };
+  var COUNTER = {
+    1: 4,
+    // player grass  → rival fire
+    4: 7,
+    // player fire   → rival water
+    7: 1,
+    // player water  → rival grass
+    25: 1,
+    // player Pikachu (electric) → rival grass (grass resists electric)
+    133: 7
+    // player Eevee (normal)     → rival water
+  };
+  var RIVAL_STARTER_TYPE = { 4: "fire", 7: "water", 1: "grass" };
+  var STARTER_FINALS = [3, 6, 9];
+  function rivalStarterFor(playerStarterId) {
+    return COUNTER[Number(playerStarterId)] || 4;
+  }
+  function rivalStarterType(playerStarterId) {
+    return RIVAL_STARTER_TYPE[rivalStarterFor(playerStarterId)] || "fire";
+  }
+  function rivalStarterAtStage(starterBaseId, stage2) {
+    const line = STARTER_LINES[Number(starterBaseId)] || STARTER_LINES[4];
+    const s = Math.max(0, Math.min(line.length - 1, Math.floor(Number(stage2) || 0)));
+    return line[s];
+  }
+  var RIVAL_CHECKPOINTS = [
+    { stage: 0, filler: [16] },
+    // region 1: starter + Pidgey
+    { stage: 1, filler: [17, 19] },
+    // region 2: evolved starter + Pidgeotto, Rattata
+    { stage: 2, filler: [18, 20, 58] }
+    // region 3: final starter + Pidgeot, Raticate, Growlithe
+  ];
+  function rivalTeamIds(playerStarterId, checkpointIndex) {
+    const idx = Math.max(0, Math.min(RIVAL_CHECKPOINTS.length - 1, Math.floor(Number(checkpointIndex) || 0)));
+    const cp = RIVAL_CHECKPOINTS[idx];
+    const starter = rivalStarterAtStage(rivalStarterFor(playerStarterId), cp.stage);
+    return [starter, ...cp.filler];
+  }
+  function championTeamIds(baseTeam, playerStarterId) {
+    const finalStarter = rivalStarterAtStage(rivalStarterFor(playerStarterId), 2);
+    const team = [...baseTeam || []];
+    if (team.includes(finalStarter))
+      return team;
+    const slot = team.findIndex((id) => STARTER_FINALS.includes(id));
+    if (slot >= 0)
+      team[slot] = finalStarter;
+    else if (team.length)
+      team[team.length - 1] = finalStarter;
+    return team;
+  }
+  var INTROS = [
+    `Blue smirks. "Heh, still playing catch-up? Let's see what you've really got!"`,
+    `Blue is back. "You've gotten stronger - but so have I. Come on!"`,
+    `Blue blocks the summit path. "This ends here. I'm going to be Champion, not you!"`
+  ];
+  function rivalIntro(checkpointIndex) {
+    const i = Math.max(0, Math.min(INTROS.length - 1, Math.floor(Number(checkpointIndex) || 0)));
+    return INTROS[i];
+  }
+  function rivalEncounter(playerStarterId, checkpointIndex) {
+    return {
+      leader: RIVAL_NAME,
+      title: RIVAL_TITLE,
+      type: rivalStarterType(playerStarterId),
+      sprite: RIVAL_SPRITE,
+      team: rivalTeamIds(playerStarterId, checkpointIndex),
+      checkpoint: checkpointIndex,
+      intro: rivalIntro(checkpointIndex),
+      meta: "Your rival blocks the path!"
+    };
+  }
+
   // src/roster.js
   var ROSTER_MAX = 6;
   var ROSTER_MIN = 1;
@@ -2082,12 +2167,15 @@
     // wild encounter (catchable)
     ELITE: "elite",
     // Gym-Leader boss
+    RIVAL: "rival",
+    // recurring rival checkpoint (P2.5)
     CHAMPION: "champion",
     SHOP: "shop",
     REST: "rest",
     MYSTERY: "mystery"
   };
   var RUN_CONFIG = { regions: 3, rowsPerRegion: 7, width: 4, paths: 6 };
+  var RIVAL_ROW_LOCAL = 3;
   function generateMap(rng, cfg = RUN_CONFIG) {
     const { regions, rowsPerRegion, width, paths } = cfg;
     const totalRows = regions * rowsPerRegion;
@@ -2132,6 +2220,30 @@
       nodes[boss.id] = boss;
       Object.values(nodes).filter((n) => n.row === R2 - 1).forEach((n) => {
         n.edges = [boss.id];
+      });
+    }
+    for (let reg = 0; reg < regions; reg++) {
+      const rr = reg * rowsPerRegion + RIVAL_ROW_LOCAL;
+      if (rr <= 0 || rr >= totalRows - 1 || isBossRow(rr))
+        continue;
+      const rowNodes = Object.values(nodes).filter((n) => n.row === rr);
+      if (!rowNodes.length)
+        continue;
+      const outward = /* @__PURE__ */ new Set();
+      rowNodes.forEach((n) => n.edges.forEach((e) => outward.add(e)));
+      rowNodes.forEach((n) => delete nodes[n.id]);
+      const rival = {
+        id: `${rr}-rival`,
+        row: rr,
+        col: centerCol,
+        region: reg,
+        type: NODE.RIVAL,
+        rivalCheckpoint: reg,
+        edges: [...outward]
+      };
+      nodes[rival.id] = rival;
+      Object.values(nodes).filter((n) => n.row === rr - 1).forEach((n) => {
+        n.edges = [rival.id];
       });
     }
     const preBoss = (r) => isBossRow(r + 1);
@@ -2526,12 +2638,187 @@
     { id: "merchant_license", field: "caught", threshold: 100, name: "Merchant License", desc: "Earn 10% more gold from battles." },
     { id: "master_researcher", field: "caught", threshold: 151, name: "Master Researcher", desc: "Earn the Master Researcher badge and upgraded Shiny Charm." }
   ];
+  var UPGRADE_BRANCHES = [
+    {
+      id: "provisions",
+      name: "Provisions",
+      icon: "\u{1F392}",
+      color: "#5fbd58",
+      blurb: "Field supplies that stock every fresh Expedition."
+    },
+    {
+      id: "fortune",
+      name: "Fortune",
+      icon: "\u{1F4B0}",
+      color: "#f5c451",
+      blurb: "Gold in your pocket and a lighter shopping bill."
+    },
+    {
+      id: "expertise",
+      name: "Expertise",
+      icon: "\u{1F52C}",
+      color: "#4d90d5",
+      blurb: "Sharper catching, brighter shinies, and faster growth."
+    }
+  ];
   var UPGRADE_CATALOG = [
-    { id: "field_kit_1", name: "Field Kit I", cost: 75, desc: "Start each run with 1 extra Potion." },
-    { id: "ball_satchel_1", name: "Ball Satchel I", cost: 100, desc: "Start each run with 1 extra Pok\xE9 Ball." },
-    { id: "travel_fund_1", name: "Travel Fund I", cost: 150, desc: "Start each run with 50 extra gold." },
-    { id: "field_kit_2", name: "Field Kit II", cost: 225, requires: "field_kit_1", desc: "Upgrade the extra Potion to a Super Potion." },
-    { id: "ball_satchel_2", name: "Ball Satchel II", cost: 300, requires: "ball_satchel_1", desc: "Start with a second extra Pok\xE9 Ball." }
+    // ---- Provisions ------------------------------------------------------
+    {
+      id: "field_kit_1",
+      name: "Field Kit I",
+      cost: 75,
+      branch: "provisions",
+      tier: 1,
+      effect: { add: { potions: 1 } },
+      desc: "Start each run with 1 extra Potion."
+    },
+    {
+      id: "field_kit_2",
+      name: "Field Kit II",
+      cost: 225,
+      branch: "provisions",
+      tier: 2,
+      requires: "field_kit_1",
+      effect: { add: { potions: -1, superPotions: 1 } },
+      desc: "Upgrade the extra Potion to a Super Potion."
+    },
+    {
+      id: "field_kit_3",
+      name: "Field Kit III",
+      cost: 420,
+      branch: "provisions",
+      tier: 3,
+      requires: "field_kit_2",
+      effect: { add: { superPotions: -1, hyperPotions: 1 } },
+      desc: "Upgrade the Super Potion to a Hyper Potion."
+    },
+    {
+      id: "ball_satchel_1",
+      name: "Ball Satchel I",
+      cost: 100,
+      branch: "provisions",
+      tier: 1,
+      effect: { add: { balls: 1 } },
+      desc: "Start each run with 1 extra Pok\xE9 Ball."
+    },
+    {
+      id: "ball_satchel_2",
+      name: "Ball Satchel II",
+      cost: 300,
+      branch: "provisions",
+      tier: 2,
+      requires: "ball_satchel_1",
+      effect: { add: { balls: 1 } },
+      desc: "Start with a second extra Pok\xE9 Ball."
+    },
+    {
+      id: "ball_satchel_3",
+      name: "Ball Satchel III",
+      cost: 520,
+      branch: "provisions",
+      tier: 3,
+      requires: "ball_satchel_2",
+      effect: { add: { greatBalls: 1 } },
+      desc: "Start with a Great Ball as well."
+    },
+    // ---- Fortune ---------------------------------------------------------
+    {
+      id: "travel_fund_1",
+      name: "Travel Fund I",
+      cost: 150,
+      branch: "fortune",
+      tier: 1,
+      effect: { add: { gold: 50 } },
+      desc: "Start each run with 50 extra gold."
+    },
+    {
+      id: "travel_fund_2",
+      name: "Travel Fund II",
+      cost: 320,
+      branch: "fortune",
+      tier: 2,
+      requires: "travel_fund_1",
+      effect: { add: { gold: 75 } },
+      desc: "Start with a further 75 gold (125 total)."
+    },
+    {
+      id: "merchants_cut",
+      name: "Merchant's Cut",
+      cost: 260,
+      branch: "fortune",
+      tier: 2,
+      requires: "travel_fund_1",
+      effect: { mult: { gold: 1.1 } },
+      desc: "Earn 10% more gold from every battle."
+    },
+    {
+      id: "hagglers_tongue",
+      name: "Haggler's Tongue",
+      cost: 360,
+      branch: "fortune",
+      tier: 3,
+      requires: "merchants_cut",
+      effect: { shopDiscount: 0.15 },
+      desc: "Pok\xE9 Mart prices are 15% cheaper."
+    },
+    // ---- Expertise -------------------------------------------------------
+    {
+      id: "catchers_eye",
+      name: "Catcher's Eye",
+      cost: 200,
+      branch: "expertise",
+      tier: 1,
+      effect: { mult: { catch: 1.08 } },
+      desc: "Improve catch chance by 8%."
+    },
+    {
+      id: "deft_hands",
+      name: "Deft Hands",
+      cost: 380,
+      branch: "expertise",
+      tier: 2,
+      requires: "catchers_eye",
+      effect: { mult: { catch: 1.08 } },
+      desc: "Improve catch chance by a further 8%."
+    },
+    {
+      id: "alpha_hunter",
+      name: "Alpha Hunter",
+      cost: 360,
+      branch: "expertise",
+      tier: 2,
+      requires: "catchers_eye",
+      effect: { mult: { alphaGold: 1.5 } },
+      desc: "Alpha bounties pay 50% more gold."
+    },
+    {
+      id: "keen_eye",
+      name: "Keen Eye",
+      cost: 300,
+      branch: "expertise",
+      tier: 1,
+      effect: { shinyStep: 1 },
+      desc: "Improve wild shiny odds by one tier."
+    },
+    {
+      id: "scholars_focus",
+      name: "Scholar's Focus",
+      cost: 280,
+      branch: "expertise",
+      tier: 1,
+      effect: { mult: { xp: 1.1 } },
+      desc: "Your party earns 10% more XP."
+    },
+    {
+      id: "veterans_study",
+      name: "Veteran's Study",
+      cost: 460,
+      branch: "expertise",
+      tier: 2,
+      requires: "scholars_focus",
+      effect: { mult: { xp: 1.15 } },
+      desc: "Your party earns a further 15% XP."
+    }
   ];
   function nonNegativeInt(value) {
     const n = Number(value);
@@ -2639,26 +2926,80 @@
   var SHINY_BASE_ONE_IN = 512;
   var SHINY_CHARM_ONE_IN = 256;
   var SHINY_MASTER_ONE_IN = 128;
-  function shinyOdds(profile) {
-    const { unlocks } = normalizeProgression(profile);
+  var SHINY_LADDER = [SHINY_BASE_ONE_IN, SHINY_CHARM_ONE_IN, SHINY_MASTER_ONE_IN, 64];
+  var SHOP_DISCOUNT_CAP = 0.5;
+  function upgradeEffectTotals(upgrades) {
+    const owned = cleanRecord(upgrades);
+    const acc = {
+      gold: 0,
+      balls: 0,
+      greatBalls: 0,
+      potions: 0,
+      superPotions: 0,
+      hyperPotions: 0,
+      catchMult: 1,
+      goldMult: 1,
+      xpMult: 1,
+      alphaGoldMult: 1,
+      shopDiscount: 0,
+      shinyStep: 0
+    };
+    for (const upgrade of UPGRADE_CATALOG) {
+      if (!owned[upgrade.id])
+        continue;
+      const e = upgrade.effect || {};
+      if (e.add)
+        for (const [k, v] of Object.entries(e.add))
+          acc[k] = (acc[k] || 0) + v;
+      if (e.mult) {
+        if (e.mult.catch)
+          acc.catchMult *= e.mult.catch;
+        if (e.mult.gold)
+          acc.goldMult *= e.mult.gold;
+        if (e.mult.xp)
+          acc.xpMult *= e.mult.xp;
+        if (e.mult.alphaGold)
+          acc.alphaGoldMult *= e.mult.alphaGold;
+      }
+      if (e.shopDiscount)
+        acc.shopDiscount += e.shopDiscount;
+      if (e.shinyStep)
+        acc.shinyStep += e.shinyStep;
+    }
+    acc.potions = Math.max(0, acc.potions);
+    acc.superPotions = Math.max(0, acc.superPotions);
+    acc.shopDiscount = Math.min(SHOP_DISCOUNT_CAP, Math.max(0, acc.shopDiscount));
+    return acc;
+  }
+  function shinyBaseIndex(unlocks) {
     if (unlocks.master_researcher)
-      return SHINY_MASTER_ONE_IN;
+      return 2;
     if (unlocks.shiny_charm)
-      return SHINY_CHARM_ONE_IN;
-    return SHINY_BASE_ONE_IN;
+      return 1;
+    return 0;
+  }
+  function shinyOdds(profile) {
+    const normalized = normalizeProgression(profile);
+    const steps = upgradeEffectTotals(normalized.upgrades).shinyStep;
+    const idx = Math.min(SHINY_LADDER.length - 1, shinyBaseIndex(normalized.unlocks) + steps);
+    return SHINY_LADDER[idx];
   }
   function progressionEffects(profile) {
     const normalized = normalizeProgression(profile);
     const unlocks = normalized.unlocks;
-    const upgrades = normalized.upgrades;
-    const fieldKit2 = !!upgrades.field_kit_2;
+    const t = upgradeEffectTotals(normalized.upgrades);
     return {
-      startingGold: (unlocks.explorer_grant ? 40 : 0) + (upgrades.travel_fund_1 ? 50 : 0),
-      startingBalls: (unlocks.ball_belt ? 1 : 0) + (upgrades.ball_satchel_1 ? 1 : 0) + (upgrades.ball_satchel_2 ? 1 : 0),
-      startingPotions: upgrades.field_kit_1 && !fieldKit2 ? 1 : 0,
-      startingSuperPotions: fieldKit2 ? 1 : 0,
-      catchChanceMult: unlocks.catching_insight ? 1.05 : 1,
-      goldMult: unlocks.merchant_license ? 1.1 : 1,
+      startingGold: (unlocks.explorer_grant ? 40 : 0) + t.gold,
+      startingBalls: (unlocks.ball_belt ? 1 : 0) + t.balls,
+      startingGreatBalls: t.greatBalls,
+      startingPotions: t.potions,
+      startingSuperPotions: t.superPotions,
+      startingHyperPotions: t.hyperPotions,
+      catchChanceMult: (unlocks.catching_insight ? 1.05 : 1) * t.catchMult,
+      goldMult: (unlocks.merchant_license ? 1.1 : 1) * t.goldMult,
+      xpMult: t.xpMult,
+      alphaGoldMult: t.alphaGoldMult,
+      shopDiscount: t.shopDiscount,
       starterIds: BONUS_STARTERS.filter((s) => unlocks[s.unlockId]).map((s) => s.id),
       masterResearcher: !!unlocks.master_researcher,
       shinyCharm: !!unlocks.shiny_charm,
@@ -4046,7 +4387,9 @@
         await say(`${state.player.name} fed on the victory!`);
       }
     }
-    await grantPartyXP(Math.round(xpFor(state.enemy) * (state.sigilFx.xpMult || 1)));
+    await grantPartyXP(Math.round(
+      xpFor(state.enemy) * (state.sigilFx.xpMult || 1) * (state.run?.progressionFx?.xpMult || 1)
+    ));
     if (state.mode === "trainer") {
       state.trainerIdx++;
       if (state.trainerIdx < state.trainerTeam.length) {
@@ -4224,12 +4567,16 @@
     run.progressionFx = profileFx;
     run.items = DEFAULT_ITEMS();
     run.items["poke-ball"] += profileFx.startingBalls;
+    run.items["great-ball"] += profileFx.startingGreatBalls || 0;
     run.items.potion += profileFx.startingPotions;
     run.items["super-potion"] += profileFx.startingSuperPotions;
+    run.items["hyper-potion"] += profileFx.startingHyperPotions || 0;
     const startingFx = aggregateSigils(run.sigils);
     applyStartingBallBonus(run.items, startingFx);
     run.team = [starterMon];
     run.box = [];
+    run.playerStarterId = starterMon.id;
+    run.rivalStarterId = rivalStarterFor(starterMon.id);
     run.gyms = withRng(run, (rng) => sampleDistinct(rng, GYMS.map((_, i) => i), run.config.regions, () => 1));
     state.run = run;
     state.party = run.team;
@@ -4255,6 +4602,10 @@
       run.sigils = [];
     if (!run.progressionFx)
       run.progressionFx = progressionEffects(defaultProgression());
+    if (run.rivalStarterId == null) {
+      run.playerStarterId = run.playerStarterId ?? run.team[0]?.id ?? null;
+      run.rivalStarterId = rivalStarterFor(run.playerStarterId);
+    }
     state.run = run;
     state.party = run.team;
     state.box = run.box;
@@ -4308,6 +4659,7 @@
     [NODE.SHOP]: "$",
     [NODE.REST]: "+",
     [NODE.MYSTERY]: "?",
+    [NODE.RIVAL]: "\u2605",
     [NODE.CHAMPION]: "C"
   };
   var NODE_NAME = {
@@ -4316,6 +4668,7 @@
     [NODE.SHOP]: "Shop",
     [NODE.REST]: "Rest",
     [NODE.MYSTERY]: "Mystery",
+    [NODE.RIVAL]: "Rival",
     [NODE.CHAMPION]: "Champion"
   };
   var NODE_COLOR = {
@@ -4324,6 +4677,7 @@
     [NODE.SHOP]: "#f5c451",
     [NODE.REST]: "#66d49a",
     [NODE.MYSTERY]: "#55c9dc",
+    [NODE.RIVAL]: "#ff8a5c",
     [NODE.CHAMPION]: "#ffd166"
   };
   var REGION_THEME = [
@@ -4473,7 +4827,7 @@
     if (!availableNext(state.run).some((n) => n.id === node.id))
       return;
     travelTo(state.run, node.id);
-    const combatNode = node.type === NODE.BATTLE || node.type === NODE.ELITE || node.type === NODE.CHAMPION;
+    const combatNode = node.type === NODE.BATTLE || node.type === NODE.ELITE || node.type === NODE.RIVAL || node.type === NODE.CHAMPION;
     if (!combatNode)
       hideMapScreen();
     await resolveNode(node);
@@ -4508,6 +4862,8 @@
         return resolveBattleNode(node);
       case NODE.ELITE:
         return resolveEliteNode(node);
+      case NODE.RIVAL:
+        return resolveRivalNode(node);
       case NODE.CHAMPION:
         return resolveChampionNode(node);
       case NODE.SHOP:
@@ -4562,7 +4918,7 @@
   }
   async function grantAlphaReward(alpha) {
     const run = state.run;
-    const bonus = alphaGoldBonus(run);
+    const bonus = Math.round(alphaGoldBonus(run) * (run.progressionFx?.alphaGoldMult || 1));
     run.gold += bonus;
     renderRunHud();
     await say(`Alpha bonus! The ${alpha.name} aura fades - +${bonus} gold and a mutation.`, 400);
@@ -4571,7 +4927,7 @@
     saveRun();
   }
   async function buildBossTeam(boss) {
-    const champion = boss === CHAMPION;
+    const champion = boss === CHAMPION || boss.title === "Champion";
     const team = [];
     for (let i = 0; i < boss.team.length; i++) {
       team.push(await buildMon(boss.team[i], bossMemberLevel(state.run, i, champion)));
@@ -4606,13 +4962,38 @@
     }
     goToMap();
   }
+  async function resolveRivalNode(node) {
+    setBusy(true);
+    const rival = rivalEncounter(state.run.rivalStarterId, node.rivalCheckpoint || 0);
+    const team = await buildBossTeam(rival);
+    setBusy(false);
+    await startBattle({
+      kind: "rival",
+      boss: rival,
+      team,
+      onWin: () => afterRivalWin(rival),
+      onLose: () => runWipe()
+    });
+  }
+  async function afterRivalWin(rival) {
+    const gold = Math.round(
+      rollGold(state.run, NODE.ELITE) * (state.sigilFx.goldMult || 1) * (state.run.progressionFx?.goldMult || 1)
+    );
+    state.run.gold += gold;
+    state.run.items["great-ball"] = (state.run.items["great-ball"] || 0) + 1;
+    await say(`You beat your rival ${RIVAL_NAME}! +${gold} gold and a Great Ball.`, 400);
+    const line = await graftMutationFlow();
+    await say(line || `${RIVAL_NAME} storms off, vowing to get even.`);
+    goToMap();
+  }
   async function resolveChampionNode(node) {
     setBusy(true);
-    const team = await buildBossTeam(CHAMPION);
+    const champ = { ...CHAMPION, team: championTeamIds(CHAMPION.team, state.run.rivalStarterId) };
+    const team = await buildBossTeam(champ);
     setBusy(false);
     await startBattle({
       kind: "champion",
-      boss: CHAMPION,
+      boss: champ,
       team,
       onWin: () => runVictory(),
       onLose: () => runWipe()
@@ -4672,6 +5053,11 @@
   }
   async function resolveShopNode(node) {
     const stock = rollShop(state.run);
+    const discount = state.run.progressionFx?.shopDiscount || 0;
+    if (discount > 0) {
+      for (const it of stock)
+        it.price = Math.max(1, Math.round(it.price * (1 - discount)));
+    }
     await openShop(stock);
     goToMap();
   }
@@ -5813,19 +6199,29 @@
   function describeProgressionEffects(effects) {
     const parts = [];
     if (effects.startingGold)
-      parts.push(`${effects.startingGold} starting gold`);
+      parts.push(`+${effects.startingGold} starting gold`);
     if (effects.startingBalls)
-      parts.push(`${effects.startingBalls} extra ball${effects.startingBalls === 1 ? "" : "s"}`);
+      parts.push(`+${effects.startingBalls} Pok\xE9 Ball${effects.startingBalls === 1 ? "" : "s"}`);
+    if (effects.startingGreatBalls)
+      parts.push(`+${effects.startingGreatBalls} Great Ball${effects.startingGreatBalls === 1 ? "" : "s"}`);
     if (effects.startingPotions)
-      parts.push(`${effects.startingPotions} extra Potion`);
+      parts.push(`+${effects.startingPotions} Potion`);
     if (effects.startingSuperPotions)
-      parts.push(`${effects.startingSuperPotions} extra Super Potion`);
+      parts.push(`+${effects.startingSuperPotions} Super Potion`);
+    if (effects.startingHyperPotions)
+      parts.push(`+${effects.startingHyperPotions} Hyper Potion`);
     if (effects.catchChanceMult > 1)
-      parts.push("+5% catch chance");
+      parts.push(`+${Math.round((effects.catchChanceMult - 1) * 100)}% catch chance`);
     if (effects.goldMult > 1)
-      parts.push("+10% battle gold");
-    if (effects.shinyCharm || effects.masterResearcher) {
-      parts.push(`Shiny Charm (1/${effects.shinyOneIn} wild shiny)`);
+      parts.push(`+${Math.round((effects.goldMult - 1) * 100)}% battle gold`);
+    if (effects.xpMult > 1)
+      parts.push(`+${Math.round((effects.xpMult - 1) * 100)}% XP`);
+    if (effects.alphaGoldMult > 1)
+      parts.push(`+${Math.round((effects.alphaGoldMult - 1) * 100)}% Alpha bounty`);
+    if (effects.shopDiscount > 0)
+      parts.push(`-${Math.round(effects.shopDiscount * 100)}% shop prices`);
+    if (effects.shinyCharm || effects.masterResearcher || effects.shinyOneIn < 512) {
+      parts.push(`1/${effects.shinyOneIn} wild shiny`);
     }
     return parts.length ? parts.join(" \xB7 ") : "No permanent run bonuses yet";
   }
@@ -5901,57 +6297,84 @@
       let confirming = null;
       let notice = "";
       const shell = el("div", { class: "upgrade-shell" });
+      const buildNode = (upgrade, branchColor) => {
+        const status = upgradePurchaseState(state.meta, upgrade.id);
+        const owned = status.reason === "owned";
+        const locked = status.reason === "requires";
+        const card = el("article", {
+          class: `upgrade-card skill-node tier-${upgrade.tier || 1}` + (owned ? " owned" : "") + (locked ? " locked" : "") + (confirming === upgrade.id ? " confirming" : "")
+        });
+        card.style.setProperty("--branch-color", branchColor);
+        card.dataset.id = upgrade.id;
+        if (upgrade.tier > 1)
+          card.appendChild(el("span", { class: "skill-link", "aria-hidden": "true" }));
+        const copy = el("div", { class: "upgrade-copy" });
+        const title = el("h3", {});
+        title.appendChild(el("span", { class: "skill-tier-badge", "aria-hidden": "true" }, `T${upgrade.tier || 1}`));
+        title.appendChild(document.createTextNode(upgrade.name));
+        copy.appendChild(title);
+        copy.appendChild(el("p", {}, upgrade.desc));
+        if (locked) {
+          const prerequisite = UPGRADE_CATALOG.find((item) => item.id === upgrade.requires);
+          copy.appendChild(el("small", {}, `Requires ${prerequisite?.name || "the previous node"}`));
+        }
+        const action = el("button", { class: "use-btn upgrade-buy" });
+        if (owned) {
+          action.textContent = "Owned";
+          action.disabled = true;
+        } else if (locked) {
+          action.textContent = "Locked";
+          action.disabled = true;
+        } else if (status.reason === "funds") {
+          action.textContent = `${upgrade.cost} \u25C8`;
+          action.disabled = true;
+          action.classList.add("cant-afford");
+        } else {
+          action.textContent = confirming === upgrade.id ? `Confirm \xB7 ${upgrade.cost} \u25C8` : `Buy \xB7 ${upgrade.cost} \u25C8`;
+          action.onclick = () => {
+            if (confirming !== upgrade.id) {
+              confirming = upgrade.id;
+              notice = `Confirm purchase of ${upgrade.name} for ${upgrade.cost} Fragments.`;
+              render();
+              return;
+            }
+            const result = purchaseUpgrade(state.meta, upgrade.id);
+            confirming = null;
+            notice = result.ok ? `${upgrade.name} unlocked permanently.` : "Purchase could not be completed.";
+            if (result.ok) {
+              saveMeta();
+              updateScore();
+            }
+            render();
+          };
+        }
+        card.append(copy, action);
+        return card;
+      };
       const render = () => {
         shell.innerHTML = "";
         const head = el("div", { class: "upgrade-head" });
-        head.innerHTML = `<span class="upgrade-balance"><b>${state.meta.fragments}</b> Fragments</span><p>${describeProgressionEffects(progressionEffects(state.meta))}</p>`;
+        const owned = UPGRADE_CATALOG.filter((u) => state.meta.upgrades?.[u.id]).length;
+        head.innerHTML = `<span class="upgrade-balance"><b>${state.meta.fragments}</b> Fragments</span><span class="upgrade-progress">${owned} / ${UPGRADE_CATALOG.length} nodes unlocked</span><p>${describeProgressionEffects(progressionEffects(state.meta))}</p>`;
         shell.appendChild(head);
         if (notice)
           shell.appendChild(el("p", { class: "upgrade-notice", role: "status" }, notice));
-        const list = el("div", { class: "upgrade-list" });
-        for (const upgrade of UPGRADE_CATALOG) {
-          const status = upgradePurchaseState(state.meta, upgrade.id);
-          const row = el("article", { class: `upgrade-card ${status.reason === "owned" ? "owned" : ""}` });
-          const copy = el("div", { class: "upgrade-copy" });
-          copy.appendChild(el("h3", {}, upgrade.name));
-          copy.appendChild(el("p", {}, upgrade.desc));
-          if (upgrade.requires && status.reason === "requires") {
-            const prerequisite = UPGRADE_CATALOG.find((item) => item.id === upgrade.requires);
-            copy.appendChild(el("small", {}, `Requires ${prerequisite?.name || "previous level"}`));
-          }
-          const action = el("button", { class: "use-btn upgrade-buy" });
-          if (status.reason === "owned") {
-            action.textContent = "Owned";
-            action.disabled = true;
-          } else if (status.reason === "requires") {
-            action.textContent = "Locked";
-            action.disabled = true;
-          } else if (status.reason === "funds") {
-            action.textContent = `${upgrade.cost} Fragments`;
-            action.disabled = true;
-          } else {
-            action.textContent = confirming === upgrade.id ? `Confirm ${upgrade.cost}` : `Buy \xB7 ${upgrade.cost}`;
-            action.onclick = () => {
-              if (confirming !== upgrade.id) {
-                confirming = upgrade.id;
-                notice = `Confirm purchase of ${upgrade.name}.`;
-                render();
-                return;
-              }
-              const result = purchaseUpgrade(state.meta, upgrade.id);
-              confirming = null;
-              notice = result.ok ? `${upgrade.name} purchased permanently.` : "Purchase could not be completed.";
-              if (result.ok) {
-                saveMeta();
-                updateScore();
-              }
-              render();
-            };
-          }
-          row.append(copy, action);
-          list.appendChild(row);
+        const tree = el("div", { class: "skill-tree" });
+        for (const branch of UPGRADE_BRANCHES) {
+          const nodes = UPGRADE_CATALOG.filter((u) => u.branch === branch.id).sort((a, b) => (a.tier || 1) - (b.tier || 1) || a.cost - b.cost);
+          const branchOwned = nodes.filter((u) => state.meta.upgrades?.[u.id]).length;
+          const col = el("section", { class: `skill-branch branch-${branch.id}` });
+          col.style.setProperty("--branch-color", branch.color);
+          const heading = el("div", { class: "skill-branch-head" });
+          heading.innerHTML = `<span class="skill-branch-icon" aria-hidden="true">${branch.icon}</span><strong>${branch.name}</strong><small>${branch.blurb}</small><span class="skill-branch-count">${branchOwned}/${nodes.length}</span>`;
+          col.appendChild(heading);
+          const track = el("div", { class: "skill-track" });
+          for (const upgrade of nodes)
+            track.appendChild(buildNode(upgrade, branch.color));
+          col.appendChild(track);
+          tree.appendChild(col);
         }
-        shell.appendChild(list);
+        shell.appendChild(tree);
         const closeButton = el("button", { class: "title-btn upgrade-close" }, "Close Lab");
         closeButton.onclick = close;
         shell.appendChild(closeButton);

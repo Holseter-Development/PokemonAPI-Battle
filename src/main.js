@@ -40,6 +40,9 @@ import {
   STRUGGLE,
   cap,
 } from "./data.js";
+import {
+  rivalEncounter, championTeamIds, rivalStarterFor, RIVAL_NAME,
+} from "./rival.js";
 import { buildRoster, validateRoster, rosterPower, snapshotMon } from "./roster.js";
 import { arena, isArenaConfigured } from "./net.js";
 import { randomSeedString } from "./rng.js";
@@ -60,6 +63,7 @@ import {
   BONUS_STARTERS,
   POKEDEX_MILESTONES,
   UPGRADE_CATALOG,
+  UPGRADE_BRANCHES,
   defaultProgression,
   normalizeProgression,
   registerSpeciesId,
@@ -1082,7 +1086,11 @@ async function onEnemyFaint() {
       await say(`${state.player.name} fed on the victory!`);
     }
   }
-  await grantPartyXP(Math.round(xpFor(state.enemy) * (state.sigilFx.xpMult || 1)));
+  await grantPartyXP(Math.round(
+    xpFor(state.enemy) *
+    (state.sigilFx.xpMult || 1) *
+    (state.run?.progressionFx?.xpMult || 1)
+  ));
 
   if (state.mode === "trainer") {
     state.trainerIdx++;
@@ -1279,12 +1287,18 @@ async function startExpedition(starterMon) {
   run.progressionFx = profileFx;
   run.items = DEFAULT_ITEMS();
   run.items["poke-ball"] += profileFx.startingBalls;
+  run.items["great-ball"] += profileFx.startingGreatBalls || 0;
   run.items.potion += profileFx.startingPotions;
   run.items["super-potion"] += profileFx.startingSuperPotions;
+  run.items["hyper-potion"] += profileFx.startingHyperPotions || 0;
   const startingFx = aggregateSigils(run.sigils);
   applyStartingBallBonus(run.items, startingFx);
   run.team = [starterMon];
   run.box = [];
+  // Lock in the rival's counter-starter from the player's pick (P2.5). Stored on
+  // the run so every rival checkpoint and the Champion rebuild the same identity.
+  run.playerStarterId = starterMon.id;
+  run.rivalStarterId = rivalStarterFor(starterMon.id);
   run.gyms = withRng(run, (rng) => sampleDistinct(rng, GYMS.map((_, i) => i), run.config.regions, () => 1));
   state.run = run;
   state.party = run.team;
@@ -1308,6 +1322,12 @@ function bindRun(run) {
   if (!run.items) run.items = DEFAULT_ITEMS();
   if (!run.sigils) run.sigils = [];
   if (!run.progressionFx) run.progressionFx = progressionEffects(defaultProgression());
+  // Backfill the rival starter for runs saved before P2.5 (best effort from the
+  // lead Pokémon). New maps carry RIVAL checkpoints; older saves simply lack them.
+  if (run.rivalStarterId == null) {
+    run.playerStarterId = run.playerStarterId ?? run.team[0]?.id ?? null;
+    run.rivalStarterId = rivalStarterFor(run.playerStarterId);
+  }
   state.run = run;
   state.party = run.team;
   state.box = run.box;
@@ -1356,15 +1376,15 @@ function goToMap() {
 
 const NODE_GLYPH = {
   [NODE.BATTLE]: "W", [NODE.ELITE]: "E", [NODE.SHOP]: "$",
-  [NODE.REST]: "+", [NODE.MYSTERY]: "?", [NODE.CHAMPION]: "C",
+  [NODE.REST]: "+", [NODE.MYSTERY]: "?", [NODE.RIVAL]: "★", [NODE.CHAMPION]: "C",
 };
 const NODE_NAME = {
   [NODE.BATTLE]: "Wild", [NODE.ELITE]: "Elite", [NODE.SHOP]: "Shop",
-  [NODE.REST]: "Rest", [NODE.MYSTERY]: "Mystery", [NODE.CHAMPION]: "Champion",
+  [NODE.REST]: "Rest", [NODE.MYSTERY]: "Mystery", [NODE.RIVAL]: "Rival", [NODE.CHAMPION]: "Champion",
 };
 const NODE_COLOR = {
   [NODE.BATTLE]: "#ef626c", [NODE.ELITE]: "#a78bfa", [NODE.SHOP]: "#f5c451",
-  [NODE.REST]: "#66d49a", [NODE.MYSTERY]: "#55c9dc", [NODE.CHAMPION]: "#ffd166",
+  [NODE.REST]: "#66d49a", [NODE.MYSTERY]: "#55c9dc", [NODE.RIVAL]: "#ff8a5c", [NODE.CHAMPION]: "#ffd166",
 };
 const REGION_THEME = [
   { key: "verdant", name: "Viridian Wilds", note: "Tall grass, old trails, and restless Pokémon" },
@@ -1505,7 +1525,8 @@ async function onSelectNode(node) {
   // Deliberately not saved until the node resolves (goToMap): quitting mid-node
   // then continues from the last *completed* node instead of soft-locking on an
   // unresolved position.
-  const combatNode = node.type === NODE.BATTLE || node.type === NODE.ELITE || node.type === NODE.CHAMPION;
+  const combatNode = node.type === NODE.BATTLE || node.type === NODE.ELITE ||
+    node.type === NODE.RIVAL || node.type === NODE.CHAMPION;
   if (!combatNode) hideMapScreen();
   await resolveNode(node);
 }
@@ -1549,6 +1570,7 @@ async function resolveNode(node) {
   switch (node.type) {
     case NODE.BATTLE: return resolveBattleNode(node);
     case NODE.ELITE: return resolveEliteNode(node);
+    case NODE.RIVAL: return resolveRivalNode(node);
     case NODE.CHAMPION: return resolveChampionNode(node);
     case NODE.SHOP: return resolveShopNode(node);
     case NODE.REST: return resolveRestNode(node);
@@ -1604,7 +1626,7 @@ async function afterBattleWin(info = {}) {
 // on the still-visible battle screen, so it uses say() + the mutation panels.
 async function grantAlphaReward(alpha) {
   const run = state.run;
-  const bonus = alphaGoldBonus(run);
+  const bonus = Math.round(alphaGoldBonus(run) * (run.progressionFx?.alphaGoldMult || 1));
   run.gold += bonus;
   renderRunHud();
   await say(`Alpha bonus! The ${alpha.name} aura fades - +${bonus} gold and a mutation.`, 400);
@@ -1614,7 +1636,7 @@ async function grantAlphaReward(alpha) {
 }
 
 async function buildBossTeam(boss) {
-  const champion = boss === CHAMPION;
+  const champion = boss === CHAMPION || boss.title === "Champion";
   const team = [];
   for (let i = 0; i < boss.team.length; i++) {
     team.push(await buildMon(boss.team[i], bossMemberLevel(state.run, i, champion)));
@@ -1649,12 +1671,46 @@ async function afterEliteWin(gym) {
   goToMap();
 }
 
-async function resolveChampionNode(node) {
+// The recurring rival (P2.5). A mandatory checkpoint per region: the rival wields
+// the starter that counters the player's, evolved to match the depth, plus a
+// growing filler team. Deterministic from run.rivalStarterId + the node's
+// checkpoint index, so a save/continue rebuilds the identical encounter. Fights
+// at parity like an Elite; a win pays a signature reward, a loss ends the run.
+async function resolveRivalNode(node) {
   setBusy(true);
-  const team = await buildBossTeam(CHAMPION);
+  const rival = rivalEncounter(state.run.rivalStarterId, node.rivalCheckpoint || 0);
+  const team = await buildBossTeam(rival);
   setBusy(false);
   await startBattle({
-    kind: "champion", boss: CHAMPION, team,
+    kind: "rival", boss: rival, team,
+    onWin: () => afterRivalWin(rival),
+    onLose: () => runWipe(),
+  });
+}
+
+async function afterRivalWin(rival) {
+  const gold = Math.round(
+    rollGold(state.run, NODE.ELITE) *
+    (state.sigilFx.goldMult || 1) *
+    (state.run.progressionFx?.goldMult || 1)
+  );
+  state.run.gold += gold;
+  // Signature reward: bonus gold, a spare Great Ball, and a guaranteed mutation.
+  state.run.items["great-ball"] = (state.run.items["great-ball"] || 0) + 1;
+  await say(`You beat your rival ${RIVAL_NAME}! +${gold} gold and a Great Ball.`, 400);
+  const line = await graftMutationFlow();
+  await say(line || `${RIVAL_NAME} storms off, vowing to get even.`);
+  goToMap();
+}
+
+async function resolveChampionNode(node) {
+  setBusy(true);
+  // The Champion is the grown-up rival: field their own starter line (P2.5).
+  const champ = { ...CHAMPION, team: championTeamIds(CHAMPION.team, state.run.rivalStarterId) };
+  const team = await buildBossTeam(champ);
+  setBusy(false);
+  await startBattle({
+    kind: "champion", boss: champ, team,
     onWin: () => runVictory(),
     onLose: () => runWipe(),
   });
@@ -1704,6 +1760,12 @@ async function graftMutationFlow() {
 
 async function resolveShopNode(node) {
   const stock = rollShop(state.run);
+  // Haggler's Tongue (Fragment Lab) shaves a flat fraction off every sticker
+  // price. Applied once here so the shop UI and the charge stay in lockstep.
+  const discount = state.run.progressionFx?.shopDiscount || 0;
+  if (discount > 0) {
+    for (const it of stock) it.price = Math.max(1, Math.round(it.price * (1 - discount)));
+  }
   await openShop(stock);
   goToMap();
 }
@@ -2747,14 +2809,19 @@ function openPokedex() {
 
 function describeProgressionEffects(effects) {
   const parts = [];
-  if (effects.startingGold) parts.push(`${effects.startingGold} starting gold`);
-  if (effects.startingBalls) parts.push(`${effects.startingBalls} extra ball${effects.startingBalls === 1 ? "" : "s"}`);
-  if (effects.startingPotions) parts.push(`${effects.startingPotions} extra Potion`);
-  if (effects.startingSuperPotions) parts.push(`${effects.startingSuperPotions} extra Super Potion`);
-  if (effects.catchChanceMult > 1) parts.push("+5% catch chance");
-  if (effects.goldMult > 1) parts.push("+10% battle gold");
-  if (effects.shinyCharm || effects.masterResearcher) {
-    parts.push(`Shiny Charm (1/${effects.shinyOneIn} wild shiny)`);
+  if (effects.startingGold) parts.push(`+${effects.startingGold} starting gold`);
+  if (effects.startingBalls) parts.push(`+${effects.startingBalls} Poké Ball${effects.startingBalls === 1 ? "" : "s"}`);
+  if (effects.startingGreatBalls) parts.push(`+${effects.startingGreatBalls} Great Ball${effects.startingGreatBalls === 1 ? "" : "s"}`);
+  if (effects.startingPotions) parts.push(`+${effects.startingPotions} Potion`);
+  if (effects.startingSuperPotions) parts.push(`+${effects.startingSuperPotions} Super Potion`);
+  if (effects.startingHyperPotions) parts.push(`+${effects.startingHyperPotions} Hyper Potion`);
+  if (effects.catchChanceMult > 1) parts.push(`+${Math.round((effects.catchChanceMult - 1) * 100)}% catch chance`);
+  if (effects.goldMult > 1) parts.push(`+${Math.round((effects.goldMult - 1) * 100)}% battle gold`);
+  if (effects.xpMult > 1) parts.push(`+${Math.round((effects.xpMult - 1) * 100)}% XP`);
+  if (effects.alphaGoldMult > 1) parts.push(`+${Math.round((effects.alphaGoldMult - 1) * 100)}% Alpha bounty`);
+  if (effects.shopDiscount > 0) parts.push(`-${Math.round(effects.shopDiscount * 100)}% shop prices`);
+  if (effects.shinyCharm || effects.masterResearcher || effects.shinyOneIn < 512) {
+    parts.push(`1/${effects.shinyOneIn} wild shiny`);
   }
   return parts.length ? parts.join(" · ") : "No permanent run bonuses yet";
 }
@@ -2838,59 +2905,97 @@ function openUpgradeLab() {
     let notice = "";
     const shell = el("div", { class: "upgrade-shell" });
 
+    // Build one skill-node card. `status` is the pure purchase verdict; the card
+    // reflects owned / available / unaffordable / prerequisite-locked states and
+    // routes confirmed purchases back through the pure purchaseUpgrade helper.
+    const buildNode = (upgrade, branchColor) => {
+      const status = upgradePurchaseState(state.meta, upgrade.id);
+      const owned = status.reason === "owned";
+      const locked = status.reason === "requires";
+      const card = el("article", {
+        class: `upgrade-card skill-node tier-${upgrade.tier || 1}` +
+          (owned ? " owned" : "") + (locked ? " locked" : "") +
+          (confirming === upgrade.id ? " confirming" : ""),
+      });
+      card.style.setProperty("--branch-color", branchColor);
+      card.dataset.id = upgrade.id;
+      if (upgrade.tier > 1) card.appendChild(el("span", { class: "skill-link", "aria-hidden": "true" }));
+
+      const copy = el("div", { class: "upgrade-copy" });
+      const title = el("h3", {});
+      title.appendChild(el("span", { class: "skill-tier-badge", "aria-hidden": "true" }, `T${upgrade.tier || 1}`));
+      title.appendChild(document.createTextNode(upgrade.name));
+      copy.appendChild(title);
+      copy.appendChild(el("p", {}, upgrade.desc));
+      if (locked) {
+        const prerequisite = UPGRADE_CATALOG.find((item) => item.id === upgrade.requires);
+        copy.appendChild(el("small", {}, `Requires ${prerequisite?.name || "the previous node"}`));
+      }
+
+      const action = el("button", { class: "use-btn upgrade-buy" });
+      if (owned) {
+        action.textContent = "Owned";
+        action.disabled = true;
+      } else if (locked) {
+        action.textContent = "Locked";
+        action.disabled = true;
+      } else if (status.reason === "funds") {
+        action.textContent = `${upgrade.cost} ◈`;
+        action.disabled = true;
+        action.classList.add("cant-afford");
+      } else {
+        action.textContent = confirming === upgrade.id ? `Confirm · ${upgrade.cost} ◈` : `Buy · ${upgrade.cost} ◈`;
+        action.onclick = () => {
+          if (confirming !== upgrade.id) {
+            confirming = upgrade.id;
+            notice = `Confirm purchase of ${upgrade.name} for ${upgrade.cost} Fragments.`;
+            render();
+            return;
+          }
+          const result = purchaseUpgrade(state.meta, upgrade.id);
+          confirming = null;
+          notice = result.ok ? `${upgrade.name} unlocked permanently.` : "Purchase could not be completed.";
+          if (result.ok) { saveMeta(); updateScore(); }
+          render();
+        };
+      }
+      card.append(copy, action);
+      return card;
+    };
+
     const render = () => {
       shell.innerHTML = "";
       const head = el("div", { class: "upgrade-head" });
+      const owned = UPGRADE_CATALOG.filter((u) => state.meta.upgrades?.[u.id]).length;
       head.innerHTML =
         `<span class="upgrade-balance"><b>${state.meta.fragments}</b> Fragments</span>` +
+        `<span class="upgrade-progress">${owned} / ${UPGRADE_CATALOG.length} nodes unlocked</span>` +
         `<p>${describeProgressionEffects(progressionEffects(state.meta))}</p>`;
       shell.appendChild(head);
       if (notice) shell.appendChild(el("p", { class: "upgrade-notice", role: "status" }, notice));
 
-      const list = el("div", { class: "upgrade-list" });
-      for (const upgrade of UPGRADE_CATALOG) {
-        const status = upgradePurchaseState(state.meta, upgrade.id);
-        const row = el("article", { class: `upgrade-card ${status.reason === "owned" ? "owned" : ""}` });
-        const copy = el("div", { class: "upgrade-copy" });
-        copy.appendChild(el("h3", {}, upgrade.name));
-        copy.appendChild(el("p", {}, upgrade.desc));
-        if (upgrade.requires && status.reason === "requires") {
-          const prerequisite = UPGRADE_CATALOG.find((item) => item.id === upgrade.requires);
-          copy.appendChild(el("small", {}, `Requires ${prerequisite?.name || "previous level"}`));
-        }
-        const action = el("button", { class: "use-btn upgrade-buy" });
-        if (status.reason === "owned") {
-          action.textContent = "Owned";
-          action.disabled = true;
-        } else if (status.reason === "requires") {
-          action.textContent = "Locked";
-          action.disabled = true;
-        } else if (status.reason === "funds") {
-          action.textContent = `${upgrade.cost} Fragments`;
-          action.disabled = true;
-        } else {
-          action.textContent = confirming === upgrade.id ? `Confirm ${upgrade.cost}` : `Buy · ${upgrade.cost}`;
-          action.onclick = () => {
-            if (confirming !== upgrade.id) {
-              confirming = upgrade.id;
-              notice = `Confirm purchase of ${upgrade.name}.`;
-              render();
-              return;
-            }
-            const result = purchaseUpgrade(state.meta, upgrade.id);
-            confirming = null;
-            notice = result.ok ? `${upgrade.name} purchased permanently.` : "Purchase could not be completed.";
-            if (result.ok) {
-              saveMeta();
-              updateScore();
-            }
-            render();
-          };
-        }
-        row.append(copy, action);
-        list.appendChild(row);
+      const tree = el("div", { class: "skill-tree" });
+      for (const branch of UPGRADE_BRANCHES) {
+        const nodes = UPGRADE_CATALOG
+          .filter((u) => u.branch === branch.id)
+          .sort((a, b) => (a.tier || 1) - (b.tier || 1) || a.cost - b.cost);
+        const branchOwned = nodes.filter((u) => state.meta.upgrades?.[u.id]).length;
+        const col = el("section", { class: `skill-branch branch-${branch.id}` });
+        col.style.setProperty("--branch-color", branch.color);
+        const heading = el("div", { class: "skill-branch-head" });
+        heading.innerHTML =
+          `<span class="skill-branch-icon" aria-hidden="true">${branch.icon}</span>` +
+          `<strong>${branch.name}</strong>` +
+          `<small>${branch.blurb}</small>` +
+          `<span class="skill-branch-count">${branchOwned}/${nodes.length}</span>`;
+        col.appendChild(heading);
+        const track = el("div", { class: "skill-track" });
+        for (const upgrade of nodes) track.appendChild(buildNode(upgrade, branch.color));
+        col.appendChild(track);
+        tree.appendChild(col);
       }
-      shell.appendChild(list);
+      shell.appendChild(tree);
+
       const closeButton = el("button", { class: "title-btn upgrade-close" }, "Close Lab");
       closeButton.onclick = close;
       shell.appendChild(closeButton);

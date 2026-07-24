@@ -3,6 +3,7 @@ import {
   PROGRESSION_VERSION,
   POKEDEX_MILESTONES,
   UPGRADE_CATALOG,
+  UPGRADE_BRANCHES,
   defaultProgression,
   normalizeProgression,
   registerSpeciesId,
@@ -211,22 +212,63 @@ test("every Pokédex milestone unlocks at its threshold, not before, and only on
   }
 });
 
-test("milestones and purchased upgrades combine into exact run effects", () => {
+test("the skill tree is well-formed: branches, tiers, and prerequisites", () => {
+  const ids = new Set(UPGRADE_CATALOG.map((u) => u.id));
+  const branchIds = new Set(UPGRADE_BRANCHES.map((b) => b.id));
+  assert.ok(UPGRADE_CATALOG.length >= 15, "the tree offers a lot more options than the original five");
+  for (const u of UPGRADE_CATALOG) {
+    assert.ok(branchIds.has(u.branch), `${u.id} belongs to a real branch`);
+    assert.ok(Number.isInteger(u.tier) && u.tier >= 1, `${u.id} has a positive tier`);
+    assert.ok(u.cost > 0, `${u.id} costs Fragments`);
+    assert.ok(u.effect && typeof u.effect === "object", `${u.id} declares an effect`);
+    if (u.requires) {
+      assert.ok(ids.has(u.requires), `${u.id} requires a real node`);
+      const parent = UPGRADE_CATALOG.find((p) => p.id === u.requires);
+      assert.strictEqual(parent.branch, u.branch, `${u.id} chains within its own branch`);
+      assert.ok(parent.tier < u.tier, `${u.id} sits above its prerequisite`);
+    }
+  }
+  // The five original upgrade ids survive so old purchases still map to effects.
+  for (const legacy of ["field_kit_1", "field_kit_2", "ball_satchel_1", "ball_satchel_2", "travel_fund_1"]) {
+    assert.ok(ids.has(legacy), `${legacy} is preserved for save compatibility`);
+  }
+});
+
+test("milestones and purchased skill-tree nodes combine into run effects", () => {
   const profile = defaultProgression();
   profile.unlocks = Object.fromEntries(POKEDEX_MILESTONES.map((entry) => [entry.id, true]));
   profile.upgrades = Object.fromEntries(UPGRADE_CATALOG.map((entry) => [entry.id, true]));
-  assert.deepStrictEqual(progressionEffects(profile), {
-    startingGold: 90,
-    startingBalls: 3,
-    startingPotions: 0,
-    startingSuperPotions: 1,
-    catchChanceMult: 1.05,
-    goldMult: 1.1,
-    starterIds: [25, 133],
-    masterResearcher: true,
-    shinyCharm: false,
-    shinyOneIn: SHINY_MASTER_ONE_IN,
-  });
+  const fx = progressionEffects(profile);
+  // Additive stacks resolve exactly.
+  assert.strictEqual(fx.startingGold, 165, "explorer grant + Travel Fund I/II");
+  assert.strictEqual(fx.startingBalls, 3, "ball belt + Ball Satchel I/II");
+  assert.strictEqual(fx.startingGreatBalls, 1, "Ball Satchel III");
+  assert.strictEqual(fx.startingPotions, 0, "Field Kit II/III convert the base Potion away");
+  assert.strictEqual(fx.startingSuperPotions, 0, "Field Kit III converts the Super Potion away");
+  assert.strictEqual(fx.startingHyperPotions, 1, "Field Kit III");
+  assert.strictEqual(fx.shopDiscount, 0.15, "Haggler's Tongue");
+  assert.strictEqual(fx.shinyOneIn, 64, "Keen Eye steps below the full-dex tier");
+  assert.deepStrictEqual(fx.starterIds, [25, 133]);
+  assert.strictEqual(fx.masterResearcher, true);
+  // Multiplicative stacks resolve within floating-point tolerance.
+  const near = (a, b) => assert.ok(Math.abs(a - b) < 1e-9, `${a} ≈ ${b}`);
+  near(fx.catchChanceMult, 1.05 * 1.08 * 1.08);
+  near(fx.goldMult, 1.1 * 1.1);
+  near(fx.xpMult, 1.1 * 1.15);
+  near(fx.alphaGoldMult, 1.5);
+});
+
+test("shopDiscount stays capped and Keen Eye stacks on the dex ladder", () => {
+  const base = defaultProgression();
+  assert.strictEqual(progressionEffects(base).shopDiscount, 0);
+  assert.strictEqual(progressionEffects(base).shinyOneIn, SHINY_BASE_ONE_IN);
+  const keen = defaultProgression();
+  keen.upgrades = { keen_eye: true };
+  assert.strictEqual(progressionEffects(keen).shinyOneIn, SHINY_CHARM_ONE_IN, "Keen Eye alone matches one charm tier");
+  const keenCharm = defaultProgression();
+  keenCharm.unlocks = { shiny_charm: true };
+  keenCharm.upgrades = { keen_eye: true };
+  assert.strictEqual(progressionEffects(keenCharm).shinyOneIn, SHINY_MASTER_ONE_IN, "Keen Eye + charm reaches the dex tier");
 });
 
 test("Fragment Lab purchases enforce prerequisites, funds, permanence, and exact costs", () => {
