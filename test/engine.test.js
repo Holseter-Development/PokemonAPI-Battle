@@ -11,7 +11,7 @@ import {
 import { selectMoves, spriteSet } from "../src/api.js";
 import { buildMove, GYMS, CHAMPION } from "../src/data.js";
 import { aggregateSigils, applyStartingBallBonus } from "../src/mutations.js";
-import { snapshotMon, buildRoster, validateRoster, rosterPower } from "../src/roster.js";
+import { snapshotMon, buildRoster, validateRoster, rosterPower, carryIdentity } from "../src/roster.js";
 
 let passed = 0;
 function test(name, fn) {
@@ -471,6 +471,42 @@ test("snapshotMon heals fully and clears status/stages", () => {
 test("snapshotMon preserves shiny identity through Vault serialization", () => {
   assert.strictEqual(snapshotMon(mon({ isShiny: true })).isShiny, true, "shiny survives the snapshot");
   assert.strictEqual(snapshotMon(mon()).isShiny, false, "non-shiny stays false");
+});
+
+// P3.0: Vault/Arena serialization must keep a Pokémon's full build.
+test("snapshotMon preserves mutations, pseudo-abilities, and capture metadata", () => {
+  const m = mon({ isShiny: true });
+  m.mutations = ["titan", "levitator"]; m.abilities = ["levitate"];
+  m.lifesteal = 0.25; m.adaptive = true;
+  m.alpha = { id: "storm", name: "Storm", desc: "aura" }; m.heldItemId = "leftovers";
+  const s = JSON.parse(JSON.stringify(snapshotMon(m))); // survive a real round-trip
+  assert.deepStrictEqual(s.mutations, ["titan", "levitator"]);
+  assert.deepStrictEqual(s.abilities, ["levitate"]);
+  assert.strictEqual(s.lifesteal, 0.25);
+  assert.strictEqual(s.adaptive, true);
+  assert.deepStrictEqual(s.alpha, m.alpha);
+  assert.strictEqual(s.heldItemId, "leftovers");
+  // A plain-vanilla mon carries no undefined identity noise.
+  assert.strictEqual("mutations" in snapshotMon(mon()), false);
+  assert.strictEqual("alpha" in snapshotMon(mon()), false);
+});
+
+test("carryIdentity copies build identity onto an evolution and deep-clones", () => {
+  const from = mon({ isShiny: true });
+  from.mutations = ["titan"]; from.abilities = ["levitate"]; from.lifesteal = 0.25;
+  from.adaptive = true; from.alpha = { id: "a", name: "Aura", desc: "x" }; from.heldItemId = "leftovers";
+  const to = carryIdentity(from, mon());
+  assert.deepStrictEqual(to.mutations, ["titan"]);
+  assert.deepStrictEqual(to.abilities, ["levitate"]);
+  assert.strictEqual(to.lifesteal, 0.25);
+  assert.strictEqual(to.adaptive, true);
+  assert.strictEqual(to.isShiny, true);
+  assert.strictEqual(to.heldItemId, "leftovers");
+  assert.deepStrictEqual(to.alpha, from.alpha);
+  // Mutating the clone must never bleed back into the source mon.
+  to.mutations.push("mystic"); to.alpha.name = "changed";
+  assert.deepStrictEqual(from.mutations, ["titan"], "arrays deep-cloned");
+  assert.strictEqual(from.alpha.name, "Aura", "objects deep-cloned");
 });
 
 test("buildRoster caps at 6 and drops invalid members", () => {

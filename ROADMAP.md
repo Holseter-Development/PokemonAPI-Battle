@@ -649,6 +649,33 @@ destructively multiplying stats.
 - Repeated save/load/level cycles do not compound stat multipliers.
 - Snapshot/Vault serialization preserves supported identity fields.
 
+**Status:** Complete. Identity is now stored as base species/level plus modifiers
+rather than baked destructively into `mon.stats`:
+
+- **Mutations re-derive on fresh base stats.** A new pure helper
+  `applyMutationEffects(mon)` in `src/mutations.js` re-runs the effect of every
+  mutation a mon already carries (from `mon.mutations`) without re-registering
+  ids. `levelUp` recomputes stats from the species base for the new level and
+  then calls it, so multiplicative grafts (Titan, Glass Cannon, Primeval...) land
+  exactly once instead of vanishing on level-up or compounding across many. Type
+  grafts, pseudo-ability tags, and effect flags (`adaptive`, `lifesteal`,
+  `trueStrike`) are idempotent, so re-running them is safe.
+- **Evolution keeps the build.** `maybeEvolve` builds the fresh evolved species,
+  then carries the pre-evolution identity onto it and re-derives the mutation
+  grafts on top of the evolution's base stats. Shiny, mutations, pseudo-abilities,
+  held item, and capture metadata (Alpha aura) all survive; current-HP fraction,
+  XP, and status carry as before.
+- **Identity is a single source of truth.** `src/roster.js` defines
+  `IDENTITY_FIELDS` and a deep-cloning `carryIdentity(from, to)`. `snapshotMon`
+  runs it too, so Vault/Arena serialization preserves mutations, pseudo-abilities,
+  lifesteal/adaptive/trueStrike, held item, Alpha metadata, and nature/training
+  (forward-compat slots for P3.1+), while a plain-vanilla mon stays free of noise.
+
+Tests: `rogue.test.js` covers `applyMutationEffects` re-grafting on fresh base
+with no compounding across repeated recomputes, idempotent type/ability grafts,
+and the empty-mutation no-op; `engine.test.js` covers `carryIdentity` deep-clone
+isolation and `snapshotMon` build preservation through a JSON round-trip.
+
 ## P3.1 — Held-item data model and equipment UI
 
 **Size:** M  

@@ -6,7 +6,7 @@ import {
   makeRng, hashSeed, shuffle, weightedPick, sampleDistinct, randInt,
 } from "../src/rng.js";
 import {
-  MUTATIONS, SIGILS, applyMutation, aggregateSigils, emptyEffects,
+  MUTATIONS, SIGILS, applyMutation, applyMutationEffects, aggregateSigils, emptyEffects,
   mutationList, sigilList,
 } from "../src/mutations.js";
 import {
@@ -110,6 +110,37 @@ test("applyMutation: stat graft scales, ability graft tags", () => {
   assert.ok(v.lifesteal >= 0.25);
   const a = tmon(); applyMutation(a, "adaptive");
   assert.strictEqual(a.adaptive, true);
+});
+
+// P3.0: growth recomputes stats from base, so mutation grafts must be re-derived
+// after each level-up/evolution instead of being lost or compounded.
+test("applyMutationEffects: re-grafts stats on fresh base without compounding", () => {
+  const base = () => ({ maxHp: 100, hp: 100, atk: 100, def: 60, spa: 60, spd: 60, spe: 60 });
+  const m = { types: ["normal"], stats: base(), mutations: ["titan"], abilities: [] };
+  applyMutationEffects(m); // titan: +25% HP, +20% Atk
+  assert.strictEqual(m.stats.maxHp, 125);
+  assert.strictEqual(m.stats.atk, 120);
+  // Simulate several level-ups: reset to base, re-derive. Must stay stable.
+  for (let i = 0; i < 5; i++) { m.stats = base(); applyMutationEffects(m); }
+  assert.strictEqual(m.stats.maxHp, 125, "no compounding across recomputes");
+  assert.strictEqual(m.stats.atk, 120);
+});
+
+test("applyMutationEffects: re-grafts type & pseudo-ability, idempotently", () => {
+  const m = { types: ["fire"], stats: { maxHp: 80, hp: 80, atk: 60, def: 60, spa: 60, spd: 60, spe: 60 },
+    mutations: ["draconic", "levitator", "adaptive", "vampiric"], abilities: [] };
+  applyMutationEffects(m);
+  applyMutationEffects(m); // running twice (evolution then a later level-up) is safe
+  assert.deepStrictEqual(m.types, ["fire", "dragon"], "type graft not duplicated");
+  assert.strictEqual(m.abilities.filter((a) => a === "levitate").length, 1, "ability not duplicated");
+  assert.strictEqual(m.adaptive, true);
+  assert.strictEqual(m.lifesteal, 0.25);
+});
+
+test("applyMutationEffects: no-op for a mon with no mutations", () => {
+  const m = tmon();
+  assert.strictEqual(applyMutationEffects(m), m);
+  assert.deepStrictEqual(m.stats, tmon().stats);
 });
 
 test("aggregateSigils: merges weather, type mults, flags & sums", () => {

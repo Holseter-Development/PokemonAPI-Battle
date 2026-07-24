@@ -1521,8 +1521,38 @@
   var ROSTER_MAX = 6;
   var ROSTER_MIN = 1;
   var ARENA_LEVEL_CAP = 100;
+  var IDENTITY_FIELDS = [
+    "isShiny",
+    "mutations",
+    "abilities",
+    "lifesteal",
+    "trueStrike",
+    "adaptive",
+    "alpha",
+    "heldItemId",
+    "nature",
+    "training"
+  ];
+  function cloneField(v) {
+    if (Array.isArray(v))
+      return v.map(cloneField);
+    if (v && typeof v === "object")
+      return JSON.parse(JSON.stringify(v));
+    return v;
+  }
+  function carryIdentity(from, to) {
+    if (!from || !to)
+      return to;
+    for (const key of IDENTITY_FIELDS) {
+      const val = from[key];
+      if (val === void 0 || val === null)
+        continue;
+      to[key] = cloneField(val);
+    }
+    return to;
+  }
   function snapshotMon(mon) {
-    return {
+    const snap = {
       id: mon.id,
       name: mon.name,
       level: mon.level,
@@ -1571,6 +1601,8 @@
       stages: { atk: 0, def: 0, spa: 0, spd: 0, spe: 0, acc: 0, eva: 0 },
       status: { cond: "none", turns: 0, toxic: 0 }
     };
+    carryIdentity(mon, snap);
+    return snap;
   }
   function buildRoster(party) {
     return (party || []).filter((m) => m && m.stats && m.moves && m.moves.length).slice(0, ROSTER_MAX).map(snapshotMon);
@@ -1875,6 +1907,16 @@
     mut.apply(mon);
     mon.mutations.push(id);
     return true;
+  }
+  function applyMutationEffects(mon) {
+    if (!mon || !Array.isArray(mon.mutations))
+      return mon;
+    for (const id of mon.mutations) {
+      const mut = MUTATIONS[id];
+      if (mut)
+        mut.apply(mon);
+    }
+    return mon;
   }
   var SIGILS = {
     solar_core: {
@@ -3692,6 +3734,7 @@
     const tmp = makeMon(data, mon.level);
     const stages = mon.stages, status = mon.status;
     mon.stats = tmp.stats;
+    applyMutationEffects(mon);
     mon.stats.hp = Math.max(1, Math.floor(mon.stats.maxHp * frac));
     mon.stages = stages;
     mon.status = status;
@@ -3747,7 +3790,10 @@
     const evolved = makeMon(data, mon.level, { shiny: mon.isShiny });
     evolved.moves = mergeMoves(mon.moves, await fetchMoveset(data, mon.level));
     await setupGrowthAndEvo(evolved, species);
-    evolved.stats.hp = Math.max(1, Math.floor(evolved.stats.maxHp * (mon.stats.hp / mon.stats.maxHp)));
+    const hpFrac = mon.stats.hp / Math.max(1, mon.stats.maxHp);
+    carryIdentity(mon, evolved);
+    applyMutationEffects(evolved);
+    evolved.stats.hp = Math.max(1, Math.floor(evolved.stats.maxHp * hpFrac));
     evolved.xp = mon.xp;
     evolved.xpNext = mon.xpNext;
     evolved.status = mon.status;
