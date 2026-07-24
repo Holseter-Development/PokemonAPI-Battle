@@ -168,6 +168,13 @@ const waitFor = (cond, ms = 9000) => new Promise((resolve, reject) => {
       moves: [],
       types: ["normal"],
     }];
+    // Force every non-boss node to a Wild battle so this two-encounter smoke path
+    // is deterministic regardless of the random map seed. (Early rows now vary by
+    // biome, so a fresh seed does not always offer a reachable battle at step 2.)
+    for (const id of Object.keys(stored.map.nodes)) {
+      const n = stored.map.nodes[id];
+      if (n.type !== "elite" && n.type !== "champion") n.type = "battle";
+    }
     window.localStorage.setItem("pkbattle:run:v1", JSON.stringify(stored));
     doc.getElementById("continueBtn").click();
     assert.strictEqual(

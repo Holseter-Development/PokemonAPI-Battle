@@ -269,12 +269,13 @@ async function gainXP(mon, amount) {
 }
 
 // Fraction of the active Pokémon's XP awarded to the rest of the party. Without
-// this, only the mon that lands the KO ever levels, so a four-member team fights
-// an Elite (2-3 mons at your best level + a step) with one strong Pokémon and
-// three stragglers. Sharing keeps the whole roster viable, and because the
-// encounter/boss curve is capped to the *strongest* member it does not inflate
-// difficulty.
-const SHARED_XP_FRACTION = 0.5;
+// this, only the mon that lands the KO ever levels, so a full team reaches an
+// Elite (2-3 mons at your best level) with one strong Pokémon and a handful of
+// stragglers that get one-shot. A high share keeps the roster clustered near
+// your strongest so more of the team can actually trade with a boss. Because the
+// encounter/boss curve keys off the *strongest* member (unchanged by sharing),
+// raising the floor makes the team cohesive without inflating difficulty.
+const SHARED_XP_FRACTION = 0.7;
 
 // Level the non-active party up quietly (no banners, sparkles, or sprite
 // animation — those belong to the active Pokémon on screen).
