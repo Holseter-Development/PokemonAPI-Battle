@@ -1,4 +1,4 @@
-// progression.js — pure account-level progression rules and save migration.
+// progression.js - pure account-level progression rules and save migration.
 // Keep this module DOM- and storage-free so profile behavior is easy to test
 // and can later be shared with other clients.
 

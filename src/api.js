@@ -1,4 +1,4 @@
-// api.js — PokéAPI access, response caching, sprite selection and moveset
+// api.js - PokéAPI access, response caching, sprite selection and moveset
 // construction. Network-facing, but the pure move-selection logic is factored
 // so it can be unit-tested with fixture data.
 
@@ -30,7 +30,7 @@ export async function fetchCachedJSON(url) {
     try {
       localStorage.setItem("cache:" + url, JSON.stringify({ t: now, v }));
     } catch (_) {
-      /* storage full — non-fatal */
+      /* storage full - non-fatal */
     }
     return v;
   } catch (e) {
@@ -118,7 +118,7 @@ export async function fetchMoveset(poke, level) {
   return selectMoves(gen1);
 }
 
-// Pure selection — separated so tests can feed fixtures. Input: array of
+// Pure selection - separated so tests can feed fixtures. Input: array of
 // { md (raw move json), level }. Output: up to 4 game-move objects.
 export function selectMoves(gen1) {
   const damaging = [];

@@ -2344,7 +2344,7 @@
       id: "cursed_shrine",
       title: "Cursed Shrine",
       weight: 8,
-      desc: "Power radiates \u2014 at a price.",
+      desc: "Power radiates - at a price.",
       choices: [
         { label: "Accept the gift", effect: { kind: "mutationThenScar" } },
         { label: "Back away", effect: { kind: "none" } }
@@ -3039,7 +3039,7 @@
   }
 
   // src/main.js
-  console.info("Pok\xE9Battle Arena \u2014 build v1.0");
+  console.info("Pok\xE9Battle Arena - build v1.0");
   var sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   function cssNum(name, fallback) {
     const v = parseFloat(getComputedStyle(document.documentElement).getPropertyValue(name));
@@ -3124,7 +3124,7 @@
     const counts = progressionCounts(state.meta);
     const lines = [`Pok\xE9dex updated: ${counts.caught}/${GEN1_DEX_SIZE} species caught.`];
     for (const unlocked of registration.unlocks) {
-      lines.push(`Permanent perk unlocked: ${unlocked.name} \u2014 ${unlocked.desc}`);
+      lines.push(`Permanent perk unlocked: ${unlocked.name} - ${unlocked.desc}`);
     }
     return lines;
   }
@@ -4168,7 +4168,7 @@
       }
       if (state.enemy.alpha) {
         await showBanner(`\u2694 Alpha ${state.enemy.name}!`, 1300);
-        await say(`It's an Alpha \u2014 ${state.enemy.alpha.name} aura (${state.enemy.alpha.desc}). It won't be caught easily!`);
+        await say(`It's an Alpha - ${state.enemy.alpha.name} aura (${state.enemy.alpha.desc}). It won't be caught easily!`);
       }
       registerPokemonProgress(state.enemy, "seen");
       if (entryStatus)
@@ -4565,7 +4565,7 @@
     const bonus = alphaGoldBonus(run);
     run.gold += bonus;
     renderRunHud();
-    await say(`Alpha bonus! The ${alpha.name} aura fades \u2014 +${bonus} gold and a mutation.`, 400);
+    await say(`Alpha bonus! The ${alpha.name} aura fades - +${bonus} gold and a mutation.`, 400);
     const line = await graftMutationFlow();
     await say(line || "You passed on the Alpha's mutation.");
     saveRun();
@@ -4686,7 +4686,7 @@
               return;
             const row = el("div", { class: "shop-row" });
             const label = it.rarity ? `${it.name} (${it.rarity})` : it.name;
-            row.appendChild(el("span", {}, `${label} \u2014 ${it.price}g`));
+            row.appendChild(el("span", {}, `${label} - ${it.price}g`));
             const buy = el("button", { class: "use-btn" }, "Buy");
             buy.disabled = state.run.gold < it.price;
             buy.onclick = async () => {
@@ -4844,7 +4844,7 @@
           run.team.push(mon);
         else
           run.box.push(mon);
-        await say(`The trainer gave you ${reward.label || "an Egg"} \u2014 it hatched into ${mon.name}!`);
+        await say(`The trainer gave you ${reward.label || "an Egg"} - it hatched into ${mon.name}!`);
         await announceCaughtProgress(registerPokemonProgress(mon, "caught", false));
         break;
       }
@@ -5006,7 +5006,7 @@
         body.appendChild(el("p", {}, "You conquered the Expedition and became Champion!"));
         body.appendChild(el("p", { class: "small" }, `+${frags} Fragments. Choose one Pok\xE9mon to ascend into your Vault for ranked play:`));
         if (earnedShinyCharm)
-          body.appendChild(el("p", { class: "small" }, "\u2726 You earned the Shiny Charm \u2014 shiny Pok\xE9mon now appear more often on future Expeditions."));
+          body.appendChild(el("p", { class: "small" }, "\u2726 You earned the Shiny Charm - shiny Pok\xE9mon now appear more often on future Expeditions."));
         state.run.team.forEach((m) => {
           const b = el("button", { class: "title-btn primary" }, `Ascend ${shinyMark(m)}${m.name} (Lv ${m.level})`);
           b.onclick = () => {
@@ -5426,7 +5426,7 @@
     }
     view.innerHTML = "";
     const head = el("div", { class: "panel-head" });
-    head.appendChild(el("h3", {}, `PC Box \u2014 ${state.box.length}`));
+    head.appendChild(el("h3", {}, `PC Box - ${state.box.length}`));
     const back = el("button", { class: "small ghost" }, "\u25C2 Back");
     back.onclick = () => show("swap");
     head.appendChild(back);
@@ -6052,7 +6052,7 @@
     if (!v.ok) {
       return openModal({
         title: "Ranked Arena",
-        bodyHTML: `<p>Your Vault is empty.</p><p class="small">Win an Expedition and <b>ascend</b> a Pok\xE9mon into your Vault \u2014 that's the team you bring to 1v1 ranked PvP.</p>`,
+        bodyHTML: `<p>Your Vault is empty.</p><p class="small">Win an Expedition and <b>ascend</b> a Pok\xE9mon into your Vault - that's the team you bring to 1v1 ranked PvP.</p>`,
         actions: []
       });
     }

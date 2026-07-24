@@ -1,4 +1,4 @@
-// encounters.js — pure, data-driven wild-encounter tables per biome/region.
+// encounters.js - pure, data-driven wild-encounter tables per biome/region.
 //
 // Wild species are drawn from a biome table keyed by the map region a battle
 // node sits in, so the three regions produce visibly different pools instead of
@@ -10,7 +10,7 @@ import { GEN1_MAX_ID } from "./data.js";
 import { weightedPick } from "./rng.js";
 
 // Gen 1 legendaries / mythicals kept out of ordinary wild pools. The pseudo-
-// legendary Dratini line is intentionally NOT here — Dratini is an authored
+// legendary Dratini line is intentionally NOT here - Dratini is an authored
 // rare on the Indigo Summit table.
 export const LEGENDARY_IDS = new Set([144, 145, 146, 150, 151]);
 
@@ -20,11 +20,11 @@ const U = 12; // uncommon
 const R = 4;  // rare
 
 // Biome tables keyed by 0-based region index. Each entry:
-//   id       — National Dex number (1..151)
-//   weight   — relative encounter weight (higher = more common)
-//   minDepth — earliest run depth (visited node count) it can appear (default 0)
-//   maxDepth — latest run depth, inclusive (default: no cap)
-//   tags     — freeform labels for future rules (rarity, biome flavor)
+//   id       - National Dex number (1..151)
+//   weight   - relative encounter weight (higher = more common)
+//   minDepth - earliest run depth (visited node count) it can appear (default 0)
+//   maxDepth - latest run depth, inclusive (default: no cap)
+//   tags     - freeform labels for future rules (rarity, biome flavor)
 export const BIOMES = {
   0: {
     region: 0,
@@ -114,7 +114,7 @@ export function defaultSpeciesId() {
 // one visible aura buff. Each aura scales the Alpha's OWN stats (mirrors a
 // mutation stat graft) so the advantage is transparent in the HUD rather than
 // hidden AI stat cheating. `stats` values are multiplicative factors. The list
-// is authored data — the picker and applier below stay pure and seedable.
+// is authored data - the picker and applier below stay pure and seedable.
 export const ALPHA_MODIFIERS = [
   { id: "frenzied", name: "Frenzied", desc: "+30% Attack & Sp. Atk", stats: { atk: 1.3, spa: 1.3 } },
   { id: "ironclad", name: "Ironclad", desc: "+40% Defense & Sp. Def", stats: { def: 1.4, spd: 1.4 } },

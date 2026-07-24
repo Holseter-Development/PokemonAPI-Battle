@@ -52,7 +52,7 @@ function route(el) {
     src.connect(masterGain);
     routed.add(el);
   } catch (_) {
-    /* cross-origin or already-connected — element plays on its own */
+    /* cross-origin or already-connected - element plays on its own */
   }
   return routed.has(el);
 }

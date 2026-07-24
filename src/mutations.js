@@ -1,11 +1,11 @@
-// mutations.js — the signature mechanic. Two families of run modifiers that
+// mutations.js - the signature mechanic. Two families of run modifiers that
 // bend Pokémon's own rules into a build-crafting sandbox:
 //
-//   • Mutations  — grafted onto a single Pokémon (extra type, stat spikes,
+//   • Mutations  - grafted onto a single Pokémon (extra type, stat spikes,
 //                  pseudo-abilities, lifesteal, adaptive STAB). This is how you
 //                  make monsters impossible in canon: a Fire/Dragon Charizard
 //                  with Levitate.
-//   • Sigils     — run-wide relics whose effects aggregate into one normalized
+//   • Sigils     - run-wide relics whose effects aggregate into one normalized
 //                  object the battle engine reads (weather locks, entry hazards,
 //                  Trick Room, crit ramps, lifesteal, and so on).
 //

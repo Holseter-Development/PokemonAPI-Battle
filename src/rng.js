@@ -1,5 +1,5 @@
-// rng.js — deterministic, serializable pseudo-random number generation.
-// The whole roguelike (map layout, reward rolls, encounters) and — crucially —
+// rng.js - deterministic, serializable pseudo-random number generation.
+// The whole roguelike (map layout, reward rolls, encounters) and - crucially -
 // the future authoritative multiplayer server run off seeds, so runs are
 // reproducible (daily challenges, replays) and battles are provably fair.
 //

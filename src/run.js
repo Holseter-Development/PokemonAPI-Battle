@@ -1,6 +1,6 @@
-// run.js — the roguelike Expedition: a seeded, branching node map, the run
+// run.js - the roguelike Expedition: a seeded, branching node map, the run
 // state that travels it, and the pure reward/event pickers each node draws
-// from. No DOM, no network, no battle logic — the controller resolves nodes
+// from. No DOM, no network, no battle logic - the controller resolves nodes
 // and the engine fights battles; this module owns *structure* and *rolls*.
 
 import { makeRng, hashSeed, randRange, pick, shuffle, sampleDistinct } from "./rng.js";
@@ -67,7 +67,7 @@ export function generateMap(rng, cfg = RUN_CONFIG) {
 
   // Type the remaining nodes deterministically (stable row/col order). The
   // opening rows of each region (local <= 1) still lean heavily on wild
-  // encounters — recruitment territory — but now also seed the occasional shop,
+  // encounters - recruitment territory - but now also seed the occasional shop,
   // rest, or mystery, just rarer than they show up deeper into the region.
   const preBoss = (r) => isBossRow(r + 1);
   const earlyPool = [{ item: NODE.BATTLE, weight: 80 }, { item: NODE.MYSTERY, weight: 11 },
@@ -272,7 +272,7 @@ export const EVENTS = [
       { label: "Pocket it", effect: { kind: "balls", amount: 1 } },
     ] },
   { id: "cursed_shrine", title: "Cursed Shrine", weight: 8,
-    desc: "Power radiates — at a price.",
+    desc: "Power radiates - at a price.",
     choices: [
       { label: "Accept the gift", effect: { kind: "mutationThenScar" } },
       { label: "Back away", effect: { kind: "none" } },
@@ -457,7 +457,7 @@ export function encounterLevel(run) {
 }
 
 // Expedition bosses build on the player's *strongest living* Pokémon rather than
-// the eight-Gym campaign floors — and importantly on that strongest level
+// the eight-Gym campaign floors - and importantly on that strongest level
 // directly, NOT the encounter level (which is one higher). An Elite therefore
 // opens at parity with your best Pokémon instead of above it, so a full but
 // level-spread team isn't out-levelled and one-shot before type advantages
@@ -474,7 +474,7 @@ export function bossMemberLevel(run, memberIndex = 0, champion = false) {
 
 // Effective gold cost for a paid Mystery choice. Early expeditions are cash-poor,
 // so the ask starts at roughly half the flavor amount and grows toward it with
-// depth — and it never exceeds the gold the player actually holds. That keeps
+// depth - and it never exceeds the gold the player actually holds. That keeps
 // these events playable (spend what you have) instead of being skipped for being
 // unaffordable. Returns 0 only when the player is flat broke.
 export function eventGoldCost(run, nominal) {
