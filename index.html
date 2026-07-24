@@ -89,10 +89,10 @@
             </button>
           </div>
           <div class="audio-controls">
-            <button id="muteBtn" class="icon-btn" title="Mute" aria-pressed="false" aria-label="Toggle sound">
+            <button id="muteBtn" class="icon-btn" data-mute-btn title="Mute" aria-pressed="false" aria-label="Toggle sound">
               <svg class="ico"><use href="#i-volume" /></svg>
             </button>
-            <input type="range" id="volumeSlider" min="0" max="1" step="0.05" value="0.2" aria-label="Volume" />
+            <input type="range" id="volumeSlider" data-volume-slider min="0" max="1" step="0.05" value="0.2" aria-label="Volume" />
           </div>
         </div>
       </header>
@@ -275,6 +275,12 @@
           <span class="title-arena">ARENA</span>
         </div>
         <p class="title-sub">A Generation I battle experience</p>
+        <div class="audio-controls title-audio">
+          <button class="icon-btn" data-mute-btn title="Mute" aria-pressed="false" aria-label="Toggle sound">
+            <svg class="ico"><use href="#i-volume" /></svg>
+          </button>
+          <input type="range" data-volume-slider min="0" max="1" step="0.05" value="0.2" aria-label="Volume" />
+        </div>
         <div class="title-actions">
           <button id="newGameBtn" class="title-btn primary">New Expedition</button>
           <button id="continueBtn" class="title-btn hidden">Continue Expedition</button>

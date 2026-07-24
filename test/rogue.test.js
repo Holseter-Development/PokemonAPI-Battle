@@ -14,6 +14,7 @@ import {
   currentNode, checkWipe, offerSigils, offerMutations, rollShop,
   rollMysteryEvent, rollMysteryEncounter, pickTrainerReward, TRAINER_REWARDS,
   MYSTERY_TRAINER_CHANCE, rollGold, encounterLevel, bossMemberLevel, RUN_CONFIG,
+  eventGoldCost,
 } from "../src/run.js";
 import { WANDERING_TRAINERS, GEN1_MAX_ID } from "../src/data.js";
 
@@ -164,13 +165,19 @@ test("map: bosses single-node, champion last, fully connected", () => {
     for (let R = rowsPerRegion - 2; R < totalRows; R += rowsPerRegion) {
       for (const id of map.rows[R]) assert.strictEqual(map.nodes[id].type, NODE.REST, `pre-boss should rest (${seed})`);
     }
-    // Every route begins with two guaranteed recruitment opportunities.
-    for (let reg = 0; reg < regions; reg++) {
-      for (const local of [0, 1]) {
-        const row = map.rows[reg * rowsPerRegion + local];
-        assert.ok(row.length > 0 && row.every((id) => map.nodes[id].type === NODE.BATTLE),
-          `region ${reg} row ${local} should be all Wild battles (${seed})`);
-      }
+    // The opening row always leaves at least one Wild encounter available so a
+    // fresh run can start by catching a Pokémon; early rows otherwise vary.
+    assert.ok(
+      map.rows[0].length > 0 && map.rows[0].some((id) => map.nodes[id].type === NODE.BATTLE),
+      `opening row should offer a Wild battle (${seed})`,
+    );
+    // Early rows lean on battles but are no longer exclusively battles: shops,
+    // rests, and mysteries may seed in (rarer than deeper rows).
+    for (const id of map.rows[0].concat(map.rows[1])) {
+      assert.ok(
+        [NODE.BATTLE, NODE.MYSTERY, NODE.SHOP, NODE.REST].includes(map.nodes[id].type),
+        `early node ${id} should be a route node (${seed})`,
+      );
     }
     // one shop per region
     for (let reg = 0; reg < regions; reg++) {
@@ -313,8 +320,21 @@ test("encounters and Elite bosses stay near an under-levelled living party", () 
     team: [{ level: 5, stats: { hp: 18 } }],
   };
   assert.strictEqual(encounterLevel(run), 6, "route cannot race far beyond a level 5 partner");
-  assert.strictEqual(bossMemberLevel(run, 0, false), 7, "first Elite member is one step above encounter level");
-  assert.strictEqual(bossMemberLevel(run, 2, false), 8, "boss team ramps gradually");
+  assert.strictEqual(bossMemberLevel(run, 0, false), 6, "first Elite member fights at parity with the encounter level");
+  assert.strictEqual(bossMemberLevel(run, 2, false), 7, "boss team ramps gradually");
+});
+
+test("paid Mystery costs stay affordable and never exceed the flavor amount", () => {
+  // Flat broke → no charge (choice is disabled in the UI).
+  assert.strictEqual(eventGoldCost({ visited: [], gold: 0 }, 100), 0, "broke players are charged nothing");
+  // Poor but not broke → spend exactly what you have ("all your money").
+  assert.strictEqual(eventGoldCost({ visited: [], gold: 15 }, 100), 15, "cost clamps to gold on hand");
+  // Rich + shallow → discounted well below the nominal amount.
+  const early = eventGoldCost({ visited: [], gold: 9999 }, 100);
+  assert.ok(early < 100 && early >= 10, `early cost is discounted (${early})`);
+  // Deeper runs ask for more, but never above the flavor amount.
+  const deep = eventGoldCost({ visited: new Array(30), gold: 9999 }, 100);
+  assert.ok(deep > early && deep <= 100, `cost grows with depth but is capped (${deep})`);
 });
 
 test("fainted high-level reserves do not inflate encounters", () => {

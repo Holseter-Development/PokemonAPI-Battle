@@ -64,20 +64,32 @@ export function generateMap(rng, cfg = RUN_CONFIG) {
     Object.values(nodes).filter((n) => n.row === R - 1).forEach((n) => { n.edges = [boss.id]; });
   }
 
-  // Type the remaining nodes deterministically (stable row/col order).
+  // Type the remaining nodes deterministically (stable row/col order). The
+  // opening rows of each region (local <= 1) still lean heavily on wild
+  // encounters — recruitment territory — but now also seed the occasional shop,
+  // rest, or mystery, just rarer than they show up deeper into the region.
   const preBoss = (r) => isBossRow(r + 1);
+  const earlyPool = [{ item: NODE.BATTLE, weight: 80 }, { item: NODE.MYSTERY, weight: 11 },
+    { item: NODE.SHOP, weight: 5 }, { item: NODE.REST, weight: 4 }];
+  const laterPool = [{ item: NODE.BATTLE, weight: 58 }, { item: NODE.MYSTERY, weight: 24 },
+    { item: NODE.SHOP, weight: 10 }, { item: NODE.REST, weight: 8 }];
   const rest = Object.values(nodes)
     .filter((n) => !n.type)
     .sort((a, b) => (a.row - b.row) || (a.col - b.col));
   for (const n of rest) {
     const local = n.row % rowsPerRegion;
-    if (local <= 1) { n.type = NODE.BATTLE; continue; }           // two recruitment chances
     if (preBoss(n.row)) { n.type = NODE.REST; continue; }         // heal before boss
-    const pool = [{ item: NODE.BATTLE, weight: 58 }, { item: NODE.MYSTERY, weight: 24 },
-      { item: NODE.SHOP, weight: 10 }, { item: NODE.REST, weight: 8 }];
+    const pool = local <= 1 ? earlyPool : laterPool;
     let t = rng() * pool.reduce((s, e) => s + e.weight, 0);
     for (const e of pool) { t -= e.weight; if (t < 0) { n.type = e.item; break; } }
     if (!n.type) n.type = NODE.BATTLE;
+  }
+
+  // Always leave at least one wild encounter on the very first row so a fresh
+  // run can still open with a catchable Pokémon if the player wants it.
+  const openingRow = Object.values(nodes).filter((n) => n.row === 0);
+  if (openingRow.length && !openingRow.some((n) => n.type === NODE.BATTLE)) {
+    pick(rng, openingRow).type = NODE.BATTLE;
   }
 
   // Guarantee at least one shop per region (quality-of-life).
@@ -356,9 +368,24 @@ export function encounterLevel(run) {
   return Math.min(curve, strongest + 1 + ascension * 2);
 }
 
-// Expedition bosses scale from the fair encounter level rather than the
-// original eight-Gym campaign floors. Later team members rise only gradually.
+// Expedition bosses scale from the fair encounter level (already one above your
+// strongest living Pokémon) rather than the original eight-Gym campaign floors.
+// Elites fight at that parity so an early Gym is a genuine step up without
+// out-levelling — and one-shotting — an under-levelled team; only the Champion
+// keeps a real two-level cushion. Later team members rise only gradually.
 export function bossMemberLevel(run, memberIndex = 0, champion = false) {
-  const bossStep = champion ? 2 : 1;
+  const bossStep = champion ? 2 : 0;
   return Math.min(100, encounterLevel(run) + bossStep + Math.floor(Math.max(0, memberIndex) / 2));
+}
+
+// Effective gold cost for a paid Mystery choice. Early expeditions are cash-poor,
+// so the ask starts at roughly half the flavor amount and grows toward it with
+// depth — and it never exceeds the gold the player actually holds. That keeps
+// these events playable (spend what you have) instead of being skipped for being
+// unaffordable. Returns 0 only when the player is flat broke.
+export function eventGoldCost(run, nominal) {
+  const n = Math.max(0, nominal || 0);
+  const depth = run.visited?.length || 0;
+  const scaled = Math.min(n, Math.max(10, Math.round(n * (0.45 + depth / 26))));
+  return Math.min(scaled, Math.max(0, run.gold || 0));
 }

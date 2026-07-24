@@ -718,7 +718,12 @@ button.use-btn:active { transform: translateY(2px); }
   background: linear-gradient(90deg, transparent, rgba(255,255,255,.14), transparent);
   border-radius: 8px; padding: 4px 14px;
 }
-.title-sub { color: var(--muted); margin: 18px 0 26px; font-size: 15px; }
+.title-sub { color: var(--muted); margin: 18px 0 20px; font-size: 15px; }
+.title-audio {
+  justify-content: center; margin: 0 auto 24px; padding: 6px 12px;
+  background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.12);
+  border-radius: 999px; width: max-content;
+}
 .title-actions { display: flex; gap: 14px; justify-content: center; flex-wrap: wrap; }
 .title-btn {
   border: none; cursor: pointer; padding: 15px 34px; border-radius: 999px; font-size: 17px; font-weight: 800;
@@ -728,6 +733,7 @@ button.use-btn:active { transform: translateY(2px); }
 .title-btn.primary { background: linear-gradient(180deg, #ff6b6b, #d6353f); box-shadow: 0 6px 20px rgba(214,53,63,.5); }
 .title-btn:hover { filter: brightness(1.1); }
 .title-btn:active { transform: translateY(2px); }
+.title-btn:disabled { opacity: .45; cursor: not-allowed; filter: none; transform: none; }
 .title-hint { display: block; margin-top: 26px; max-width: 380px; margin-inline: auto; }
 .title-orbs { position: absolute; inset: 0; z-index: 1; }
 .title-orbs::before, .title-orbs::after {
@@ -1670,6 +1676,10 @@ button.use-btn:active { transform: translateY(2px); }
      (z-index 5) sits above the HUD (z-index 4), so command buttons are always
      on top even if a card sits near them. */
   .statusbox { max-width: 58vw; min-width: 46vw; padding: 8px 9px; }
+  /* Multi-type cards: drop the type badges onto their own line so a second type
+     makes the card taller rather than wider, keeping it clear of the sprites. */
+  .statusbox-top { row-gap: 4px; }
+  .statusbox-top .type-badges { flex-basis: 100%; }
   .mon-name { font-size: 13px; }
   .lv-badge { font-size: 10px; padding: 1px 6px; }
   .enemy-box { top: 10px; left: 10px; }

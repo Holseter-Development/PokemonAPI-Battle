@@ -515,6 +515,10 @@
   var audioCtx = null;
   var masterGain = null;
   var routed = /* @__PURE__ */ new WeakSet();
+  var musicWanted = false;
+  function getMusic() {
+    return document.getElementById("battleMusic");
+  }
   function ensureCtx() {
     if (audioCtx)
       return audioCtx;
@@ -564,23 +568,46 @@
     el2.muted = isMuted;
     return el2.play();
   }
+  function startMusic() {
+    const music = getMusic();
+    if (!music)
+      return;
+    musicWanted = true;
+    if (isMuted || document.hidden)
+      return;
+    if (music.paused)
+      playEl(music, { useGraph: false }).catch(() => {
+      });
+  }
+  function pauseMusic() {
+    const music = getMusic();
+    if (music && !music.paused) {
+      try {
+        music.pause();
+      } catch (_) {
+      }
+    }
+  }
   function setMuted(v) {
     isMuted = !!v;
-    const music = document.getElementById("battleMusic");
+    const music = getMusic();
     if (music) {
       music.muted = isMuted;
-      if (!isMuted && music.paused)
-        playEl(music).catch(() => {
-        });
+      if (isMuted)
+        pauseMusic();
+      else
+        startMusic();
     }
     applyGain();
+    updateMuteIcons();
   }
   function setVolume(v) {
     sfxVolume = Math.max(0, Math.min(1, isNaN(v) ? sfxVolume : v));
-    const music = document.getElementById("battleMusic");
+    const music = getMusic();
     if (music && !routed.has(music))
       music.volume = sfxVolume;
     applyGain();
+    syncVolumeSliders();
   }
   var ATTACK_SFX_MAP = {
     absorb: "Absorb.wav",
@@ -782,51 +809,69 @@
     } catch (_) {
     }
   }
-  function updateMuteIcon(btn) {
-    if (!btn)
-      return;
-    const use = btn.querySelector("use");
-    if (use)
-      use.setAttribute("href", isMuted ? "#i-volume-off" : "#i-volume");
-    btn.setAttribute("aria-pressed", String(isMuted));
-    btn.title = isMuted ? "Unmute" : "Mute";
+  function updateMuteIcons() {
+    document.querySelectorAll("[data-mute-btn]").forEach((btn) => {
+      const use = btn.querySelector("use");
+      if (use)
+        use.setAttribute("href", isMuted ? "#i-volume-off" : "#i-volume");
+      btn.setAttribute("aria-pressed", String(isMuted));
+      btn.title = isMuted ? "Unmute" : "Mute";
+    });
+  }
+  function syncVolumeSliders() {
+    document.querySelectorAll("[data-volume-slider]").forEach((slider) => {
+      if (document.activeElement !== slider)
+        slider.value = String(sfxVolume);
+    });
   }
   function initAudio() {
-    const music = document.getElementById("battleMusic");
-    const muteBtn = document.getElementById("muteBtn");
-    const volumeSlider = document.getElementById("volumeSlider");
-    if (volumeSlider)
-      sfxVolume = parseFloat(volumeSlider.value) || sfxVolume;
+    const muteButtons = Array.from(document.querySelectorAll("[data-mute-btn]"));
+    const volumeSliders = Array.from(document.querySelectorAll("[data-volume-slider]"));
+    const firstSlider = volumeSliders[0];
+    if (firstSlider)
+      sfxVolume = parseFloat(firstSlider.value) || sfxVolume;
     const unlock = () => {
       ensureCtx();
       if (audioCtx && audioCtx.state === "suspended")
         audioCtx.resume().catch(() => {
         });
-      if (music && !isMuted && music.paused)
-        playEl(music).catch(() => {
-        });
+      startMusic();
       events.forEach((ev) => document.removeEventListener(ev, unlock));
     };
     const events = ["pointerdown", "touchstart", "keydown", "click"];
     events.forEach((ev) => document.addEventListener(ev, unlock, { passive: true }));
-    if (muteBtn) {
-      updateMuteIcon(muteBtn);
-      muteBtn.addEventListener("click", (e) => {
+    muteButtons.forEach((btn) => {
+      btn.addEventListener("click", (e) => {
         e.stopPropagation();
         setMuted(!isMuted);
-        updateMuteIcon(muteBtn);
       });
-    }
-    if (volumeSlider) {
-      volumeSlider.value = String(sfxVolume);
-      volumeSlider.addEventListener("input", () => {
-        setVolume(parseFloat(volumeSlider.value));
-        if (sfxVolume > 0 && isMuted) {
+    });
+    updateMuteIcons();
+    volumeSliders.forEach((slider) => {
+      slider.value = String(sfxVolume);
+      slider.addEventListener("input", () => {
+        setVolume(parseFloat(slider.value));
+        if (sfxVolume > 0 && isMuted)
           setMuted(false);
-          updateMuteIcon(muteBtn);
-        }
       });
-    }
+    });
+    const onVisibility = () => {
+      if (document.visibilityState === "hidden") {
+        pauseMusic();
+        if (audioCtx && audioCtx.state === "running")
+          audioCtx.suspend().catch(() => {
+          });
+      } else {
+        if (audioCtx && audioCtx.state === "suspended")
+          audioCtx.resume().catch(() => {
+          });
+        if (musicWanted && !isMuted)
+          startMusic();
+      }
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    window.addEventListener("pagehide", pauseMusic);
+    window.addEventListener("freeze", pauseMusic);
     setVolume(sfxVolume);
   }
   var CRY_CACHE = /* @__PURE__ */ new Map();
@@ -1956,23 +2001,26 @@
       });
     }
     const preBoss = (r) => isBossRow(r + 1);
+    const earlyPool = [
+      { item: NODE.BATTLE, weight: 80 },
+      { item: NODE.MYSTERY, weight: 11 },
+      { item: NODE.SHOP, weight: 5 },
+      { item: NODE.REST, weight: 4 }
+    ];
+    const laterPool = [
+      { item: NODE.BATTLE, weight: 58 },
+      { item: NODE.MYSTERY, weight: 24 },
+      { item: NODE.SHOP, weight: 10 },
+      { item: NODE.REST, weight: 8 }
+    ];
     const rest = Object.values(nodes).filter((n) => !n.type).sort((a, b) => a.row - b.row || a.col - b.col);
     for (const n of rest) {
       const local = n.row % rowsPerRegion;
-      if (local <= 1) {
-        n.type = NODE.BATTLE;
-        continue;
-      }
       if (preBoss(n.row)) {
         n.type = NODE.REST;
         continue;
       }
-      const pool = [
-        { item: NODE.BATTLE, weight: 58 },
-        { item: NODE.MYSTERY, weight: 24 },
-        { item: NODE.SHOP, weight: 10 },
-        { item: NODE.REST, weight: 8 }
-      ];
+      const pool = local <= 1 ? earlyPool : laterPool;
       let t = rng() * pool.reduce((s, e) => s + e.weight, 0);
       for (const e of pool) {
         t -= e.weight;
@@ -1983,6 +2031,10 @@
       }
       if (!n.type)
         n.type = NODE.BATTLE;
+    }
+    const openingRow = Object.values(nodes).filter((n) => n.row === 0);
+    if (openingRow.length && !openingRow.some((n) => n.type === NODE.BATTLE)) {
+      pick(rng, openingRow).type = NODE.BATTLE;
     }
     for (let reg = 0; reg < regions; reg++) {
       const inReg = Object.values(nodes).filter((n) => n.region === reg && n.type !== NODE.CHAMPION && n.type !== NODE.ELITE);
@@ -2263,8 +2315,14 @@
     return Math.min(curve, strongest + 1 + ascension * 2);
   }
   function bossMemberLevel(run, memberIndex = 0, champion = false) {
-    const bossStep = champion ? 2 : 1;
+    const bossStep = champion ? 2 : 0;
     return Math.min(100, encounterLevel(run) + bossStep + Math.floor(Math.max(0, memberIndex) / 2));
+  }
+  function eventGoldCost(run, nominal) {
+    const n = Math.max(0, nominal || 0);
+    const depth = run.visited?.length || 0;
+    const scaled = Math.min(n, Math.max(10, Math.round(n * (0.45 + depth / 26))));
+    return Math.min(scaled, Math.max(0, run.gold || 0));
   }
 
   // src/progression.js
@@ -4390,17 +4448,60 @@
       openPanel(ev.title, (body, close) => {
         body.appendChild(el("p", { class: "small" }, ev.desc));
         ev.choices.forEach((ch) => {
-          const b = el("button", { class: "title-btn" }, ch.label);
-          b.onclick = () => {
-            close();
-            resolve(ch);
-          };
+          const baseEffect = ch.effect || { kind: "none" };
+          const nominal = paidChoiceAmount(baseEffect);
+          let effect = baseEffect;
+          let label = ch.label;
+          let disabled = false;
+          if (nominal != null) {
+            const amount = eventGoldCost(state.run, nominal);
+            if (amount <= 0) {
+              disabled = true;
+            } else {
+              effect = { ...baseEffect };
+              if (baseEffect.cost != null)
+                effect.cost = amount;
+              if (baseEffect.stake != null)
+                effect.stake = amount;
+              label = paidChoiceLabel(baseEffect, amount) || ch.label;
+            }
+          }
+          const b = el("button", { class: "title-btn" }, label);
+          if (disabled) {
+            b.disabled = true;
+            b.title = "Not enough gold";
+          } else
+            b.onclick = () => {
+              close();
+              resolve({ effect });
+            };
           body.appendChild(b);
         });
       });
     });
     await applyEventEffect(choice.effect || { kind: "none" });
     goToMap();
+  }
+  function paidChoiceAmount(effect) {
+    if (!effect)
+      return null;
+    if (effect.kind === "gamble" || effect.kind === "tutor")
+      return effect.cost != null ? effect.cost : null;
+    if (effect.kind === "coinflip")
+      return effect.stake != null ? effect.stake : null;
+    return null;
+  }
+  function paidChoiceLabel(effect, amount) {
+    switch (effect.kind) {
+      case "tutor":
+        return `Learn (${amount} gold)`;
+      case "coinflip":
+        return `Bet ${amount} gold`;
+      case "gamble":
+        return `Toss in ${amount} gold`;
+      default:
+        return null;
+    }
   }
   async function buildTrainerTeam(trainer) {
     const level = encounterLevel(state.run);
