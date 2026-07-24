@@ -733,6 +733,7 @@ button.use-btn:active { transform: translateY(2px); }
 .title-btn.primary { background: linear-gradient(180deg, #ff6b6b, #d6353f); box-shadow: 0 6px 20px rgba(214,53,63,.5); }
 .title-btn:hover { filter: brightness(1.1); }
 .title-btn:active { transform: translateY(2px); }
+.title-btn:disabled { opacity: .45; cursor: not-allowed; filter: none; transform: none; }
 .title-hint { display: block; margin-top: 26px; max-width: 380px; margin-inline: auto; }
 .title-orbs { position: absolute; inset: 0; z-index: 1; }
 .title-orbs::before, .title-orbs::after {

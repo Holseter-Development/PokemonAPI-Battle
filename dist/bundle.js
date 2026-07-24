@@ -2315,8 +2315,14 @@
     return Math.min(curve, strongest + 1 + ascension * 2);
   }
   function bossMemberLevel(run, memberIndex = 0, champion = false) {
-    const bossStep = champion ? 2 : 1;
+    const bossStep = champion ? 2 : 0;
     return Math.min(100, encounterLevel(run) + bossStep + Math.floor(Math.max(0, memberIndex) / 2));
+  }
+  function eventGoldCost(run, nominal) {
+    const n = Math.max(0, nominal || 0);
+    const depth = run.visited?.length || 0;
+    const scaled = Math.min(n, Math.max(10, Math.round(n * (0.45 + depth / 26))));
+    return Math.min(scaled, Math.max(0, run.gold || 0));
   }
 
   // src/progression.js
@@ -4442,17 +4448,60 @@
       openPanel(ev.title, (body, close) => {
         body.appendChild(el("p", { class: "small" }, ev.desc));
         ev.choices.forEach((ch) => {
-          const b = el("button", { class: "title-btn" }, ch.label);
-          b.onclick = () => {
-            close();
-            resolve(ch);
-          };
+          const baseEffect = ch.effect || { kind: "none" };
+          const nominal = paidChoiceAmount(baseEffect);
+          let effect = baseEffect;
+          let label = ch.label;
+          let disabled = false;
+          if (nominal != null) {
+            const amount = eventGoldCost(state.run, nominal);
+            if (amount <= 0) {
+              disabled = true;
+            } else {
+              effect = { ...baseEffect };
+              if (baseEffect.cost != null)
+                effect.cost = amount;
+              if (baseEffect.stake != null)
+                effect.stake = amount;
+              label = paidChoiceLabel(baseEffect, amount) || ch.label;
+            }
+          }
+          const b = el("button", { class: "title-btn" }, label);
+          if (disabled) {
+            b.disabled = true;
+            b.title = "Not enough gold";
+          } else
+            b.onclick = () => {
+              close();
+              resolve({ effect });
+            };
           body.appendChild(b);
         });
       });
     });
     await applyEventEffect(choice.effect || { kind: "none" });
     goToMap();
+  }
+  function paidChoiceAmount(effect) {
+    if (!effect)
+      return null;
+    if (effect.kind === "gamble" || effect.kind === "tutor")
+      return effect.cost != null ? effect.cost : null;
+    if (effect.kind === "coinflip")
+      return effect.stake != null ? effect.stake : null;
+    return null;
+  }
+  function paidChoiceLabel(effect, amount) {
+    switch (effect.kind) {
+      case "tutor":
+        return `Learn (${amount} gold)`;
+      case "coinflip":
+        return `Bet ${amount} gold`;
+      case "gamble":
+        return `Toss in ${amount} gold`;
+      default:
+        return null;
+    }
   }
   async function buildTrainerTeam(trainer) {
     const level = encounterLevel(state.run);

@@ -47,7 +47,7 @@ import { randomSeedString } from "./rng.js";
 import {
   NODE, createRun, availableNext, travelTo, markResolved, currentNode,
   nodeById, offerSigils, offerMutations, rollShop, rollMysteryEncounter, rollGold,
-  encounterLevel, bossMemberLevel, checkWipe, withRng,
+  encounterLevel, bossMemberLevel, checkWipe, withRng, eventGoldCost,
 } from "./run.js";
 import {
   SIGILS, MUTATIONS, applyMutation, aggregateSigils, applyStartingBallBonus, emptyEffects, RARITY_COLOR,
@@ -1641,14 +1641,51 @@ async function resolveMysteryNode(node) {
     openPanel(ev.title, (body, close) => {
       body.appendChild(el("p", { class: "small" }, ev.desc));
       ev.choices.forEach((ch) => {
-        const b = el("button", { class: "title-btn" }, ch.label);
-        b.onclick = () => { close(); resolve(ch); };
+        const baseEffect = ch.effect || { kind: "none" };
+        const nominal = paidChoiceAmount(baseEffect);
+        let effect = baseEffect;
+        let label = ch.label;
+        let disabled = false;
+        // Paid choices charge an affordable, depth-scaled amount (never more
+        // than the player's gold) and show that live amount on the button.
+        if (nominal != null) {
+          const amount = eventGoldCost(state.run, nominal);
+          if (amount <= 0) {
+            disabled = true; // flat broke — nothing to spend
+          } else {
+            effect = { ...baseEffect };
+            if (baseEffect.cost != null) effect.cost = amount;
+            if (baseEffect.stake != null) effect.stake = amount;
+            label = paidChoiceLabel(baseEffect, amount) || ch.label;
+          }
+        }
+        const b = el("button", { class: "title-btn" }, label);
+        if (disabled) { b.disabled = true; b.title = "Not enough gold"; }
+        else b.onclick = () => { close(); resolve({ effect }); };
         body.appendChild(b);
       });
     });
   });
   await applyEventEffect(choice.effect || { kind: "none" });
   goToMap();
+}
+
+// The gold a Mystery choice asks for, or null if the choice is free.
+function paidChoiceAmount(effect) {
+  if (!effect) return null;
+  if (effect.kind === "gamble" || effect.kind === "tutor") return effect.cost != null ? effect.cost : null;
+  if (effect.kind === "coinflip") return effect.stake != null ? effect.stake : null;
+  return null;
+}
+
+// Rebuild a paid choice's label around the live (affordable) amount.
+function paidChoiceLabel(effect, amount) {
+  switch (effect.kind) {
+    case "tutor": return `Learn (${amount} gold)`;
+    case "coinflip": return `Bet ${amount} gold`;
+    case "gamble": return `Toss in ${amount} gold`;
+    default: return null;
+  }
 }
 
 // Build a wandering trainer's team at the route's fair encounter level so the

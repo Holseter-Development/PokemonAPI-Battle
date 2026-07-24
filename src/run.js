@@ -368,9 +368,24 @@ export function encounterLevel(run) {
   return Math.min(curve, strongest + 1 + ascension * 2);
 }
 
-// Expedition bosses scale from the fair encounter level rather than the
-// original eight-Gym campaign floors. Later team members rise only gradually.
+// Expedition bosses scale from the fair encounter level (already one above your
+// strongest living Pokémon) rather than the original eight-Gym campaign floors.
+// Elites fight at that parity so an early Gym is a genuine step up without
+// out-levelling — and one-shotting — an under-levelled team; only the Champion
+// keeps a real two-level cushion. Later team members rise only gradually.
 export function bossMemberLevel(run, memberIndex = 0, champion = false) {
-  const bossStep = champion ? 2 : 1;
+  const bossStep = champion ? 2 : 0;
   return Math.min(100, encounterLevel(run) + bossStep + Math.floor(Math.max(0, memberIndex) / 2));
+}
+
+// Effective gold cost for a paid Mystery choice. Early expeditions are cash-poor,
+// so the ask starts at roughly half the flavor amount and grows toward it with
+// depth — and it never exceeds the gold the player actually holds. That keeps
+// these events playable (spend what you have) instead of being skipped for being
+// unaffordable. Returns 0 only when the player is flat broke.
+export function eventGoldCost(run, nominal) {
+  const n = Math.max(0, nominal || 0);
+  const depth = run.visited?.length || 0;
+  const scaled = Math.min(n, Math.max(10, Math.round(n * (0.45 + depth / 26))));
+  return Math.min(scaled, Math.max(0, run.gold || 0));
 }
