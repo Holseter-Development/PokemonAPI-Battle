@@ -18,6 +18,8 @@ import {
   SHRINE_SCAR_STATS, rollWildShiny,
   rollWildAlpha, alphaLevel, alphaGoldBonus, ALPHA_CATCH_MULT, ALPHA_LEVEL_BONUS,
   ALPHA_BASE_ONE_IN, RIVAL_ROW_LOCAL,
+  EVENTS, resolveBallFountain, ambushLevel, ambushGoldBonus, tradeOfferLevel,
+  AMBUSH_LEVEL_BONUS, TRADE_LEVEL_BONUS, SPRING_SHARE_FRACTION, BALL_FOUNTAIN_COST,
 } from "../src/run.js";
 import { ALPHA_MODIFIERS } from "../src/encounters.js";
 import {
@@ -596,6 +598,87 @@ test("alphaGoldBonus grows with depth and ascension and is positive", () => {
   assert.ok(deep > shallow, "deeper runs pay more");
   assert.ok(ascended > shallow, "ascension pays more");
   assert.strictEqual(alphaGoldBonus(undefined), alphaGoldBonus({ visited: [], ascension: 0 }), "handles missing run");
+});
+
+// ---- P2.6: Mystery event expansion ----
+test("EVENTS: the four new events exist with valid, well-formed choices", () => {
+  const byId = Object.fromEntries(EVENTS.map((e) => [e.id, e]));
+  for (const id of ["healing_spring", "npc_trade", "ball_fountain", "ambush"]) {
+    const ev = byId[id];
+    assert.ok(ev, `event ${id} is present`);
+    assert.ok(ev.title && ev.desc, `${id} has title + description copy`);
+    assert.ok(ev.weight > 0, `${id} carries a positive weight`);
+    assert.ok(ev.choices.length >= 1 && ev.choices.every((c) => c.label && c.effect && c.effect.kind),
+      `${id} choices each have a label + effect kind`);
+  }
+  // Healing Spring offers the full-soak vs shared-splash tradeoff.
+  const springKinds = byId.healing_spring.choices.map((c) => c.effect.kind);
+  assert.ok(springKinds.includes("healOne") && springKinds.includes("healShare"), "spring offers heal-one and heal-all");
+  // The ambush routes into a boosted wild battle.
+  assert.ok(byId.ambush.choices.some((c) => c.effect.kind === "ambush"), "ambush event triggers an ambush battle");
+});
+
+test("Move Tutor was renamed to an accurate Move Restorer (PP recovery)", () => {
+  const byId = Object.fromEntries(EVENTS.map((e) => [e.id, e]));
+  assert.ok(!byId.move_tutor, "the misleading move_tutor id is gone");
+  const restorer = byId.move_restorer;
+  assert.ok(restorer, "move_restorer event exists");
+  assert.ok(/PP/.test(restorer.desc) || /PP/.test(restorer.choices[0].label), "copy mentions PP, not teaching a move");
+  assert.ok(!/teach|learn a move|new move/i.test(restorer.desc), "copy no longer promises a taught move");
+  assert.strictEqual(restorer.choices[0].effect.kind, "tutor", "still uses the PP-restore effect");
+});
+
+test("SPRING_SHARE_FRACTION is a partial heal (the tradeoff against a full soak)", () => {
+  assert.ok(SPRING_SHARE_FRACTION > 0 && SPRING_SHARE_FRACTION < 1, "shared splash heals part, not all");
+});
+
+test("resolveBallFountain: deterministic, all outcomes reachable, ball counts sane", () => {
+  assert.strictEqual(BALL_FOUNTAIN_COST, 1, "one ball is tossed in");
+  const a = createRun("FOUNTAIN"), b = clone(a);
+  assert.deepStrictEqual(resolveBallFountain(a), resolveBallFountain(b), "same seed reproduces the toss");
+  const seen = new Set();
+  for (let i = 0; i < 400; i++) {
+    const r = resolveBallFountain(createRun("BF" + i));
+    seen.add(r.outcome);
+    assert.ok(["nothing", "minor", "jackpot"].includes(r.outcome), `outcome is recognised (${r.outcome})`);
+    assert.ok(Number.isInteger(r.poke) && r.poke >= 0 && Number.isInteger(r.great) && r.great >= 0, "ball counts are non-negative integers");
+    if (r.outcome === "nothing") assert.ok(r.poke + r.great === 0, "nothing returns no balls (a net loss)");
+    if (r.outcome === "minor") assert.ok(r.poke > BALL_FOUNTAIN_COST && r.great === 0, "minor is a net gain of Poké Balls");
+    if (r.outcome === "jackpot") assert.ok(r.great >= 1, "jackpot returns at least a Great Ball");
+  }
+  for (const o of ["nothing", "minor", "jackpot"]) assert.ok(seen.has(o), `fountain can roll "${o}"`);
+});
+
+test("resolveBallFountain: restoring rng state does not reroll a pending toss", () => {
+  const run = createRun("BF-SAVE");
+  const before = run.rngState;
+  const first = resolveBallFountain(run);
+  run.rngState = before;
+  assert.deepStrictEqual(resolveBallFountain(run), first, "reload reproduces the pending toss");
+});
+
+test("ambushLevel: a few levels above the route target, capped at 100", () => {
+  assert.strictEqual(ambushLevel(10), 10 + AMBUSH_LEVEL_BONUS);
+  assert.strictEqual(ambushLevel(99), 100, "clamped to the level cap");
+  assert.strictEqual(ambushLevel(100), 100, "never exceeds 100");
+  assert.strictEqual(ambushLevel(0), 1 + AMBUSH_LEVEL_BONUS, "invalid/low base floors to level 1 first");
+});
+
+test("ambushGoldBonus grows with depth and ascension and is positive", () => {
+  const shallow = ambushGoldBonus({ visited: [], ascension: 0 });
+  const deep = ambushGoldBonus({ visited: new Array(10).fill(0), ascension: 0 });
+  const ascended = ambushGoldBonus({ visited: [], ascension: 2 });
+  assert.ok(shallow > 0, "always a positive bonus");
+  assert.ok(deep > shallow, "deeper runs pay more");
+  assert.ok(ascended > shallow, "ascension pays more");
+  assert.strictEqual(ambushGoldBonus(undefined), ambushGoldBonus({ visited: [], ascension: 0 }), "handles missing run");
+});
+
+test("tradeOfferLevel: a few levels above the route encounter, capped at 100", () => {
+  const shallow = { visited: [], ascension: 0, team: [{ level: 5, stats: { hp: 10 } }] };
+  assert.strictEqual(tradeOfferLevel(shallow), encounterLevel(shallow) + TRADE_LEVEL_BONUS, "sits above the route target");
+  const capped = { visited: new Array(200).fill(0), ascension: 9, team: [{ level: 100, stats: { hp: 10 } }] };
+  assert.ok(tradeOfferLevel(capped) <= 100, "never exceeds the level cap");
 });
 
 console.log(`\n${passed} checks passed`);

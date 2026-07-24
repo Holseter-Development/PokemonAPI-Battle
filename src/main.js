@@ -52,6 +52,8 @@ import {
   encounterLevel, bossMemberLevel, checkWipe, withRng, eventGoldCost,
   resolveCoinflip, resolveWishingWell, resolveShrineScar, rollWildShiny,
   rollWildAlpha, alphaLevel, alphaGoldBonus, ALPHA_CATCH_MULT,
+  resolveBallFountain, ambushLevel, ambushGoldBonus, tradeOfferLevel,
+  SPRING_SHARE_FRACTION, BALL_FOUNTAIN_COST,
 } from "./run.js";
 import { encounterTableFor, pickEncounter, defaultSpeciesId, applyAlphaModifier } from "./encounters.js";
 import {
@@ -1234,6 +1236,10 @@ async function startBattle(spec) {
     if (state.enemy.alpha) {
       await showBanner(`⚔ Alpha ${state.enemy.name}!`, 1300);
       await say(`It's an Alpha - ${state.enemy.alpha.name} aura (${state.enemy.alpha.desc}). It won't be caught easily!`);
+    } else if (state.enemy.ambush) {
+      // Ambush (P2.6): a boosted wild foe fighting above the route level.
+      await showBanner(`Ambush! ${state.enemy.name}!`, 1300);
+      await say(`It ambushed you - stronger than the usual wild ${state.enemy.name}. Fend it off for bonus gold!`);
     }
     registerPokemonProgress(state.enemy, "seen");
     if (entryStatus) await say(`${state.enemy.name} was poisoned by Toxic Spikes!`);
@@ -1849,8 +1855,49 @@ async function resolveMysteryNode(node) {
       });
     });
   });
-  const lines = await applyEventEffect(choice.effect || { kind: "none" });
+  const effect = choice.effect || { kind: "none" };
+  // The ambush hands the flow to a boosted wild battle (its own win/lose paths
+  // return to the map), so it bypasses the outcome modal + goToMap below.
+  if (effect.kind === "ambush") { await resolveAmbush(node); return; }
+  const lines = await applyEventEffect(effect);
   await showOutcome(lines, ev.title);
+  goToMap();
+}
+
+// Ambush (P2.6): a boosted wild battle drawn from the node's biome table. Fights
+// a few levels above the route target and pays bonus gold on a win. Species and
+// shininess roll on the run RNG (like a normal battle node) so a seed + path
+// reproduces the encounter; it stays fully catchable at ordinary odds.
+async function resolveAmbush(node) {
+  setBusy(true);
+  const speciesId = pickWildSpecies(state.run, node);
+  const shiny = rollRunShiny();
+  const mon = await makeWildMon(ambushLevel(encounterLevel(state.run)), speciesId, { shiny });
+  mon.ambush = true;
+  setBusy(false);
+  await startBattle({
+    kind: "battle", enemy: mon,
+    onWin: (info) => afterAmbushWin(info),
+    onLose: () => runWipe(),
+    onFlee: () => goToMap(),
+  });
+}
+
+async function afterAmbushWin(info = {}) {
+  if (info.caught) {
+    ensureRuntime(info.caught);
+    if (state.run.team.length < 6) state.run.team.push(info.caught);
+    else { state.run.box.push(info.caught); await say(`${info.caught.name} was sent to storage.`); }
+    await announceCaughtProgress(registerPokemonProgress(info.caught, "caught", false));
+  }
+  const gold = Math.round(
+    (rollGold(state.run, NODE.BATTLE) + ambushGoldBonus(state.run)) *
+    (state.sigilFx.goldMult || 1) *
+    (state.run.progressionFx?.goldMult || 1)
+  );
+  state.run.gold += gold;
+  if (gold) floatToast(`+${gold} gold`);
+  await say(`You fended off the ambush!${gold ? ` +${gold} gold.` : ""}`, 400);
   goToMap();
 }
 
@@ -1865,7 +1912,7 @@ function paidChoiceAmount(effect) {
 // Rebuild a paid choice's label around the live (affordable) amount.
 function paidChoiceLabel(effect, amount) {
   switch (effect.kind) {
-    case "tutor": return `Learn (${amount} gold)`;
+    case "tutor": return `Restore PP (${amount} gold)`;
     case "coinflip": return `Bet ${amount} gold`;
     case "gamble": return `Toss in ${amount} gold`;
     default: return null;
@@ -1955,8 +2002,55 @@ async function applyEventEffect(effect) {
       break;
     }
     case "tutor": {
-      if (run.gold >= (effect.cost || 0)) { run.gold -= effect.cost || 0; state.player.moves.forEach((mv) => (mv.ppLeft = mv.pp)); msgs.push("Your Pokémon's moves were honed. (PP restored)"); }
+      // Move Restorer (P2.6): recovers the lead Pokémon's move PP - it does not
+      // teach a move. Copy matches the behaviour until the real relearner (P3.4).
+      if (run.gold >= (effect.cost || 0)) { run.gold -= effect.cost || 0; state.player.moves.forEach((mv) => (mv.ppLeft = mv.pp)); msgs.push(`${state.player.name}'s move PP was fully restored.`); }
       else msgs.push("You can't afford it.");
+      break;
+    }
+    case "healOne": {
+      // Full soak for a single chosen member (HP + status), the tradeoff against
+      // the shared partial heal below.
+      const mon = await pickTeamMember("Soak which Pokémon fully?");
+      if (mon) {
+        mon.stats.hp = mon.stats.maxHp;
+        mon.status = { cond: "none", turns: 0, toxic: 0 };
+        resetStages(mon);
+        mon.moves.forEach((mv) => (mv.ppLeft = mv.pp));
+        if (mon === state.player) updateHUD();
+        msgs.push(`${mon.name} soaked in the spring and recovered completely.`);
+      } else msgs.push("You left the spring untouched.");
+      break;
+    }
+    case "healShare": {
+      // Splash the whole team for a fraction of max HP (and clear status).
+      let healed = 0;
+      run.team.forEach((m) => {
+        if (!m?.stats) return;
+        const before = m.stats.hp;
+        m.stats.hp = Math.min(m.stats.maxHp, m.stats.hp + Math.ceil(m.stats.maxHp * SPRING_SHARE_FRACTION));
+        m.status = { cond: "none", turns: 0, toxic: 0 };
+        if (m.stats.hp > before) healed++;
+      });
+      if (state.player) updateHUD();
+      msgs.push(`The spring's water reached the whole team (${Math.round(SPRING_SHARE_FRACTION * 100)}% HP and status cured).`);
+      if (!healed) msgs.push("Everyone was already at full health.");
+      break;
+    }
+    case "ballFountain": {
+      // Risk/reward: spend one Poké Ball for a seeded roll.
+      if ((run.items["poke-ball"] || 0) < BALL_FOUNTAIN_COST) { msgs.push("You have no Poké Ball to toss in."); break; }
+      run.items["poke-ball"] -= BALL_FOUNTAIN_COST;
+      const result = resolveBallFountain(run);
+      run.items["poke-ball"] = (run.items["poke-ball"] || 0) + (result.poke || 0);
+      run.items["great-ball"] = (run.items["great-ball"] || 0) + (result.great || 0);
+      if (result.outcome === "jackpot") msgs.push(`Jackpot! The fountain returned ${result.poke} Poké Balls and a Great Ball.`);
+      else if (result.outcome === "minor") msgs.push(`The fountain bubbled up ${result.poke} Poké Balls - a small profit.`);
+      else msgs.push("The fountain swallowed your Poké Ball and gave nothing back.");
+      break;
+    }
+    case "trade": {
+      msgs.push(...(await tradeFlow()));
       break;
     }
     case "coinflip": {
@@ -1994,6 +2088,61 @@ async function applyEventEffect(effect) {
   renderRunHud();
   saveRun();
   return msgs;
+}
+
+// Sum of a Pokémon's six live battle stats - a rough power yardstick for the
+// trade comparison panel (maxHp stands in for HP).
+function statTotal(mon) {
+  const s = mon?.stats || {};
+  return (s.maxHp || 0) + (s.atk || 0) + (s.def || 0) + (s.spa || 0) + (s.spd || 0) + (s.spe || 0);
+}
+
+// NPC trade (P2.6): give one team member, receive the collector's Pokémon. The
+// offered species is drawn from the node's biome table on the run RNG (so a
+// seed + path reproduces the offer) at a few levels above the route target,
+// making a straight swap tempting. A side-by-side stat-total comparison
+// precedes an explicit accept/decline; backing out at any step costs nothing.
+async function tradeFlow() {
+  const run = state.run;
+  if (!run.team.length) return ["There was no one to trade."];
+  const give = await pickTeamMember("Offer which Pokémon?");
+  if (!give) return ["You declined the trade."];
+  setBusy(true);
+  const speciesId = withRng(run, (rng) => pickEncounter(rng, encounterTableFor(currentNode(run), run), run.visited.length).id);
+  const offered = await buildMon(speciesId, tradeOfferLevel(run), { shiny: rollRunShiny() });
+  setBusy(false);
+  const accept = await confirmTrade(give, offered);
+  if (!accept) return [`You kept ${give.name}.`];
+  const idx = run.team.indexOf(give);
+  if (idx >= 0) run.team.splice(idx, 1, offered); else run.team.push(offered);
+  ensureRuntime(offered);
+  // Keep the active lead valid if the traded-away Pokémon was the current lead.
+  if (give === state.player) { state.active = clamp(idx >= 0 ? idx : 0, 0, run.team.length - 1); setActive(state.active); }
+  const lines = [offered.isShiny ? `You traded ${give.name} for a shiny ${offered.name}!` : `You traded ${give.name} for ${offered.name}!`];
+  lines.push(...caughtProgressLines(registerPokemonProgress(offered, "caught", false)));
+  return lines;
+}
+
+// Accept/decline panel comparing the Pokémon offered up against the one received,
+// with stat totals so the swap is an informed choice. Resolves true to accept.
+function confirmTrade(give, offered) {
+  return new Promise((resolve) => {
+    openPanel("Trade Offer", (body, close) => {
+      const giveT = statTotal(give), offT = statTotal(offered);
+      const diff = offT - giveT;
+      const row = (label, mon, total) => el("div", { class: "small" },
+        `${label}: ${shinyMark(mon)}${mon.name} · Lv ${mon.level} · ${(mon.types || []).join("/")} · stat total ${total}`);
+      body.appendChild(row("You give", give, giveT));
+      body.appendChild(row("You get", offered, offT));
+      body.appendChild(el("p", { class: "small" },
+        diff === 0 ? "An even swap on paper." : diff > 0 ? `The offer is +${diff} stat total stronger.` : `The offer is ${diff} stat total weaker.`));
+      const yes = el("button", { class: "title-btn primary" }, "Accept the trade");
+      yes.onclick = () => { close(); resolve(true); };
+      const no = el("button", { class: "title-btn" }, "Keep my Pokémon");
+      no.onclick = () => { close(); resolve(false); };
+      body.appendChild(yes); body.appendChild(no);
+    });
+  });
 }
 
 // ---- reward drafts ----
