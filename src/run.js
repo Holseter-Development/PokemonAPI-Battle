@@ -157,6 +157,7 @@ export function createRun(seedString, opts = {}) {
     box: [],
     gold: opts.gold || 0,
     balls: opts.balls != null ? opts.balls : 3,
+    heldItems: { ...(opts.heldItems || {}) }, // unequipped held items: id -> count
     sigils: [...(opts.sigils || [])], // owned sigil ids
     fragments: 0,            // meta-currency earned this run
     over: false,

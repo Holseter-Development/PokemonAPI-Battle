@@ -146,6 +146,33 @@ const waitFor = (cond, ms = 9000) => new Promise((resolve, reject) => {
     assert.strictEqual(startedRun.progressionFx.goldMult, 1.1, "battle-gold perk is stored in run effects");
     console.log("  ✓ expedition started, map rendered");
 
+    // --- P3.1: held-item equipment ---
+    assert.ok(doc.getElementById("bagBtn"), "map exposes a Held Items button");
+    assert.strictEqual(startedRun.heldItems.leftovers, 1, "run seeded with a starting Leftovers");
+    assert.strictEqual(startedRun.heldItems.charcoal, 1, "run seeded with a starting Charcoal");
+    doc.getElementById("bagBtn").click();
+    await waitFor(() => {
+      const modal = doc.getElementById("modal");
+      return modal && !modal.classList.contains("hidden") &&
+        doc.querySelectorAll("#modalBody .equip-row").length > 0;
+    });
+    const equipBtn = [...doc.querySelectorAll("#modalBody .equip-actions button")]
+      .find((b) => /Leftovers/.test(b.textContent));
+    assert.ok(equipBtn, "an equip-Leftovers control is offered for a party member");
+    equipBtn.click();
+    await waitFor(() => {
+      const run = JSON.parse(window.localStorage.getItem("pkbattle:run:v1"));
+      return run.team[0].heldItemId === "leftovers" && (run.heldItems.leftovers || 0) === 0;
+    });
+    console.log("  ✓ held-item equip screen equips from the run bag and persists");
+    // Unequip again so the starter carries nothing into the scripted battles below.
+    const removeBtn = [...doc.querySelectorAll("#modalBody .equip-actions button")]
+      .find((b) => /Remove/.test(b.textContent));
+    if (removeBtn) removeBtn.click();
+    const doneBtn = [...doc.querySelectorAll("#modalBody button")].find((b) => /Done/.test(b.textContent));
+    if (doneBtn) doneBtn.click(); else doc.getElementById("modal").classList.add("hidden");
+    await waitFor(() => doc.getElementById("modal").classList.contains("hidden"));
+
     const avail = doc.querySelectorAll("#mapCanvas .map-node.available");
     assert.ok(avail.length >= 1, "at least one reachable node");
     assert.strictEqual(doc.querySelectorAll("#mapCanvas .map-region").length, 3, "three themed overworld regions");

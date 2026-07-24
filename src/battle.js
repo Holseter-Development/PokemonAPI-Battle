@@ -4,6 +4,7 @@
 // structured results these functions return.
 
 import { CHART, AILMENT_MAP, STAT_KEY, STATUS_LABEL } from "./data.js";
+import { heldItemEffects } from "./items.js";
 
 export function clamp(v, a, b) {
   return Math.max(a, Math.min(b, v));
@@ -98,7 +99,10 @@ export function calcDamage(attacker, defender, move, rng = Math.random, opts = {
   const playerMult = ctx.attackerIsPlayer
     ? (fx.yourDamageMult ?? 1) * (fx.typeMult?.[move.type] ?? 1)
     : 1;
-  let dmg = Math.max(1, Math.floor(base * randFactor * stab * eff * globalMult * playerMult));
+  // Held type-boost (Charcoal/Mystic Water/Miracle Seed). Read off the attacker,
+  // so it applies to either side and composes multiplicatively with Sigil mults.
+  const heldMult = heldItemEffects(attacker).damageTypeMult[move.type] ?? 1;
+  let dmg = Math.max(1, Math.floor(base * randFactor * stab * eff * globalMult * playerMult * heldMult));
   const critBonus = ctx.attackerIsPlayer
     ? (fx.critRampPerTurn || 0) * Math.max(0, ctx.noSwitchTurns || 0)
     : 0;
@@ -185,6 +189,19 @@ export function endOfTurn(mon) {
     return { dmg, kind: "tox", fainted: mon.stats.hp <= 0 };
   }
   return null;
+}
+
+// End-of-turn held-item recovery (Leftovers). Mutates hp; returns { heal } or
+// null. Runs after residual/weather damage so it composes with Sigils, and never
+// heals a fainted or already-full mon.
+export function endOfTurnHeal(mon) {
+  if (!mon || mon.stats.hp <= 0 || mon.stats.hp >= mon.stats.maxHp) return null;
+  const frac = heldItemEffects(mon).endTurnHealFrac;
+  if (!frac) return null;
+  const heal = Math.max(1, Math.floor(mon.stats.maxHp * frac));
+  const before = mon.stats.hp;
+  mon.stats.hp = clamp(mon.stats.hp + heal, 0, mon.stats.maxHp);
+  return { heal: mon.stats.hp - before };
 }
 
 // Hail and sandstorm chip. The controller decides when the residual phase runs;
@@ -285,12 +302,14 @@ export function useMove(attacker, defender, move, rng = Math.random, ctx = {}) {
     for (let i = 0; i < hitCount; i++) {
       if (defender.stats.hp <= 0) break;
       const { dmg, crit } = calcDamage(attacker, defender, move, rng, {}, ctx);
-      const applied = applyHitDamage(defender, dmg, ctx);
+      const applied = applyHitDamage(defender, dmg, ctx, rng);
       res.hits.push({ dmg: applied.dmg, crit, eff });
       res.totalDmg += applied.dmg;
       if (applied.endured) {
         res.endured = true;
-        res.log.push(`${defender.name} endured the hit!`);
+        res.log.push(applied.enduredBy === "focus-band"
+          ? `${defender.name} hung on with its Focus Band!`
+          : `${defender.name} endured the hit!`);
       }
     }
     if (hitCount > 1) res.log.push(`Hit ${res.hits.length} time(s)!`);
@@ -377,26 +396,35 @@ export function useMove(attacker, defender, move, rng = Math.random, ctx = {}) {
   return res;
 }
 
-// Apply one resolved hit, consuming the caller-owned Second Wind flag if needed.
-function applyHitDamage(defender, damage, ctx) {
+// Apply one resolved hit. On a lethal hit, at most ONE survival effect fires, in
+// a fixed priority order, so a mon can never be saved twice or dropped to 1 HP
+// by two effects at once:
+//   1. Second Wind (Sigil) - guaranteed, once per battle, player only.
+//   2. Focus Band (held item) - chance-based, either side, every hit.
+// Second Wind is checked first because it is the guaranteed, limited resource;
+// if it fires, Focus Band is neither rolled nor consumed.
+function applyHitDamage(defender, damage, ctx, rng = Math.random) {
   const fx = ctx.playerFx || {};
   let dmg = Math.min(Math.max(0, damage), defender.stats.hp);
   let endured = false;
-  const endureFlag = ctx.endureUsed;
-  if (
-    ctx.defenderIsPlayer &&
-    fx.endureOnce &&
-    endureFlag &&
-    !endureFlag.used &&
-    dmg >= defender.stats.hp &&
-    defender.stats.hp > 0
-  ) {
-    dmg = Math.max(0, defender.stats.hp - 1);
-    endureFlag.used = true;
-    endured = true;
+  let enduredBy = null;
+  if (dmg >= defender.stats.hp && defender.stats.hp > 0) {
+    const endureFlag = ctx.endureUsed;
+    if (ctx.defenderIsPlayer && fx.endureOnce && endureFlag && !endureFlag.used) {
+      endureFlag.used = true;
+      endured = true;
+      enduredBy = "second-wind";
+    } else {
+      const band = heldItemEffects(defender).surviveLethalChance;
+      if (band > 0 && rng() < band) {
+        endured = true;
+        enduredBy = "focus-band";
+      }
+    }
+    if (endured) dmg = Math.max(0, defender.stats.hp - 1);
   }
   defender.stats.hp = clamp(defender.stats.hp - dmg, 0, defender.stats.maxHp);
-  return { dmg, endured };
+  return { dmg, endured, enduredBy };
 }
 
 function changeStage(mon, key, change) {
@@ -431,6 +459,16 @@ export function firstMover(a, aMove, b, bMove, rng = Math.random, ctx = {}) {
   const pa = aMove ? aMove.priority || 0 : 0;
   const pb = bMove ? bMove.priority || 0 : 0;
   if (pa !== pb) return pa > pb ? "a" : "b";
+  // Quick Claw: within the same priority bracket, a proc jumps ahead of the
+  // normal speed/Trick Room order. It never overrides move priority. Only roll
+  // when a holder actually carries the claw, so the item-free RNG stream (and
+  // every existing speed-tie test) is untouched. If both proc or neither, fall
+  // through to speed.
+  const qca = heldItemEffects(a).quickClawChance;
+  const qcb = heldItemEffects(b).quickClawChance;
+  const qa = qca > 0 && rng() < qca;
+  const qb = qcb > 0 && rng() < qcb;
+  if (qa !== qb) return qa ? "a" : "b";
   const sa = effectiveStat(a, "spe");
   const sb = effectiveStat(b, "spe");
   if (sa !== sb) {

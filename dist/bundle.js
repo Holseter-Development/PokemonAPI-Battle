@@ -929,6 +929,82 @@
     }
   }
 
+  // src/items.js
+  var HELD_ITEMS = {
+    leftovers: {
+      name: "Leftovers",
+      rarity: "uncommon",
+      desc: "Restores 1/16 max HP at the end of each turn.",
+      effects: { endTurnHealFrac: 1 / 16 }
+    },
+    charcoal: {
+      name: "Charcoal",
+      rarity: "uncommon",
+      desc: "Boosts the holder's Fire-type moves by 20%.",
+      effects: { damageTypeMult: { fire: 1.2 } }
+    },
+    "mystic-water": {
+      name: "Mystic Water",
+      rarity: "uncommon",
+      desc: "Boosts the holder's Water-type moves by 20%.",
+      effects: { damageTypeMult: { water: 1.2 } }
+    },
+    "miracle-seed": {
+      name: "Miracle Seed",
+      rarity: "uncommon",
+      desc: "Boosts the holder's Grass-type moves by 20%.",
+      effects: { damageTypeMult: { grass: 1.2 } }
+    },
+    "focus-band": {
+      name: "Focus Band",
+      rarity: "rare",
+      desc: "Small chance to survive a lethal hit at 1 HP.",
+      effects: { surviveLethalChance: 0.1 }
+    },
+    "quick-claw": {
+      name: "Quick Claw",
+      rarity: "rare",
+      desc: "Small chance to move first within the same priority bracket.",
+      effects: { quickClawChance: 0.2 }
+    }
+  };
+  function emptyHeldEffects() {
+    return {
+      endTurnHealFrac: 0,
+      damageTypeMult: {},
+      surviveLethalChance: 0,
+      quickClawChance: 0
+    };
+  }
+  function heldItemEffects(mon) {
+    const out = emptyHeldEffects();
+    const def = mon && mon.heldItemId ? HELD_ITEMS[mon.heldItemId] : null;
+    if (!def)
+      return out;
+    const e = def.effects;
+    if (e.endTurnHealFrac)
+      out.endTurnHealFrac = e.endTurnHealFrac;
+    if (e.damageTypeMult) {
+      for (const [t, m] of Object.entries(e.damageTypeMult)) {
+        out.damageTypeMult[t] = (out.damageTypeMult[t] || 1) * m;
+      }
+    }
+    if (e.surviveLethalChance)
+      out.surviveLethalChance = e.surviveLethalChance;
+    if (e.quickClawChance)
+      out.quickClawChance = e.quickClawChance;
+    return out;
+  }
+  function isHeldItem(id) {
+    return !!HELD_ITEMS[id];
+  }
+  function heldItemName(id) {
+    return HELD_ITEMS[id]?.name || null;
+  }
+  function heldItemList() {
+    return Object.keys(HELD_ITEMS).map((id) => ({ id, ...HELD_ITEMS[id] }));
+  }
+
   // src/battle.js
   function clamp(v, a, b) {
     return Math.max(a, Math.min(b, v));
@@ -1013,7 +1089,8 @@
     const fx2 = ctx.playerFx || {};
     const globalMult = fx2.globalDamageMult ?? 1;
     const playerMult = ctx.attackerIsPlayer ? (fx2.yourDamageMult ?? 1) * (fx2.typeMult?.[move.type] ?? 1) : 1;
-    let dmg = Math.max(1, Math.floor(base * randFactor * stab * eff * globalMult * playerMult));
+    const heldMult = heldItemEffects(attacker).damageTypeMult[move.type] ?? 1;
+    let dmg = Math.max(1, Math.floor(base * randFactor * stab * eff * globalMult * playerMult * heldMult));
     const critBonus = ctx.attackerIsPlayer ? (fx2.critRampPerTurn || 0) * Math.max(0, ctx.noSwitchTurns || 0) : 0;
     const crit = opts.forceCrit || rollCrit(attacker, move, rng, critBonus);
     if (crit)
@@ -1095,6 +1172,17 @@
       return { dmg, kind: "tox", fainted: mon.stats.hp <= 0 };
     }
     return null;
+  }
+  function endOfTurnHeal(mon) {
+    if (!mon || mon.stats.hp <= 0 || mon.stats.hp >= mon.stats.maxHp)
+      return null;
+    const frac = heldItemEffects(mon).endTurnHealFrac;
+    if (!frac)
+      return null;
+    const heal = Math.max(1, Math.floor(mon.stats.maxHp * frac));
+    const before = mon.stats.hp;
+    mon.stats.hp = clamp(mon.stats.hp + heal, 0, mon.stats.maxHp);
+    return { heal: mon.stats.hp - before };
   }
   function applyWeatherChip(mon, weather) {
     const immune = weather === "hail" && mon.types.includes("ice") || weather === "sand" && mon.types.some((t) => ["rock", "ground", "steel"].includes(t));
@@ -1181,12 +1269,12 @@
         if (defender.stats.hp <= 0)
           break;
         const { dmg, crit } = calcDamage(attacker, defender, move, rng, {}, ctx);
-        const applied = applyHitDamage(defender, dmg, ctx);
+        const applied = applyHitDamage(defender, dmg, ctx, rng);
         res.hits.push({ dmg: applied.dmg, crit, eff });
         res.totalDmg += applied.dmg;
         if (applied.endured) {
           res.endured = true;
-          res.log.push(`${defender.name} endured the hit!`);
+          res.log.push(applied.enduredBy === "focus-band" ? `${defender.name} hung on with its Focus Band!` : `${defender.name} endured the hit!`);
         }
       }
       if (hitCount > 1)
@@ -1261,18 +1349,29 @@
     }
     return res;
   }
-  function applyHitDamage(defender, damage, ctx) {
+  function applyHitDamage(defender, damage, ctx, rng = Math.random) {
     const fx2 = ctx.playerFx || {};
     let dmg = Math.min(Math.max(0, damage), defender.stats.hp);
     let endured = false;
-    const endureFlag = ctx.endureUsed;
-    if (ctx.defenderIsPlayer && fx2.endureOnce && endureFlag && !endureFlag.used && dmg >= defender.stats.hp && defender.stats.hp > 0) {
-      dmg = Math.max(0, defender.stats.hp - 1);
-      endureFlag.used = true;
-      endured = true;
+    let enduredBy = null;
+    if (dmg >= defender.stats.hp && defender.stats.hp > 0) {
+      const endureFlag = ctx.endureUsed;
+      if (ctx.defenderIsPlayer && fx2.endureOnce && endureFlag && !endureFlag.used) {
+        endureFlag.used = true;
+        endured = true;
+        enduredBy = "second-wind";
+      } else {
+        const band = heldItemEffects(defender).surviveLethalChance;
+        if (band > 0 && rng() < band) {
+          endured = true;
+          enduredBy = "focus-band";
+        }
+      }
+      if (endured)
+        dmg = Math.max(0, defender.stats.hp - 1);
     }
     defender.stats.hp = clamp(defender.stats.hp - dmg, 0, defender.stats.maxHp);
-    return { dmg, endured };
+    return { dmg, endured, enduredBy };
   }
   function changeStage(mon, key, change) {
     if (!mon.stages)
@@ -1305,6 +1404,12 @@
     const pb = bMove ? bMove.priority || 0 : 0;
     if (pa !== pb)
       return pa > pb ? "a" : "b";
+    const qca = heldItemEffects(a).quickClawChance;
+    const qcb = heldItemEffects(b).quickClawChance;
+    const qa = qca > 0 && rng() < qca;
+    const qb = qcb > 0 && rng() < qcb;
+    if (qa !== qb)
+      return qa ? "a" : "b";
     const sa = effectiveStat(a, "spe");
     const sb = effectiveStat(b, "spe");
     if (sa !== sb) {
@@ -2364,6 +2469,8 @@
       box: [],
       gold: opts.gold || 0,
       balls: opts.balls != null ? opts.balls : 3,
+      heldItems: { ...opts.heldItems || {} },
+      // unequipped held items: id -> count
       sigils: [...opts.sigils || []],
       // owned sigil ids
       fragments: 0,
@@ -4477,6 +4584,19 @@
         }
       }
     }
+    for (const [mon, sel] of [
+      [state.player, "#playerSprite"],
+      [state.enemy, "#enemySprite"]
+    ]) {
+      if (!mon || mon.stats.hp <= 0)
+        continue;
+      const r = endOfTurnHeal(mon);
+      if (r && r.heal > 0) {
+        updateHUD();
+        floatTextNear(sel, `+${r.heal}`, "good");
+        await say(`${mon.name} restored a little HP with its ${heldItemName(mon.heldItemId)}!`);
+      }
+    }
     return false;
   }
   async function backToMenu() {
@@ -4674,6 +4794,7 @@
     "burn-heal": 0,
     "ice-heal": 0
   });
+  var DEFAULT_HELD_ITEMS = () => ({ leftovers: 1, charcoal: 1 });
   async function startExpedition(starterMon) {
     const seed = randomSeedString();
     const profileFx = progressionEffects(state.meta);
@@ -4690,6 +4811,7 @@
     run.items["hyper-potion"] += profileFx.startingHyperPotions || 0;
     const startingFx = aggregateSigils(run.sigils);
     applyStartingBallBonus(run.items, startingFx);
+    run.heldItems = DEFAULT_HELD_ITEMS();
     run.team = [starterMon];
     run.box = [];
     run.playerStarterId = starterMon.id;
@@ -4715,6 +4837,8 @@
     backfillOwnedPokemon(run.team, run.box);
     if (!run.items)
       run.items = DEFAULT_ITEMS();
+    if (!run.heldItems)
+      run.heldItems = {};
     if (!run.sigils)
       run.sigils = [];
     if (!run.progressionFx)
@@ -4973,6 +5097,93 @@
     if (progressFill)
       progressFill.style.width = `${progress * 100}%`;
   }
+  function equipHeldItem(mon, itemId) {
+    const run = state.run;
+    if (!run || !mon || !isHeldItem(itemId))
+      return false;
+    if (mon.heldItemId === itemId)
+      return false;
+    if ((run.heldItems[itemId] || 0) <= 0)
+      return false;
+    if (mon.heldItemId)
+      run.heldItems[mon.heldItemId] = (run.heldItems[mon.heldItemId] || 0) + 1;
+    run.heldItems[itemId] -= 1;
+    mon.heldItemId = itemId;
+    save();
+    return true;
+  }
+  function unequipHeldItem(mon) {
+    const run = state.run;
+    if (!run || !mon || !mon.heldItemId)
+      return false;
+    run.heldItems[mon.heldItemId] = (run.heldItems[mon.heldItemId] || 0) + 1;
+    mon.heldItemId = null;
+    save();
+    return true;
+  }
+  function openEquipPanel() {
+    if (!state.run)
+      return;
+    openPanel("Held Items", (body, close) => {
+      const run = state.run;
+      const render = () => {
+        body.innerHTML = "";
+        const party = el("div", { class: "equip-party" });
+        state.party.forEach((mon) => {
+          const row = el("div", { class: "equip-row" });
+          const img = el("img", { class: "equip-sprite", src: mon.spriteFront || mon.artwork, alt: mon.name });
+          if (mon.isShiny)
+            img.classList.add("shiny-sprite");
+          row.appendChild(img);
+          const info = el("div", { class: "equip-info" });
+          info.appendChild(el("div", { class: "equip-name" }, `${shinyMark(mon)}${mon.name}`));
+          const held = mon.heldItemId ? HELD_ITEMS[mon.heldItemId] : null;
+          info.appendChild(el("div", { class: "small" }, held ? `Holding ${held.name}` : "Holding nothing"));
+          if (held)
+            info.appendChild(el("div", { class: "tiny dim" }, held.desc));
+          row.appendChild(info);
+          const actions = el("div", { class: "equip-actions" });
+          for (const { id, name } of heldItemList()) {
+            const count = run.heldItems[id] || 0;
+            if (count <= 0 || mon.heldItemId === id)
+              continue;
+            const b = el("button", { class: "small" }, `${name} (${count})`);
+            b.onclick = () => {
+              equipHeldItem(mon, id);
+              render();
+            };
+            actions.appendChild(b);
+          }
+          if (mon.heldItemId) {
+            const rm = el("button", { class: "small ghost" }, "Remove");
+            rm.onclick = () => {
+              unequipHeldItem(mon);
+              render();
+            };
+            actions.appendChild(rm);
+          }
+          if (!actions.children.length)
+            actions.appendChild(el("span", { class: "tiny dim" }, "Bag empty"));
+          row.appendChild(actions);
+          party.appendChild(row);
+        });
+        body.appendChild(party);
+        const owned = heldItemList().filter(({ id }) => (run.heldItems[id] || 0) > 0);
+        const bag = el("div", { class: "equip-bag small" });
+        bag.appendChild(el("div", { class: "equip-bag-title" }, "Bag"));
+        if (owned.length) {
+          owned.forEach(({ id, name }) => bag.appendChild(el("span", { class: "equip-bag-item" }, `${name} \xD7${run.heldItems[id]}`)));
+        } else {
+          bag.appendChild(el("span", { class: "tiny dim" }, "No unequipped held items."));
+        }
+        body.appendChild(bag);
+        const done = el("button", { class: "title-btn primary equip-done" }, "Done");
+        done.onclick = () => close();
+        body.appendChild(done);
+      };
+      render();
+    }, { wide: true });
+  }
   async function resolveNode(node) {
     switch (node.type) {
       case NODE.BATTLE:
@@ -5049,6 +5260,9 @@
     for (let i = 0; i < boss.team.length; i++) {
       team.push(await buildMon(boss.team[i], bossMemberLevel(state.run, i, champion)));
     }
+    const ace = team[team.length - 1];
+    if (ace)
+      ace.heldItemId = champion ? "focus-band" : "leftovers";
     return team;
   }
   async function resolveEliteNode(node) {
@@ -6801,6 +7015,12 @@
       mapBtn.addEventListener("click", () => {
         if (!state.busy && state.run)
           showMap();
+      });
+    const bagBtn = $("#bagBtn");
+    if (bagBtn)
+      bagBtn.addEventListener("click", () => {
+        if (state.run)
+          openEquipPanel();
       });
     $("#backBtn").addEventListener("click", async () => {
       if (!state.busy) {
