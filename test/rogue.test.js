@@ -164,13 +164,19 @@ test("map: bosses single-node, champion last, fully connected", () => {
     for (let R = rowsPerRegion - 2; R < totalRows; R += rowsPerRegion) {
       for (const id of map.rows[R]) assert.strictEqual(map.nodes[id].type, NODE.REST, `pre-boss should rest (${seed})`);
     }
-    // Every route begins with two guaranteed recruitment opportunities.
-    for (let reg = 0; reg < regions; reg++) {
-      for (const local of [0, 1]) {
-        const row = map.rows[reg * rowsPerRegion + local];
-        assert.ok(row.length > 0 && row.every((id) => map.nodes[id].type === NODE.BATTLE),
-          `region ${reg} row ${local} should be all Wild battles (${seed})`);
-      }
+    // The opening row always leaves at least one Wild encounter available so a
+    // fresh run can start by catching a Pokémon; early rows otherwise vary.
+    assert.ok(
+      map.rows[0].length > 0 && map.rows[0].some((id) => map.nodes[id].type === NODE.BATTLE),
+      `opening row should offer a Wild battle (${seed})`,
+    );
+    // Early rows lean on battles but are no longer exclusively battles: shops,
+    // rests, and mysteries may seed in (rarer than deeper rows).
+    for (const id of map.rows[0].concat(map.rows[1])) {
+      assert.ok(
+        [NODE.BATTLE, NODE.MYSTERY, NODE.SHOP, NODE.REST].includes(map.nodes[id].type),
+        `early node ${id} should be a route node (${seed})`,
+      );
     }
     // one shop per region
     for (let reg = 0; reg < regions; reg++) {

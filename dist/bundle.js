@@ -2001,23 +2001,26 @@
       });
     }
     const preBoss = (r) => isBossRow(r + 1);
+    const earlyPool = [
+      { item: NODE.BATTLE, weight: 80 },
+      { item: NODE.MYSTERY, weight: 11 },
+      { item: NODE.SHOP, weight: 5 },
+      { item: NODE.REST, weight: 4 }
+    ];
+    const laterPool = [
+      { item: NODE.BATTLE, weight: 58 },
+      { item: NODE.MYSTERY, weight: 24 },
+      { item: NODE.SHOP, weight: 10 },
+      { item: NODE.REST, weight: 8 }
+    ];
     const rest = Object.values(nodes).filter((n) => !n.type).sort((a, b) => a.row - b.row || a.col - b.col);
     for (const n of rest) {
       const local = n.row % rowsPerRegion;
-      if (local <= 1) {
-        n.type = NODE.BATTLE;
-        continue;
-      }
       if (preBoss(n.row)) {
         n.type = NODE.REST;
         continue;
       }
-      const pool = [
-        { item: NODE.BATTLE, weight: 58 },
-        { item: NODE.MYSTERY, weight: 24 },
-        { item: NODE.SHOP, weight: 10 },
-        { item: NODE.REST, weight: 8 }
-      ];
+      const pool = local <= 1 ? earlyPool : laterPool;
       let t = rng() * pool.reduce((s, e) => s + e.weight, 0);
       for (const e of pool) {
         t -= e.weight;
@@ -2028,6 +2031,10 @@
       }
       if (!n.type)
         n.type = NODE.BATTLE;
+    }
+    const openingRow = Object.values(nodes).filter((n) => n.row === 0);
+    if (openingRow.length && !openingRow.some((n) => n.type === NODE.BATTLE)) {
+      pick(rng, openingRow).type = NODE.BATTLE;
     }
     for (let reg = 0; reg < regions; reg++) {
       const inReg = Object.values(nodes).filter((n) => n.region === reg && n.type !== NODE.CHAMPION && n.type !== NODE.ELITE);

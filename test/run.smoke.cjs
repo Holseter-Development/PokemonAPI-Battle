@@ -180,9 +180,10 @@ const waitFor = (cond, ms = 9000) => new Promise((resolve, reject) => {
       "legacy Box species backfilled as caught",
     );
 
-    // Travel to the first available node → a battle (or node) should resolve,
-    // hiding the map. (Row-0 nodes are always Wild battles.)
-    doc.querySelector("#mapCanvas .map-node.available").click();
+    // Travel to an available Wild encounter → a battle should resolve, hiding
+    // the map. (The opening row always offers at least one Wild battle, though
+    // other early node types may now appear alongside it.)
+    doc.querySelector("#mapCanvas .map-node.available.type-battle").click();
     await waitFor(() => doc.getElementById("mapScreen").classList.contains("hidden"));
     console.log("  ✓ selecting a node leaves the map");
 
@@ -223,8 +224,8 @@ const waitFor = (cond, ms = 9000) => new Promise((resolve, reject) => {
     staleSprite.setAttribute("src", "old-enemy.png");
     staleSprite.dataset.src = "old-enemy.png";
     staleSprite.style.opacity = "1";
-    const secondNode = doc.querySelector("#mapCanvas .map-node.available");
-    assert.ok(secondNode, "second guaranteed Wild node is reachable");
+    const secondNode = doc.querySelector("#mapCanvas .map-node.available.type-battle");
+    assert.ok(secondNode, "a Wild encounter is reachable next");
     secondNode.click();
     assert.ok(!doc.getElementById("mapScreen").classList.contains("hidden"), "map covers encounter loading");
     await waitFor(() => doc.getElementById("mapScreen").classList.contains("hidden"));
