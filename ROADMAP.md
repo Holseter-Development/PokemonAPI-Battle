@@ -499,6 +499,25 @@ one-versus-one engine.
 - Fleeing grants no reward.
 - Tests cover level cap, rewards, capture modifier, and save behavior.
 
+**Status:** Complete. A small seeded chance (`rollWildAlpha`, base `ALPHA_BASE_ONE_IN`
+= 1/12, drawn on the run RNG) upgrades a wild battle node into an Alpha encounter
+and picks one visible aura from `ALPHA_MODIFIERS` (Frenzied / Ironclad / Swift /
+Vigorous) in `src/encounters.js`. `applyAlphaModifier` scales the Alpha's *own*
+stats — transparent in the HUD, not hidden AI cheating — and tags `mon.alpha`.
+The roll is skipped on the run's opening encounter (already authored as a fair
+starter matchup); Alphas begin from the second battle onward. Alphas fight two
+levels above the route target, capped at 100 (`alphaLevel`).
+A pre-battle banner (`⚔ Alpha …!`) plus a naming line and a persistent crimson
+enemy-card aura / `⚔` label signal the encounter; catch odds are halved while the
+aura is active (`ALPHA_CATCH_MULT`). Defeating **or** catching one grants bonus
+gold (`alphaGoldBonus`, depth/ascension-scaled) plus a guaranteed mutation choice,
+exactly once (`grantAlphaReward` in `afterBattleWin`); fleeing bypasses the reward
+entirely. Because a node's rolls aren't persisted until it resolves, a
+save/continue mid-node reproduces a pending Alpha rather than rerolling it. Tests
+in `rogue.test.js` (roll determinism/reload-safety, level cap, catch penalty, gold
+bonus) and `encounters.test.js` (modifier catalog validity, seeded picker,
+stat-scaling applier, safe no-op) cover the acceptance criteria.
+
 ## P2.5 — Recurring rival
 
 **Size:** L  
@@ -963,8 +982,8 @@ Implement in this order:
 7. `P2.1` — Biome encounter catalog. **Complete**
 8. `P2.2` — Deterministic controller rolls. **Complete**
 9. `P2.3` — Shinies. **Complete**
-10. `P2.4` — Alpha encounters. **Next**
-11. `P2.5` — Recurring rival.
+10. `P2.4` — Alpha encounters. **Complete**
+11. `P2.5` — Recurring rival. **Next**
 12. `P2.6` — Mystery event expansion.
 
 After P2, reassess run length, difficulty, money pressure, catch rate, and API
@@ -1000,8 +1019,9 @@ Update this section as chunks ship.
 | P2.1 | Complete | Three region biome tables, seeded depth-gated wild picker, and encounter tests shipped 2026-07-24 |
 | P2.2 | Complete | Seeded coinflip/well/shrine resolvers, readable Mystery outcome modal, and reroll-guard tests shipped 2026-07-24 |
 | P2.3 | Complete | Seeded wild shiny rolls, tiered odds + Shiny Charm, shiny sprites/markers, and identity-through-growth tests shipped 2026-07-24 |
-| P2.4 | Next | Alpha encounters |
-| P2.5–P2.6 | Backlog | Places and surprise |
+| P2.4 | Complete | Seeded Alpha rolls, visible aura buffs, +2 level cap, catch penalty, one-time gold+mutation reward, and Alpha tests shipped 2026-07-24 |
+| P2.5 | Next | Recurring rival |
+| P2.6 | Backlog | Mystery event expansion |
 | P3.0–P3.6 | Backlog | Team-building depth |
 | P4.1–P4.7 | Backlog | Replay and challenge |
 | P5.1–P5.3 | Deferred | Multi-target battle formats |

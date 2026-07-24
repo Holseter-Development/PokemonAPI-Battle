@@ -1957,6 +1957,125 @@
     return RARITY_WEIGHT[def.rarity] || 1;
   }
 
+  // src/encounters.js
+  var C = 20;
+  var U = 12;
+  var R = 4;
+  var BIOMES = {
+    0: {
+      region: 0,
+      name: "Viridian Wilds",
+      entries: [
+        { id: 10, weight: C, minDepth: 0, tags: ["common", "bug"] },
+        // Caterpie
+        { id: 13, weight: C, minDepth: 0, tags: ["common", "bug"] },
+        // Weedle
+        { id: 16, weight: C, minDepth: 0, tags: ["common", "flying"] },
+        // Pidgey
+        { id: 19, weight: C, minDepth: 0, tags: ["common", "normal"] },
+        // Rattata
+        { id: 29, weight: U, minDepth: 0, tags: ["common", "poison"] },
+        // Nidoran♀
+        { id: 32, weight: U, minDepth: 0, tags: ["common", "poison"] },
+        // Nidoran♂
+        { id: 25, weight: R, minDepth: 1, tags: ["rare", "electric"] },
+        // Pikachu
+        { id: 1, weight: R, minDepth: 1, tags: ["rare", "grass"] }
+        // Bulbasaur
+      ]
+    },
+    1: {
+      region: 1,
+      name: "Crimson Highlands",
+      entries: [
+        { id: 74, weight: C, minDepth: 0, tags: ["common", "rock"] },
+        // Geodude
+        { id: 66, weight: C, minDepth: 0, tags: ["common", "fighting"] },
+        // Machop
+        { id: 58, weight: U, minDepth: 0, tags: ["common", "fire"] },
+        // Growlithe
+        { id: 77, weight: U, minDepth: 0, tags: ["common", "fire"] },
+        // Ponyta
+        { id: 104, weight: C, minDepth: 0, tags: ["common", "ground"] },
+        // Cubone
+        { id: 95, weight: R, minDepth: 0, tags: ["rare", "rock"] },
+        // Onix
+        { id: 4, weight: R, minDepth: 0, tags: ["rare", "fire"] }
+        // Charmander
+      ]
+    },
+    2: {
+      region: 2,
+      name: "Indigo Summit",
+      entries: [
+        { id: 92, weight: C, minDepth: 0, tags: ["common", "ghost"] },
+        // Gastly
+        { id: 81, weight: C, minDepth: 0, tags: ["common", "electric"] },
+        // Magnemite
+        { id: 111, weight: U, minDepth: 0, tags: ["common", "ground"] },
+        // Rhyhorn
+        { id: 86, weight: C, minDepth: 0, tags: ["common", "water"] },
+        // Seel
+        { id: 147, weight: R, minDepth: 0, tags: ["rare", "dragon"] },
+        // Dratini
+        { id: 131, weight: R, minDepth: 0, tags: ["rare", "water"] },
+        // Lapras
+        { id: 133, weight: R, minDepth: 0, tags: ["rare", "normal"] }
+        // Eevee
+      ]
+    }
+  };
+  var REGION_COUNT = Object.keys(BIOMES).length;
+  function clampRegion(r) {
+    return Math.max(0, Math.min(REGION_COUNT - 1, r | 0));
+  }
+  function regionFor(node, run) {
+    if (node && Number.isInteger(node.region))
+      return clampRegion(node.region);
+    const pos = run && run.position && run.map && run.map.nodes ? run.map.nodes[run.position] : null;
+    if (pos && Number.isInteger(pos.region))
+      return clampRegion(pos.region);
+    return 0;
+  }
+  function encounterTableFor(node, run) {
+    return BIOMES[regionFor(node, run)] || BIOMES[0];
+  }
+  function eligibleEntries(table, depth = 0) {
+    const inWindow = table.entries.filter(
+      (e) => depth >= (e.minDepth ?? 0) && depth <= (e.maxDepth ?? Infinity)
+    );
+    return inWindow.length ? inWindow : table.entries;
+  }
+  function pickEncounter(rng, table, depth = 0) {
+    const pool = eligibleEntries(table, depth);
+    return weightedPick(rng, pool.map((e) => ({ item: e, weight: e.weight })));
+  }
+  function defaultSpeciesId() {
+    return BIOMES[0].entries[0].id;
+  }
+  var ALPHA_MODIFIERS = [
+    { id: "frenzied", name: "Frenzied", desc: "+30% Attack & Sp. Atk", stats: { atk: 1.3, spa: 1.3 } },
+    { id: "ironclad", name: "Ironclad", desc: "+40% Defense & Sp. Def", stats: { def: 1.4, spd: 1.4 } },
+    { id: "swift", name: "Swift", desc: "+40% Speed", stats: { spe: 1.4 } },
+    { id: "vigorous", name: "Vigorous", desc: "+25% max HP", stats: { maxHp: 1.25 } }
+  ];
+  function pickAlphaModifier(rng) {
+    return ALPHA_MODIFIERS[Math.floor(rng() * ALPHA_MODIFIERS.length)];
+  }
+  function applyAlphaModifier(mon, modifier) {
+    if (!mon || !mon.stats || !modifier || !modifier.stats)
+      return mon;
+    for (const [k, f] of Object.entries(modifier.stats)) {
+      if (mon.stats[k] == null)
+        continue;
+      mon.stats[k] = Math.max(1, Math.floor(mon.stats[k] * f));
+    }
+    if (modifier.stats.maxHp)
+      mon.stats.hp = mon.stats.maxHp;
+    mon.alpha = { id: modifier.id, name: modifier.name, desc: modifier.desc };
+    return mon;
+  }
+
   // src/run.js
   var NODE = {
     BATTLE: "battle",
@@ -2348,6 +2467,23 @@
     const denom = Number.isFinite(n) && n >= 1 ? n : 512;
     return withRng(run, (rng) => rng() < 1 / denom);
   }
+  var ALPHA_BASE_ONE_IN = 12;
+  var ALPHA_LEVEL_BONUS = 2;
+  function alphaLevel(baseLevel) {
+    const b = Math.max(1, Math.floor(Number(baseLevel) || 1));
+    return Math.min(100, b + ALPHA_LEVEL_BONUS);
+  }
+  var ALPHA_CATCH_MULT = 0.5;
+  function alphaGoldBonus(run) {
+    const depth = run?.visited?.length || 0;
+    const ascension = run?.ascension || 0;
+    return 40 + depth * 2 + ascension * 15;
+  }
+  function rollWildAlpha(run, oneIn = ALPHA_BASE_ONE_IN) {
+    const n = Number(oneIn);
+    const denom = Number.isFinite(n) && n >= 1 ? n : ALPHA_BASE_ONE_IN;
+    return withRng(run, (rng) => rng() < 1 / denom ? pickAlphaModifier(rng) : null);
+  }
   function encounterLevel(run) {
     const depth = run.visited?.length || 0;
     const ascension = run.ascension || 0;
@@ -2371,103 +2507,6 @@
     const depth = run.visited?.length || 0;
     const scaled = Math.min(n, Math.max(10, Math.round(n * (0.45 + depth / 26))));
     return Math.min(scaled, Math.max(0, run.gold || 0));
-  }
-
-  // src/encounters.js
-  var C = 20;
-  var U = 12;
-  var R = 4;
-  var BIOMES = {
-    0: {
-      region: 0,
-      name: "Viridian Wilds",
-      entries: [
-        { id: 10, weight: C, minDepth: 0, tags: ["common", "bug"] },
-        // Caterpie
-        { id: 13, weight: C, minDepth: 0, tags: ["common", "bug"] },
-        // Weedle
-        { id: 16, weight: C, minDepth: 0, tags: ["common", "flying"] },
-        // Pidgey
-        { id: 19, weight: C, minDepth: 0, tags: ["common", "normal"] },
-        // Rattata
-        { id: 29, weight: U, minDepth: 0, tags: ["common", "poison"] },
-        // Nidoran♀
-        { id: 32, weight: U, minDepth: 0, tags: ["common", "poison"] },
-        // Nidoran♂
-        { id: 25, weight: R, minDepth: 1, tags: ["rare", "electric"] },
-        // Pikachu
-        { id: 1, weight: R, minDepth: 1, tags: ["rare", "grass"] }
-        // Bulbasaur
-      ]
-    },
-    1: {
-      region: 1,
-      name: "Crimson Highlands",
-      entries: [
-        { id: 74, weight: C, minDepth: 0, tags: ["common", "rock"] },
-        // Geodude
-        { id: 66, weight: C, minDepth: 0, tags: ["common", "fighting"] },
-        // Machop
-        { id: 58, weight: U, minDepth: 0, tags: ["common", "fire"] },
-        // Growlithe
-        { id: 77, weight: U, minDepth: 0, tags: ["common", "fire"] },
-        // Ponyta
-        { id: 104, weight: C, minDepth: 0, tags: ["common", "ground"] },
-        // Cubone
-        { id: 95, weight: R, minDepth: 0, tags: ["rare", "rock"] },
-        // Onix
-        { id: 4, weight: R, minDepth: 0, tags: ["rare", "fire"] }
-        // Charmander
-      ]
-    },
-    2: {
-      region: 2,
-      name: "Indigo Summit",
-      entries: [
-        { id: 92, weight: C, minDepth: 0, tags: ["common", "ghost"] },
-        // Gastly
-        { id: 81, weight: C, minDepth: 0, tags: ["common", "electric"] },
-        // Magnemite
-        { id: 111, weight: U, minDepth: 0, tags: ["common", "ground"] },
-        // Rhyhorn
-        { id: 86, weight: C, minDepth: 0, tags: ["common", "water"] },
-        // Seel
-        { id: 147, weight: R, minDepth: 0, tags: ["rare", "dragon"] },
-        // Dratini
-        { id: 131, weight: R, minDepth: 0, tags: ["rare", "water"] },
-        // Lapras
-        { id: 133, weight: R, minDepth: 0, tags: ["rare", "normal"] }
-        // Eevee
-      ]
-    }
-  };
-  var REGION_COUNT = Object.keys(BIOMES).length;
-  function clampRegion(r) {
-    return Math.max(0, Math.min(REGION_COUNT - 1, r | 0));
-  }
-  function regionFor(node, run) {
-    if (node && Number.isInteger(node.region))
-      return clampRegion(node.region);
-    const pos = run && run.position && run.map && run.map.nodes ? run.map.nodes[run.position] : null;
-    if (pos && Number.isInteger(pos.region))
-      return clampRegion(pos.region);
-    return 0;
-  }
-  function encounterTableFor(node, run) {
-    return BIOMES[regionFor(node, run)] || BIOMES[0];
-  }
-  function eligibleEntries(table, depth = 0) {
-    const inWindow = table.entries.filter(
-      (e) => depth >= (e.minDepth ?? 0) && depth <= (e.maxDepth ?? Infinity)
-    );
-    return inWindow.length ? inWindow : table.entries;
-  }
-  function pickEncounter(rng, table, depth = 0) {
-    const pool = eligibleEntries(table, depth);
-    return weightedPick(rng, pool.map((e) => ({ item: e, weight: e.weight })));
-  }
-  function defaultSpeciesId() {
-    return BIOMES[0].entries[0].id;
   }
 
   // src/progression.js
@@ -3383,8 +3422,9 @@
     }
     if (state.enemy) {
       const e = state.enemy;
-      $("#enemyName").textContent = (state.mode === "trainer" ? "" : "Wild ") + shinyMark(e) + e.name;
+      $("#enemyName").textContent = (state.mode === "trainer" ? "" : "Wild ") + alphaMark(e) + shinyMark(e) + e.name;
       $("#enemyCard")?.classList.toggle("is-shiny", !!e.isShiny);
+      $("#enemyCard")?.classList.toggle("is-alpha", !!e.alpha);
       $("#enemyLevel").textContent = e.level;
       renderTypes($("#enemyTypes"), e.types);
       renderStatus($("#enemyStatus"), e.status);
@@ -3802,6 +3842,7 @@
     return (isEnemy && state.mode !== "trainer" ? "Wild " : "") + mon.name;
   }
   var shinyMark = (mon) => mon && mon.isShiny ? "\u2726 " : "";
+  var alphaMark = (mon) => mon && mon.alpha ? "\u2694 " : "";
   async function performMove(attacker, defender, move, attackerIsPlayer) {
     const aSel = attackerIsPlayer ? "#playerSprite" : "#enemySprite";
     const dSel = attackerIsPlayer ? "#enemySprite" : "#playerSprite";
@@ -4124,6 +4165,10 @@
         await say(`\u2726 A shiny wild ${state.enemy.name} appeared!`);
       } else {
         await say(`A wild ${state.enemy.name} appeared!`);
+      }
+      if (state.enemy.alpha) {
+        await showBanner(`\u2694 Alpha ${state.enemy.name}!`, 1300);
+        await say(`It's an Alpha \u2014 ${state.enemy.alpha.name} aura (${state.enemy.alpha.desc}). It won't be caught easily!`);
       }
       registerPokemonProgress(state.enemy, "seen");
       if (entryStatus)
@@ -4478,7 +4523,12 @@
   async function resolveBattleNode(node) {
     setBusy(true);
     const speciesId = pickWildSpecies(state.run, node);
-    const mon = await makeWildMon(encounterLevel(state.run), speciesId, { shiny: rollRunShiny() });
+    const shiny = rollRunShiny();
+    const alpha = state.run.visited.length > 0 ? rollWildAlpha(state.run) : null;
+    const baseLevel = encounterLevel(state.run);
+    const mon = await makeWildMon(alpha ? alphaLevel(baseLevel) : baseLevel, speciesId, { shiny });
+    if (alpha)
+      applyAlphaModifier(mon, alpha);
     setBusy(false);
     await startBattle({
       kind: "battle",
@@ -4489,6 +4539,7 @@
     });
   }
   async function afterBattleWin(info = {}) {
+    const alpha = state.enemy?.alpha || null;
     if (info.caught) {
       ensureRuntime(info.caught);
       if (state.run.team.length < 6)
@@ -4505,7 +4556,19 @@
     state.run.gold += gold;
     if (gold)
       floatToast(`+${gold} gold`);
+    if (alpha)
+      await grantAlphaReward(alpha);
     goToMap();
+  }
+  async function grantAlphaReward(alpha) {
+    const run = state.run;
+    const bonus = alphaGoldBonus(run);
+    run.gold += bonus;
+    renderRunHud();
+    await say(`Alpha bonus! The ${alpha.name} aura fades \u2014 +${bonus} gold and a mutation.`, 400);
+    const line = await graftMutationFlow();
+    await say(line || "You passed on the Alpha's mutation.");
+    saveRun();
   }
   async function buildBossTeam(boss) {
     const champion = boss === CHAMPION;
@@ -5319,7 +5382,8 @@
       const handle = await fx.throwAndWobble(sx, sy, tx, ty, () => {
         enemyImg.style.opacity = "0";
       });
-      const catchChance = Math.min(0.99, 0.92 * (state.run?.progressionFx?.catchChanceMult || 1));
+      const alphaMult = state.enemy?.alpha ? ALPHA_CATCH_MULT : 1;
+      const catchChance = Math.min(0.99, 0.92 * (state.run?.progressionFx?.catchChanceMult || 1) * alphaMult);
       const success = Math.random() < catchChance;
       await handle.shake(success ? 3 : Math.floor(Math.random() * 2) + 1);
       if (success) {

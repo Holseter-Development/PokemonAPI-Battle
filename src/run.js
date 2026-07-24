@@ -6,6 +6,7 @@
 import { makeRng, hashSeed, randRange, pick, shuffle, sampleDistinct } from "./rng.js";
 import { mutationList, sigilList, rarityWeightOf } from "./mutations.js";
 import { WANDERING_TRAINERS } from "./data.js";
+import { pickAlphaModifier } from "./encounters.js";
 
 export const NODE = {
   BATTLE: "battle", // wild encounter (catchable)
@@ -403,6 +404,44 @@ export function rollWildShiny(run, oneIn) {
   const n = Number(oneIn);
   const denom = Number.isFinite(n) && n >= 1 ? n : 512;
   return withRng(run, (rng) => rng() < 1 / denom);
+}
+
+// ---- Alpha encounters (P2.4) -------------------------------------------
+// A small seeded chance turns a normal wild battle into an Alpha encounter.
+// The roll is drawn on the run RNG so a seed + path reproduces which battles are
+// Alpha (and which aura they carry). Because a node's rolls are not persisted
+// until it resolves (the controller only saves on goToMap), a save/continue
+// mid-node re-draws from the same stored state and never rerolls a pending Alpha.
+export const ALPHA_BASE_ONE_IN = 12; // ~1 in 12 wild battles is an Alpha
+
+// Alphas fight two levels above the route target, capped at level 100.
+export const ALPHA_LEVEL_BONUS = 2;
+export function alphaLevel(baseLevel) {
+  const b = Math.max(1, Math.floor(Number(baseLevel) || 1));
+  return Math.min(100, b + ALPHA_LEVEL_BONUS);
+}
+
+// Catch odds are multiplied by this while the Alpha's aura is active, so an
+// Alpha is meaningfully harder to catch than an ordinary wild Pokémon.
+export const ALPHA_CATCH_MULT = 0.5;
+
+// Bonus gold granted once for defeating or catching an Alpha. A pure function of
+// depth + ascension so it does not consume the run RNG stream (keeping later
+// node rolls reproducible).
+export function alphaGoldBonus(run) {
+  const depth = run?.visited?.length || 0;
+  const ascension = run?.ascension || 0;
+  return 40 + depth * 2 + ascension * 15;
+}
+
+// Roll whether a wild battle is an Alpha. Returns the chosen aura modifier when
+// it is, or null for a normal encounter. `oneIn` is the 1-in-N chance; a forced
+// value of 1 always yields an Alpha (used by tests) and an invalid / non-positive
+// value falls back to the base odds.
+export function rollWildAlpha(run, oneIn = ALPHA_BASE_ONE_IN) {
+  const n = Number(oneIn);
+  const denom = Number.isFinite(n) && n >= 1 ? n : ALPHA_BASE_ONE_IN;
+  return withRng(run, (rng) => (rng() < 1 / denom ? pickAlphaModifier(rng) : null));
 }
 
 // Difficulty scaling follows run depth, but never races far ahead merely

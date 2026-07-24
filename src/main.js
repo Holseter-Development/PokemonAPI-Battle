@@ -48,8 +48,9 @@ import {
   nodeById, offerSigils, offerMutations, rollShop, rollMysteryEncounter, rollGold,
   encounterLevel, bossMemberLevel, checkWipe, withRng, eventGoldCost,
   resolveCoinflip, resolveWishingWell, resolveShrineScar, rollWildShiny,
+  rollWildAlpha, alphaLevel, alphaGoldBonus, ALPHA_CATCH_MULT,
 } from "./run.js";
-import { encounterTableFor, pickEncounter, defaultSpeciesId } from "./encounters.js";
+import { encounterTableFor, pickEncounter, defaultSpeciesId, applyAlphaModifier } from "./encounters.js";
 import {
   SIGILS, MUTATIONS, applyMutation, aggregateSigils, applyStartingBallBonus, emptyEffects, RARITY_COLOR,
 } from "./mutations.js";
@@ -495,8 +496,9 @@ function updateHUD() {
 
   if (state.enemy) {
     const e = state.enemy;
-    $("#enemyName").textContent = (state.mode === "trainer" ? "" : "Wild ") + shinyMark(e) + e.name;
+    $("#enemyName").textContent = (state.mode === "trainer" ? "" : "Wild ") + alphaMark(e) + shinyMark(e) + e.name;
     $("#enemyCard")?.classList.toggle("is-shiny", !!e.isShiny);
+    $("#enemyCard")?.classList.toggle("is-alpha", !!e.alpha);
     $("#enemyLevel").textContent = e.level;
     renderTypes($("#enemyTypes"), e.types);
     renderStatus($("#enemyStatus"), e.status);
@@ -897,6 +899,8 @@ function labelFor(mon, isEnemy) {
 
 // A leading sparkle marks a shiny in name labels (HUD, party, box, results).
 const shinyMark = (mon) => (mon && mon.isShiny ? "✦ " : "");
+// A leading crossed-swords glyph marks an Alpha wild Pokémon in battle labels.
+const alphaMark = (mon) => (mon && mon.alpha ? "⚔ " : "");
 
 // Resolve one combatant's move with full animation. Returns { acted, defenderFainted, result }.
 async function performMove(attacker, defender, move, attackerIsPlayer) {
@@ -1216,6 +1220,12 @@ async function startBattle(spec) {
       await say(`✦ A shiny wild ${state.enemy.name} appeared!`);
     } else {
       await say(`A wild ${state.enemy.name} appeared!`);
+    }
+    // Pre-battle Alpha signal: a banner plus a line naming the visible aura, so
+    // the player knows this foe is stronger and harder to catch before acting.
+    if (state.enemy.alpha) {
+      await showBanner(`⚔ Alpha ${state.enemy.name}!`, 1300);
+      await say(`It's an Alpha — ${state.enemy.alpha.name} aura (${state.enemy.alpha.desc}). It won't be caught easily!`);
     }
     registerPokemonProgress(state.enemy, "seen");
     if (entryStatus) await say(`${state.enemy.name} was poisoned by Toxic Spikes!`);
@@ -1550,7 +1560,15 @@ async function resolveNode(node) {
 async function resolveBattleNode(node) {
   setBusy(true);
   const speciesId = pickWildSpecies(state.run, node);
-  const mon = await makeWildMon(encounterLevel(state.run), speciesId, { shiny: rollRunShiny() });
+  const shiny = rollRunShiny();
+  // A small seeded chance upgrades this into an Alpha: two levels above the route
+  // target with one visible aura buff (see rollWildAlpha / applyAlphaModifier).
+  // Never on the run's opening encounter, which is authored as a fair starter
+  // matchup (see pickWildSpecies) — Alphas begin from the second battle onward.
+  const alpha = state.run.visited.length > 0 ? rollWildAlpha(state.run) : null;
+  const baseLevel = encounterLevel(state.run);
+  const mon = await makeWildMon(alpha ? alphaLevel(baseLevel) : baseLevel, speciesId, { shiny });
+  if (alpha) applyAlphaModifier(mon, alpha);
   setBusy(false);
   await startBattle({
     kind: "battle", enemy: mon,
@@ -1561,6 +1579,10 @@ async function resolveBattleNode(node) {
 }
 
 async function afterBattleWin(info = {}) {
+  // Capture the Alpha aura before the caught mon (a fresh, un-boosted build)
+  // replaces state.enemy in the reward flow. Triggers once whether the Alpha was
+  // defeated or caught; fleeing skips afterBattleWin entirely, so it earns nothing.
+  const alpha = state.enemy?.alpha || null;
   if (info.caught) {
     ensureRuntime(info.caught);
     if (state.run.team.length < 6) state.run.team.push(info.caught);
@@ -1574,7 +1596,21 @@ async function afterBattleWin(info = {}) {
   );
   state.run.gold += gold;
   if (gold) floatToast(`+${gold} gold`);
+  if (alpha) await grantAlphaReward(alpha);
   goToMap();
+}
+
+// The one-time Alpha payout: bonus gold plus a guaranteed mutation choice. Runs
+// on the still-visible battle screen, so it uses say() + the mutation panels.
+async function grantAlphaReward(alpha) {
+  const run = state.run;
+  const bonus = alphaGoldBonus(run);
+  run.gold += bonus;
+  renderRunHud();
+  await say(`Alpha bonus! The ${alpha.name} aura fades — +${bonus} gold and a mutation.`, 400);
+  const line = await graftMutationFlow();
+  await say(line || "You passed on the Alpha's mutation.");
+  saveRun();
 }
 
 async function buildBossTeam(boss) {
@@ -2279,8 +2315,10 @@ async function throwBall(key = "poke-ball") {
   const enemyImg = $("#enemySprite");
   try {
     const handle = await fx.throwAndWobble(sx, sy, tx, ty, () => { enemyImg.style.opacity = "0"; });
-    const catchChance = Math.min(0.99, 0.92 * (state.run?.progressionFx?.catchChanceMult || 1));
-    const success = Math.random() < catchChance; // near-guaranteed
+    // Alphas are harder to catch while their aura is active (P2.4).
+    const alphaMult = state.enemy?.alpha ? ALPHA_CATCH_MULT : 1;
+    const catchChance = Math.min(0.99, 0.92 * (state.run?.progressionFx?.catchChanceMult || 1) * alphaMult);
+    const success = Math.random() < catchChance; // near-guaranteed (reduced for Alphas)
     await handle.shake(success ? 3 : Math.floor(Math.random() * 2) + 1);
     if (success) {
       handle.clear();

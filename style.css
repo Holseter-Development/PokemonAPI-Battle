@@ -663,6 +663,9 @@ button.use-btn:active { transform: translateY(2px); }
 .statusbox.is-shiny { box-shadow: 0 0 0 1px rgba(255,210,110,.55), 0 0 16px rgba(255,205,90,.35); }
 .statusbox.is-shiny .mon-name { color: #ffd76a; text-shadow: 0 0 8px rgba(255,205,90,.55); }
 img.shiny-sprite { filter: drop-shadow(0 0 5px rgba(255,210,110,.6)); }
+/* Alpha wild Pokémon: a crimson aura on the enemy card, distinct from shiny gold. */
+.statusbox.is-alpha { box-shadow: 0 0 0 1px rgba(255,120,110,.6), 0 0 18px rgba(239,98,108,.45); }
+.statusbox.is-alpha .mon-name { color: #ff8a80; text-shadow: 0 0 8px rgba(239,98,108,.55); }
 
 /* screen shake */
 @keyframes screen-shake {
