@@ -85,6 +85,22 @@ export function applyMutation(mon, id) {
   return true;
 }
 
+// Re-apply the effects of every mutation a mon already carries, WITHOUT
+// re-registering ids. Growth (level-up, evolution) recomputes a Pokémon's stats
+// from its species base, which wipes the multiplicative stat grafts; calling
+// this immediately after resetting `mon.stats` to fresh base stats re-derives
+// those grafts so they land exactly once instead of being lost or compounded.
+// Type grafts, ability tags, and effect flags are idempotent, so the type/
+// ability/flag mutations are safe to re-run on an already-grafted mon.
+export function applyMutationEffects(mon) {
+  if (!mon || !Array.isArray(mon.mutations)) return mon;
+  for (const id of mon.mutations) {
+    const mut = MUTATIONS[id];
+    if (mut) mut.apply(mon);
+  }
+  return mon;
+}
+
 // ---- sigils (run-wide) --------------------------------------------------
 
 // Each sigil contributes a partial of the normalized effect object below.

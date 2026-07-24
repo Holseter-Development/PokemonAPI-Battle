@@ -43,7 +43,7 @@ import {
 import {
   rivalEncounter, championTeamIds, rivalStarterFor, RIVAL_NAME,
 } from "./rival.js";
-import { buildRoster, validateRoster, rosterPower, snapshotMon } from "./roster.js";
+import { buildRoster, validateRoster, rosterPower, snapshotMon, carryIdentity } from "./roster.js";
 import { arena, isArenaConfigured } from "./net.js";
 import { randomSeedString } from "./rng.js";
 import {
@@ -57,7 +57,7 @@ import {
 } from "./run.js";
 import { encounterTableFor, pickEncounter, defaultSpeciesId, applyAlphaModifier } from "./encounters.js";
 import {
-  SIGILS, MUTATIONS, applyMutation, aggregateSigils, applyStartingBallBonus, emptyEffects, RARITY_COLOR,
+  SIGILS, MUTATIONS, applyMutation, applyMutationEffects, aggregateSigils, applyStartingBallBonus, emptyEffects, RARITY_COLOR,
 } from "./mutations.js";
 import { sampleDistinct } from "./rng.js";
 import {
@@ -358,7 +358,11 @@ async function levelUp(mon, opts = {}) {
   const data = await fetchPokemon(mon.id);
   const tmp = makeMon(data, mon.level);
   const stages = mon.stages, status = mon.status;
+  // Recompute stats from the species base for the new level, then re-graft this
+  // mon's mutations on top. Resetting to base first is what keeps multiplicative
+  // stat grafts (Titan, Glass Cannon, Primeval...) from compounding every level.
   mon.stats = tmp.stats;
+  applyMutationEffects(mon);
   mon.stats.hp = Math.max(1, Math.floor(mon.stats.maxHp * frac));
   mon.stages = stages;
   mon.status = status;
@@ -412,7 +416,14 @@ async function maybeEvolve(mon, opts = {}) {
   const evolved = makeMon(data, mon.level, { shiny: mon.isShiny });
   evolved.moves = mergeMoves(mon.moves, await fetchMoveset(data, mon.level));
   await setupGrowthAndEvo(evolved, species);
-  evolved.stats.hp = Math.max(1, Math.floor(evolved.stats.maxHp * (mon.stats.hp / mon.stats.maxHp)));
+  // Preserve the pre-evolution build: shiny, mutations, pseudo-abilities, held
+  // item, and capture metadata carry across. Mutation stat grafts are then
+  // re-derived on top of the evolution's fresh base stats so they neither vanish
+  // nor double-apply.
+  const hpFrac = mon.stats.hp / Math.max(1, mon.stats.maxHp);
+  carryIdentity(mon, evolved);
+  applyMutationEffects(evolved);
+  evolved.stats.hp = Math.max(1, Math.floor(evolved.stats.maxHp * hpFrac));
   evolved.xp = mon.xp;
   evolved.xpNext = mon.xpNext;
   evolved.status = mon.status;

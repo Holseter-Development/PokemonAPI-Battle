@@ -7,9 +7,40 @@ export const ROSTER_MAX = 6;
 export const ROSTER_MIN = 1;
 export const ARENA_LEVEL_CAP = 100;
 
+// The parts of a Pokémon that make it *this* Pokémon rather than a fresh catch
+// of the same species. Base stats are always recomputed from species + level, so
+// they are deliberately absent here; everything below must survive leveling,
+// evolution, and serialization. `mutations` is the source of truth for grafted
+// stats/types/abilities (re-derived via applyMutationEffects); the rest are
+// standalone identity. `heldItemId`, `nature`, and `training` are forward-compat
+// slots for later P3 chunks and simply pass through when present.
+export const IDENTITY_FIELDS = [
+  "isShiny", "mutations", "abilities", "lifesteal", "trueStrike", "adaptive",
+  "alpha", "heldItemId", "nature", "training",
+];
+
+function cloneField(v) {
+  if (Array.isArray(v)) return v.map(cloneField);
+  if (v && typeof v === "object") return JSON.parse(JSON.stringify(v));
+  return v;
+}
+
+// Copy preserved identity from one mon onto another - used when a fresh mon is
+// built for an evolution so it keeps the pre-evolution build. Arrays and objects
+// are deep-cloned so the two mons never share mutable state.
+export function carryIdentity(from, to) {
+  if (!from || !to) return to;
+  for (const key of IDENTITY_FIELDS) {
+    const val = from[key];
+    if (val === undefined || val === null) continue;
+    to[key] = cloneField(val);
+  }
+  return to;
+}
+
 // Reduce a live battle mon to a clean, fully-healed transport snapshot.
 export function snapshotMon(mon) {
-  return {
+  const snap = {
     id: mon.id,
     name: mon.name,
     level: mon.level,
@@ -43,6 +74,11 @@ export function snapshotMon(mon) {
     stages: { atk: 0, def: 0, spa: 0, spd: 0, spe: 0, acc: 0, eva: 0 },
     status: { cond: "none", turns: 0, toxic: 0 },
   };
+  // Preserve build identity (mutations, pseudo-abilities, held item, capture
+  // metadata) so Vault/Arena mons keep their build across serialization. Only
+  // present fields are copied so a plain-vanilla mon stays free of noise.
+  carryIdentity(mon, snap);
+  return snap;
 }
 
 // Build a roster from a party, keeping only healthy, valid members.
