@@ -645,6 +645,25 @@ button.use-btn:active { transform: translateY(2px); }
   100% { opacity: 0; transform: translate(-50%,-120%) scale(1.04); }
 }
 
+/* shiny Pokémon — entrance sparkles, marker glow, and roster highlights */
+.vfx .shiny-spark {
+  position: absolute; width: var(--sz, 9px); height: var(--sz, 9px);
+  transform: translate(-50%, -50%) rotate(45deg); pointer-events: none;
+  background:
+    radial-gradient(closest-side, #fff, rgba(255,240,170,.9) 40%, transparent 72%);
+  filter: drop-shadow(0 0 6px rgba(255,225,140,.9));
+  animation: shiny-spark 900ms ease-out var(--dly, 0ms) both;
+}
+@keyframes shiny-spark {
+  0% { opacity: 0; transform: translate(-50%,-50%) rotate(45deg) scale(.2); }
+  30% { opacity: 1; transform: translate(-50%,-50%) rotate(45deg) scale(1.15); }
+  100% { opacity: 0; transform: translate(-50%,-120%) rotate(45deg) scale(.5); }
+}
+.mon-name .shiny-tag, .p-name.shiny { color: #ffd76a; text-shadow: 0 0 8px rgba(255,205,90,.55); }
+.statusbox.is-shiny { box-shadow: 0 0 0 1px rgba(255,210,110,.55), 0 0 16px rgba(255,205,90,.35); }
+.statusbox.is-shiny .mon-name { color: #ffd76a; text-shadow: 0 0 8px rgba(255,205,90,.55); }
+img.shiny-sprite { filter: drop-shadow(0 0 5px rgba(255,210,110,.6)); }
+
 /* screen shake */
 @keyframes screen-shake {
   0%,100% { transform: translate(0,0); }

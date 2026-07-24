@@ -441,16 +441,31 @@
       EVO_CACHE.set(url, fetchCachedJSON(url));
     return EVO_CACHE.get(url);
   }
-  function spriteSet(data) {
+  function spriteSet(data, shiny = false) {
     const s = data.sprites || {};
     const bw = s.versions?.["generation-v"]?.["black-white"]?.animated || {};
     const artwork = s.other?.["official-artwork"]?.front_default || null;
     const home = s.other?.home?.front_default || null;
+    if (shiny) {
+      const bwSF = bw.front_shiny, bwSB = bw.back_shiny;
+      const artworkS = s.other?.["official-artwork"]?.front_shiny || null;
+      const homeS = s.other?.home?.front_shiny || null;
+      const front = bwSF || s.front_shiny || artworkS || homeS || bw.front_default || s.front_default || artwork || home || "";
+      const back = bwSB || s.back_shiny || bwSF || s.front_shiny || bw.back_default || s.back_default || front || "";
+      return {
+        front,
+        back,
+        artwork: artworkS || s.front_shiny || artwork || s.front_default || "",
+        animated: !!bwSF,
+        shiny: true
+      };
+    }
     return {
       front: bw.front_default || s.front_default || artwork || home || "",
       back: bw.back_default || s.back_default || bw.front_default || s.front_default || "",
       artwork: artwork || s.front_default || "",
-      animated: !!bw.front_default
+      animated: !!bw.front_default,
+      shiny: false
     };
   }
   async function fetchMoveset(poke, level) {
@@ -1426,6 +1441,7 @@
       id: mon.id,
       name: mon.name,
       level: mon.level,
+      isShiny: !!mon.isShiny,
       types: mon.types.slice(),
       stats: {
         maxHp: mon.stats.maxHp,
@@ -2327,6 +2343,11 @@
       return { victimIndex, stat };
     });
   }
+  function rollWildShiny(run, oneIn) {
+    const n = Number(oneIn);
+    const denom = Number.isFinite(n) && n >= 1 ? n : 512;
+    return withRng(run, (rng) => rng() < 1 / denom);
+  }
   function encounterLevel(run) {
     const depth = run.visited?.length || 0;
     const ascension = run.ascension || 0;
@@ -2576,6 +2597,17 @@
     }
     return unlocked;
   }
+  var SHINY_BASE_ONE_IN = 512;
+  var SHINY_CHARM_ONE_IN = 256;
+  var SHINY_MASTER_ONE_IN = 128;
+  function shinyOdds(profile) {
+    const { unlocks } = normalizeProgression(profile);
+    if (unlocks.master_researcher)
+      return SHINY_MASTER_ONE_IN;
+    if (unlocks.shiny_charm)
+      return SHINY_CHARM_ONE_IN;
+    return SHINY_BASE_ONE_IN;
+  }
   function progressionEffects(profile) {
     const normalized = normalizeProgression(profile);
     const unlocks = normalized.unlocks;
@@ -2589,8 +2621,19 @@
       catchChanceMult: unlocks.catching_insight ? 1.05 : 1,
       goldMult: unlocks.merchant_license ? 1.1 : 1,
       starterIds: BONUS_STARTERS.filter((s) => unlocks[s.unlockId]).map((s) => s.id),
-      masterResearcher: !!unlocks.master_researcher
+      masterResearcher: !!unlocks.master_researcher,
+      shinyCharm: !!unlocks.shiny_charm,
+      shinyOneIn: shinyOdds(normalized)
     };
+  }
+  function grantShinyCharm(profile) {
+    if (!profile)
+      return false;
+    profile.unlocks = cleanRecord(profile.unlocks);
+    if (profile.unlocks.shiny_charm)
+      return false;
+    profile.unlocks.shiny_charm = true;
+    return true;
   }
   function upgradePurchaseState(profile, upgradeId) {
     const upgrade = UPGRADE_CATALOG.find((entry) => entry.id === upgradeId);
@@ -3021,17 +3064,20 @@
     // aliased to run.items during a run
   };
   function registerPokemonProgress(mon, field, announce = true) {
-    if (!mon || !registerSpeciesId(state.meta, field, mon.id)) {
-      return { added: false, unlocks: [] };
+    const shiny = field === "caught" && !!mon?.isShiny;
+    const effectiveField = shiny ? "shinyCaught" : field;
+    if (!mon || !registerSpeciesId(state.meta, effectiveField, mon.id)) {
+      return { added: false, unlocks: [], shiny };
     }
     const unlocks = reconcileProgressionUnlocks(state.meta);
     saveMeta();
     if (announce) {
       const counts = progressionCounts(state.meta);
-      const label = field === "seen" ? "Seen" : "Caught";
-      floatToast(unlocks.length ? `Unlocked \xB7 ${unlocks.map((entry) => entry.name).join(", ")}` : `Pok\xE9dex \xB7 ${label} ${counts[field]}/${GEN1_DEX_SIZE} \xB7 ${mon.name}`);
+      const label = field === "seen" ? "Seen" : shiny ? "\u2726 Shiny" : "Caught";
+      const count = shiny ? counts.shinyCaught : counts[field];
+      floatToast(unlocks.length ? `Unlocked \xB7 ${unlocks.map((entry) => entry.name).join(", ")}` : `Pok\xE9dex \xB7 ${label} ${count}/${GEN1_DEX_SIZE} \xB7 ${mon.name}`);
     }
-    return { added: true, unlocks };
+    return { added: true, unlocks, shiny };
   }
   function caughtProgressLines(registration) {
     if (!registration.added)
@@ -3078,14 +3124,16 @@
       mon.status = { cond: "none", turns: 0, toxic: 0 };
     return mon;
   }
-  function makeMon(data, level = 5) {
+  function makeMon(data, level = 5, opts = {}) {
     const b = Object.fromEntries(data.stats.map((s) => [s.stat.name, s.base_stat]));
     const maxHp = Math.floor(b.hp * 2 * level / 100 + level + 10);
     const st = (base) => Math.floor(base * 2 * level / 100 + 5);
-    const sp = spriteSet(data);
+    const shiny = !!opts.shiny;
+    const sp = spriteSet(data, shiny);
     return {
       id: data.id,
       name: cap(data.name),
+      isShiny: shiny,
       spriteFront: sp.front,
       spriteBack: sp.back,
       artwork: sp.artwork,
@@ -3113,10 +3161,10 @@
       status: { cond: "none", turns: 0, toxic: 0 }
     };
   }
-  async function buildMon(idOrName, level) {
+  async function buildMon(idOrName, level, opts = {}) {
     const data = await fetchPokemon(idOrName);
     const species = await fetchSpecies(data.id);
-    const mon = makeMon(data, level);
+    const mon = makeMon(data, level, opts);
     mon.capture_rate = species.capture_rate;
     mon.moves = await fetchMoveset(data, level);
     if (!mon.moves.length)
@@ -3248,7 +3296,7 @@
       return;
     const data = await fetchPokemon(candidate.species.name);
     const species = await fetchSpecies(data.id);
-    const evolved = makeMon(data, mon.level);
+    const evolved = makeMon(data, mon.level, { shiny: mon.isShiny });
     evolved.moves = mergeMoves(mon.moves, await fetchMoveset(data, mon.level));
     await setupGrowthAndEvo(evolved, species);
     evolved.stats.hp = Math.max(1, Math.floor(evolved.stats.maxHp * (mon.stats.hp / mon.stats.maxHp)));
@@ -3312,7 +3360,8 @@
     }
     if (state.player) {
       const p = state.player;
-      $("#playerName").textContent = p.name;
+      $("#playerName").textContent = shinyMark(p) + p.name;
+      $("#playerCard")?.classList.toggle("is-shiny", !!p.isShiny);
       $("#playerLevel").textContent = p.level;
       renderTypes($("#playerTypes"), p.types);
       renderStatus($("#playerStatus"), p.status);
@@ -3334,7 +3383,8 @@
     }
     if (state.enemy) {
       const e = state.enemy;
-      $("#enemyName").textContent = (state.mode === "trainer" ? "" : "Wild ") + e.name;
+      $("#enemyName").textContent = (state.mode === "trainer" ? "" : "Wild ") + shinyMark(e) + e.name;
+      $("#enemyCard")?.classList.toggle("is-shiny", !!e.isShiny);
       $("#enemyLevel").textContent = e.level;
       renderTypes($("#enemyTypes"), e.types);
       renderStatus($("#enemyStatus"), e.status);
@@ -3524,6 +3574,27 @@
     } catch (_) {
     }
     node.style.opacity = 1;
+  }
+  async function shinySparkle(sel) {
+    const node = $(sel);
+    const layer = $("#vfx");
+    if (!node || !layer)
+      return;
+    const nRect = node.getBoundingClientRect();
+    const lRect = layer.getBoundingClientRect();
+    if (!nRect.width || !lRect.width)
+      return;
+    await flashWhite(sel);
+    for (let i = 0; i < 14; i++) {
+      const s = el("div", { class: "shiny-spark" });
+      s.style.left = `${nRect.left - lRect.left + Math.random() * nRect.width}px`;
+      s.style.top = `${nRect.top - lRect.top + Math.random() * nRect.height * 0.9}px`;
+      s.style.setProperty("--sz", `${6 + Math.round(Math.random() * 10)}px`);
+      s.style.setProperty("--dly", `${Math.round(Math.random() * 340)}ms`);
+      layer.appendChild(s);
+      setTimeout(() => s.remove(), 1100);
+    }
+    await sleep(620);
   }
   var bannerHold = { t: 0 };
   async function showBanner(txt, ms = 1100) {
@@ -3730,6 +3801,7 @@
   function labelFor(mon, isEnemy) {
     return (isEnemy && state.mode !== "trainer" ? "Wild " : "") + mon.name;
   }
+  var shinyMark = (mon) => mon && mon.isShiny ? "\u2726 " : "";
   async function performMove(attacker, defender, move, attackerIsPlayer) {
     const aSel = attackerIsPlayer ? "#playerSprite" : "#enemySprite";
     const dSel = attackerIsPlayer ? "#enemySprite" : "#playerSprite";
@@ -4001,16 +4073,21 @@
       return pickEncounter(rng, encounterTableFor(node, run), run.visited.length).id;
     });
   }
-  async function makeWildMon(level, speciesId) {
+  async function makeWildMon(level, speciesId, opts = {}) {
     const id = Number.isInteger(speciesId) ? speciesId : defaultSpeciesId();
     const poke = await fetchPokemon(id);
-    const mon = makeMon(poke, level);
+    const mon = makeMon(poke, level, opts);
     const species = await fetchSpecies(poke.id);
     mon.capture_rate = species.capture_rate;
     mon.moves = await fetchMoveset(poke, mon.level);
     if (!mon.moves.length)
       mon.moves = [{ ...STRUGGLE, name: "Tackle", key: "tackle", power: 40, pp: 35, ppLeft: 35, drain: 0 }];
     return mon;
+  }
+  function rollRunShiny() {
+    if (!state.run)
+      return false;
+    return rollWildShiny(state.run, state.run.progressionFx?.shinyOneIn);
   }
   async function startBattle(spec) {
     $("#starterScreen")?.classList.add("hidden");
@@ -4042,7 +4119,12 @@
       updateHUD();
       setThemeByType(state.enemy.types);
       await fadeInSprite("#enemySprite");
-      await say(`A wild ${state.enemy.name} appeared!`);
+      if (state.enemy.isShiny) {
+        await shinySparkle("#enemySprite");
+        await say(`\u2726 A shiny wild ${state.enemy.name} appeared!`);
+      } else {
+        await say(`A wild ${state.enemy.name} appeared!`);
+      }
       registerPokemonProgress(state.enemy, "seen");
       if (entryStatus)
         await say(`${state.enemy.name} was poisoned by Toxic Spikes!`);
@@ -4396,7 +4478,7 @@
   async function resolveBattleNode(node) {
     setBusy(true);
     const speciesId = pickWildSpecies(state.run, node);
-    const mon = await makeWildMon(encounterLevel(state.run), speciesId);
+    const mon = await makeWildMon(encounterLevel(state.run), speciesId, { shiny: rollRunShiny() });
     setBusy(false);
     await startBattle({
       kind: "battle",
@@ -4694,7 +4776,7 @@
       }
       case "egg": {
         const speciesId = withRng(run, (rng) => pickEncounter(rng, encounterTableFor(currentNode(run), run), run.visited.length).id);
-        const mon = await makeWildMon(encounterLevel(run), speciesId);
+        const mon = await makeWildMon(encounterLevel(run), speciesId, { shiny: rollRunShiny() });
         if (run.team.length < 6)
           run.team.push(mon);
         else
@@ -4735,12 +4817,12 @@
       }
       case "recruit": {
         const speciesId = withRng(run, (rng) => pickEncounter(rng, encounterTableFor(currentNode(run), run), run.visited.length).id);
-        const mon = await makeWildMon(encounterLevel(run), speciesId);
+        const mon = await makeWildMon(encounterLevel(run), speciesId, { shiny: rollRunShiny() });
         if (run.team.length < 6)
           run.team.push(mon);
         else
           run.box.push(mon);
-        msgs.push(`The egg hatched into ${mon.name}!`);
+        msgs.push(mon.isShiny ? `The egg hatched into a shiny ${mon.name}!` : `The egg hatched into ${mon.name}!`);
         msgs.push(...caughtProgressLines(registerPokemonProgress(mon, "caught", false)));
         break;
       }
@@ -4853,14 +4935,17 @@
     recordRunResult(state.meta, true);
     const frags = 60 + state.run.visited.length * 4 + state.run.ascension * 30;
     state.meta.fragments += frags;
+    const earnedShinyCharm = grantShinyCharm(state.meta);
     saveMeta();
     await flashWhite("#enemySprite");
     await new Promise((resolve) => {
       openPanel("Champion!", (body, close) => {
         body.appendChild(el("p", {}, "You conquered the Expedition and became Champion!"));
         body.appendChild(el("p", { class: "small" }, `+${frags} Fragments. Choose one Pok\xE9mon to ascend into your Vault for ranked play:`));
+        if (earnedShinyCharm)
+          body.appendChild(el("p", { class: "small" }, "\u2726 You earned the Shiny Charm \u2014 shiny Pok\xE9mon now appear more often on future Expeditions."));
         state.run.team.forEach((m) => {
-          const b = el("button", { class: "title-btn primary" }, `Ascend ${m.name} (Lv ${m.level})`);
+          const b = el("button", { class: "title-btn primary" }, `Ascend ${shinyMark(m)}${m.name} (Lv ${m.level})`);
           b.onclick = () => {
             ascendToVault(m);
             close();
@@ -5058,9 +5143,12 @@
       if (m.stats.hp <= 0)
         item.classList.add("fainted");
       const main = el("div", { class: "p-main" });
-      main.appendChild(el("img", { src: m.spriteFront || m.artwork, alt: m.name }));
+      const pImg = el("img", { src: m.spriteFront || m.artwork, alt: m.name });
+      if (m.isShiny)
+        pImg.classList.add("shiny-sprite");
+      main.appendChild(pImg);
       const info = el("div", { class: "p-info" });
-      info.appendChild(el("div", { class: "p-name" }, `${idx === state.active ? "\u2605 " : ""}${m.name}`));
+      info.appendChild(el("div", { class: `p-name${m.isShiny ? " shiny" : ""}` }, `${idx === state.active ? "\u2605 " : ""}${shinyMark(m)}${m.name}`));
       info.appendChild(el("div", { class: "small" }, `Lv ${m.level} \xB7 ${m.stats.hp}/${m.stats.maxHp} HP${m.status.cond !== "none" ? " \xB7 " + (STATUS_LABEL[m.status.cond] || "") : ""}`));
       const mini = el("div", { class: "mini-hp" });
       const miniFill = el("i", {});
@@ -5237,7 +5325,7 @@
       if (success) {
         handle.clear();
         await say(`Gotcha! ${state.enemy.name} was caught!`, 400);
-        const mon = await buildMon(state.enemy.id, state.enemy.level);
+        const mon = await buildMon(state.enemy.id, state.enemy.level, { shiny: state.enemy.isShiny });
         mon.stats.hp = state.enemy.stats.hp;
         mon.status = state.enemy.status;
         mon.sprite = mon.spriteFront;
@@ -5285,9 +5373,12 @@
     state.box.forEach((m, idx) => {
       const c = el("div", { class: "box-item" });
       const main = el("div", { class: "p-main" });
-      main.appendChild(el("img", { src: m.spriteFront || m.artwork, alt: m.name }));
+      const bImg = el("img", { src: m.spriteFront || m.artwork, alt: m.name });
+      if (m.isShiny)
+        bImg.classList.add("shiny-sprite");
+      main.appendChild(bImg);
       main.appendChild(el("div", { class: "p-info" }, ""));
-      main.lastChild.appendChild(el("div", { class: "p-name" }, m.name));
+      main.lastChild.appendChild(el("div", { class: `p-name${m.isShiny ? " shiny" : ""}` }, `${shinyMark(m)}${m.name}`));
       main.lastChild.appendChild(el("div", { class: "small" }, `Lv ${m.level}`));
       c.appendChild(main);
       const b = el("button", { class: "use-btn" }, state.party.length < 6 ? "Withdraw" : "Swap");
@@ -5669,6 +5760,9 @@
       parts.push("+5% catch chance");
     if (effects.goldMult > 1)
       parts.push("+10% battle gold");
+    if (effects.shinyCharm || effects.masterResearcher) {
+      parts.push(`Shiny Charm (1/${effects.shinyOneIn} wild shiny)`);
+    }
     return parts.length ? parts.join(" \xB7 ") : "No permanent run bonuses yet";
   }
   function openProfile() {
@@ -5900,7 +5994,7 @@
     }
     const online = isArenaConfigured();
     const roster6 = roster.slice(0, 6);
-    const list = roster6.map((m) => `<li><b>${m.name}</b> <span class="small">Lv ${m.level}</span></li>`).join("");
+    const list = roster6.map((m) => `<li><b>${m.isShiny ? "\u2726 " : ""}${m.name}</b> <span class="small">Lv ${m.level}</span></li>`).join("");
     openModal({
       title: "Ranked Arena",
       bodyHTML: `<p class="small">Your battle-ready team \xB7 Power ${rosterPower(roster)}</p><ul class="roster-list">${list}</ul>` + (online ? `<p class="small">Connecting to the ranked server\u2026</p>` : `<p class="arena-soon">Online ranked battles are coming soon.</p><p class="small">Your team is Arena-ready and will carry straight into 1v1 ranked play the moment servers go live.</p>`),

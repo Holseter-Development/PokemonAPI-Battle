@@ -13,6 +13,7 @@ export function snapshotMon(mon) {
     id: mon.id,
     name: mon.name,
     level: mon.level,
+    isShiny: !!mon.isShiny,
     types: mon.types.slice(),
     stats: {
       maxHp: mon.stats.maxHp,

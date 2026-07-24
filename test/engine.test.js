@@ -39,6 +39,7 @@ function mon(over = {}) {
     id: over.id || 1,
     name: over.name || "Test",
     level: over.level || 20,
+    isShiny: !!over.isShiny,
     types: over.types || ["normal"],
     stats: Object.assign({ maxHp: 80, hp: 80, atk: 60, def: 60, spa: 60, spd: 60, spe: 60 }, over.stats),
     stages: Object.assign({ atk: 0, def: 0, spa: 0, spd: 0, spe: 0, acc: 0, eva: 0 }, over.stages),
@@ -204,6 +205,30 @@ test("spriteSet prefers animated Gen-V, falls back cleanly", () => {
   const bare = spriteSet({ sprites: { front_default: "f.png" } });
   assert.strictEqual(bare.front, "f.png");
   assert.strictEqual(bare.animated, false);
+});
+
+test("spriteSet: shiny prefers shiny art and falls back to normal safely", () => {
+  const full = { sprites: {
+    front_default: "front.png", back_default: "back.png",
+    front_shiny: "front_s.png", back_shiny: "back_s.png",
+    versions: { "generation-v": { "black-white": { animated: {
+      front_default: "af.gif", back_default: "ab.gif",
+      front_shiny: "af_s.gif", back_shiny: "ab_s.gif",
+    } } } },
+    other: { "official-artwork": { front_default: "art.png", front_shiny: "art_s.png" } },
+  } };
+  const s = spriteSet(full, true);
+  assert.strictEqual(s.front, "af_s.gif", "prefers animated shiny front");
+  assert.strictEqual(s.back, "ab_s.gif", "prefers animated shiny back");
+  assert.strictEqual(s.shiny, true);
+  assert.ok(s.animated);
+
+  // No shiny data anywhere → shiny request falls back to the normal sprites.
+  const noShiny = { sprites: { front_default: "f.png", back_default: "b.png" } };
+  const fb = spriteSet(noShiny, true);
+  assert.strictEqual(fb.front, "f.png", "missing shiny front falls back");
+  assert.strictEqual(fb.back, "b.png", "missing shiny back falls back");
+  assert.strictEqual(fb.shiny, true, "still flagged shiny");
 });
 
 test("catchSuccess: weakened + statused catches more than full HP", () => {
@@ -441,6 +466,11 @@ test("snapshotMon heals fully and clears status/stages", () => {
   assert.strictEqual(s.status.cond, "none");
   assert.strictEqual(s.stages.atk, 0);
   assert.strictEqual(s.moves[0].ppLeft, s.moves[0].pp);
+});
+
+test("snapshotMon preserves shiny identity through Vault serialization", () => {
+  assert.strictEqual(snapshotMon(mon({ isShiny: true })).isShiny, true, "shiny survives the snapshot");
+  assert.strictEqual(snapshotMon(mon()).isShiny, false, "non-shiny stays false");
 });
 
 test("buildRoster caps at 6 and drops invalid members", () => {
