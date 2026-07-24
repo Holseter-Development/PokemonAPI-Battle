@@ -9,6 +9,11 @@ import {
   progressionCounts,
   reconcileProgressionUnlocks,
   progressionEffects,
+  shinyOdds,
+  grantShinyCharm,
+  SHINY_BASE_ONE_IN,
+  SHINY_CHARM_ONE_IN,
+  SHINY_MASTER_ONE_IN,
   upgradePurchaseState,
   purchaseUpgrade,
   recordExpeditionStart,
@@ -219,6 +224,8 @@ test("milestones and purchased upgrades combine into exact run effects", () => {
     goldMult: 1.1,
     starterIds: [25, 133],
     masterResearcher: true,
+    shinyCharm: false,
+    shinyOneIn: SHINY_MASTER_ONE_IN,
   });
 });
 
@@ -316,6 +323,40 @@ test("profile summary yields safe zero defaults for a legacy/empty save", () => 
   assert.strictEqual(summary.playTime, "0s");
   assert.deepStrictEqual(summary.purchasedUpgrades, []);
   assert.deepStrictEqual(summary.milestoneUnlocks, []);
+});
+
+// ---- P2.3: shiny odds and the Shiny Charm ----
+test("shinyOdds tiers by Shiny Charm then full Pokédex", () => {
+  const base = defaultProgression();
+  assert.strictEqual(shinyOdds(base), SHINY_BASE_ONE_IN, "base is 1/512");
+  assert.strictEqual(progressionEffects(base).shinyOneIn, SHINY_BASE_ONE_IN);
+  assert.strictEqual(progressionEffects(base).shinyCharm, false);
+
+  const charmed = normalizeProgression({ unlocks: { shiny_charm: true } });
+  assert.strictEqual(shinyOdds(charmed), SHINY_CHARM_ONE_IN, "Shiny Charm is 1/256");
+  assert.strictEqual(progressionEffects(charmed).shinyCharm, true);
+
+  const mastered = normalizeProgression({ unlocks: { shiny_charm: true, master_researcher: true } });
+  assert.strictEqual(shinyOdds(mastered), SHINY_MASTER_ONE_IN, "full dex upgrades to 1/128");
+  // Master Researcher alone (without the charm flag) still grants the best odds.
+  assert.strictEqual(shinyOdds(normalizeProgression({ unlocks: { master_researcher: true } })), SHINY_MASTER_ONE_IN);
+});
+
+test("grantShinyCharm is permanent and idempotent", () => {
+  const p = defaultProgression();
+  assert.strictEqual(grantShinyCharm(p), true, "first grant reports newly earned");
+  assert.strictEqual(p.unlocks.shiny_charm, true);
+  assert.strictEqual(grantShinyCharm(p), false, "already owned reports no change");
+  assert.strictEqual(shinyOdds(p), SHINY_CHARM_ONE_IN);
+});
+
+test("a caught shiny registers in the shiny ledger and implies caught + seen", () => {
+  const p = defaultProgression();
+  assert.strictEqual(registerSpeciesId(p, "shinyCaught", 6), true);
+  assert.deepStrictEqual(p.shinyCaught, [6]);
+  assert.deepStrictEqual(p.caught, [6], "shiny implies caught");
+  assert.deepStrictEqual(p.seen, [6], "shiny implies seen");
+  assert.strictEqual(progressionCounts(p).shinyCaught, 1);
 });
 
 console.log(`\n${passed} checks passed`);

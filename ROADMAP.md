@@ -459,6 +459,22 @@ dismisses at their own pace.
 - Shiny identity survives evolution and reload.
 - Missing shiny sprite data falls back safely.
 
+**Status:** Complete. Wild spawns roll shininess on the run RNG through
+`rollWildShiny(run, oneIn)` in `src/run.js`, with the 1-in-N odds
+(`512` base / `256` Shiny Charm / `128` full dex) derived by `shinyOdds` /
+`progressionEffects` in `src/progression.js` and snapshotted onto the run at
+start. `spriteSet(data, shiny)` picks PokéAPI shiny front/back/animated sprites
+and falls back tier-by-tier to normal art when shiny data is missing. `isShiny`
+is stored on the Pokémon by `makeMon` and preserved through capture, evolution,
+save/load (`ensureRuntime`), and Vault/roster snapshots (`snapshotMon`). Boss
+and trainer teams never call the roll, so they stay non-shiny. A caught shiny
+registers in `shinyCaught` (implying caught + seen); the first Champion win
+grants the permanent, idempotent Shiny Charm (`grantShinyCharm`). UI: a sparkle
+entrance burst, a `✦` shiny label and card glow in battle, and shiny markers in
+party, box, results (ascend list), Vault, and the Pokédex. Tests cover the
+odds tiers, the charm's idempotency, shiny-ledger registration, sprite shiny
+fallback, snapshot preservation, and forced/deterministic/reload-safe rolls.
+
 ## P2.4 — Alpha encounters
 
 **Size:** M  
@@ -946,8 +962,8 @@ Implement in this order:
 6. `P1.6` — Trainer profile. **Complete**
 7. `P2.1` — Biome encounter catalog. **Complete**
 8. `P2.2` — Deterministic controller rolls. **Complete**
-9. `P2.3` — Shinies. **Next**
-10. `P2.4` — Alpha encounters.
+9. `P2.3` — Shinies. **Complete**
+10. `P2.4` — Alpha encounters. **Next**
 11. `P2.5` — Recurring rival.
 12. `P2.6` — Mystery event expansion.
 
@@ -983,8 +999,9 @@ Update this section as chunks ship.
 | P1.6 | Complete | Trainer Profile screen, run history summary, and capped active-foreground playtime shipped 2026-07-24 |
 | P2.1 | Complete | Three region biome tables, seeded depth-gated wild picker, and encounter tests shipped 2026-07-24 |
 | P2.2 | Complete | Seeded coinflip/well/shrine resolvers, readable Mystery outcome modal, and reroll-guard tests shipped 2026-07-24 |
-| P2.3 | Next | Shinies |
-| P2.4–P2.6 | Backlog | Places and surprise |
+| P2.3 | Complete | Seeded wild shiny rolls, tiered odds + Shiny Charm, shiny sprites/markers, and identity-through-growth tests shipped 2026-07-24 |
+| P2.4 | Next | Alpha encounters |
+| P2.5–P2.6 | Backlog | Places and surprise |
 | P3.0–P3.6 | Backlog | Team-building depth |
 | P4.1–P4.7 | Backlog | Replay and challenge |
 | P5.1–P5.3 | Deferred | Multi-target battle formats |

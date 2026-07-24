@@ -393,6 +393,18 @@ export function resolveShrineScar(run) {
   });
 }
 
+// Deterministic wild shiny roll (P2.3). `oneIn` is the 1-in-N odds from the
+// player's progression (512 base / 256 with the Shiny Charm / 128 at full dex).
+// Drawn on the run RNG so a seed + path reproduces which encounters are shiny,
+// and a save/continue never rerolls a pending encounter's shininess. A forced
+// `oneIn` of 1 always yields a shiny (used by tests); a non-positive/invalid
+// value falls back to the base odds.
+export function rollWildShiny(run, oneIn) {
+  const n = Number(oneIn);
+  const denom = Number.isFinite(n) && n >= 1 ? n : 512;
+  return withRng(run, (rng) => rng() < 1 / denom);
+}
+
 // Difficulty scaling follows run depth, but never races far ahead merely
 // because a route contained shops, rests, or mysteries instead of battles.
 export function encounterLevel(run) {

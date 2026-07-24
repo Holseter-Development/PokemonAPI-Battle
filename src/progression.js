@@ -146,6 +146,19 @@ export function reconcileProgressionUnlocks(profile) {
   return unlocked;
 }
 
+// Wild shiny odds as a 1-in-N denominator (P2.3). The roguelite's shorter
+// format uses a base of 1/512; the Champion's Shiny Charm improves it to 1/256
+// and completing the Pokédex (Master Researcher) upgrades it further to 1/128.
+export const SHINY_BASE_ONE_IN = 512;
+export const SHINY_CHARM_ONE_IN = 256;
+export const SHINY_MASTER_ONE_IN = 128;
+export function shinyOdds(profile) {
+  const { unlocks } = normalizeProgression(profile);
+  if (unlocks.master_researcher) return SHINY_MASTER_ONE_IN;
+  if (unlocks.shiny_charm) return SHINY_CHARM_ONE_IN;
+  return SHINY_BASE_ONE_IN;
+}
+
 export function progressionEffects(profile) {
   const normalized = normalizeProgression(profile);
   const unlocks = normalized.unlocks;
@@ -162,7 +175,19 @@ export function progressionEffects(profile) {
     goldMult: unlocks.merchant_license ? 1.1 : 1,
     starterIds: BONUS_STARTERS.filter((s) => unlocks[s.unlockId]).map((s) => s.id),
     masterResearcher: !!unlocks.master_researcher,
+    shinyCharm: !!unlocks.shiny_charm,
+    shinyOneIn: shinyOdds(normalized),
   };
+}
+
+// Grant the Champion's Shiny Charm. Permanent and idempotent; returns true only
+// the first time it is earned so the controller can announce it once.
+export function grantShinyCharm(profile) {
+  if (!profile) return false;
+  profile.unlocks = cleanRecord(profile.unlocks);
+  if (profile.unlocks.shiny_charm) return false;
+  profile.unlocks.shiny_charm = true;
+  return true;
 }
 
 export function upgradePurchaseState(profile, upgradeId) {

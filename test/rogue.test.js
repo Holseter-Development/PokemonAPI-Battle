@@ -15,7 +15,7 @@ import {
   rollMysteryEvent, rollMysteryEncounter, pickTrainerReward, TRAINER_REWARDS,
   MYSTERY_TRAINER_CHANCE, rollGold, encounterLevel, bossMemberLevel, RUN_CONFIG,
   eventGoldCost, resolveCoinflip, resolveWishingWell, resolveShrineScar,
-  SHRINE_SCAR_STATS,
+  SHRINE_SCAR_STATS, rollWildShiny,
 } from "../src/run.js";
 import { WANDERING_TRAINERS, GEN1_MAX_ID } from "../src/data.js";
 
@@ -427,6 +427,33 @@ test("mystery rolls: restoring rng state does not reroll a pending outcome", () 
   const flip = resolveCoinflip(coinRun, 40);
   coinRun.rngState = coinState;
   assert.deepStrictEqual(resolveCoinflip(coinRun, 40), flip, "reload reproduces the pending flip");
+});
+
+// ---- P2.3: deterministic wild shiny roll ----
+test("rollWildShiny: forced odds always/never shine, base odds are rare", () => {
+  // 1-in-1 always yields a shiny; a huge denominator effectively never does.
+  assert.strictEqual(rollWildShiny(createRun("SHINY"), 1), true, "1-in-1 is guaranteed");
+  assert.strictEqual(rollWildShiny(createRun("SHINY"), 1e9), false, "astronomical odds never shine");
+  // Invalid odds fall back to the base 1/512 rather than throwing/NaN.
+  assert.strictEqual(typeof rollWildShiny(createRun("SHINY"), undefined), "boolean");
+
+  // Both outcomes occur across seeds, but shinies stay rare at base odds.
+  let shinies = 0;
+  const N = 3000;
+  for (let i = 0; i < N; i++) if (rollWildShiny(createRun("SH" + i), 512)) shinies++;
+  assert.ok(shinies > 0, "some shinies appear over many seeds");
+  assert.ok(shinies / N < 0.02, `shinies stay rare at base odds (${shinies}/${N})`);
+});
+
+test("rollWildShiny: deterministic per rng state and reload-safe", () => {
+  const a = createRun("REPRO"), b = clone(a);
+  assert.strictEqual(rollWildShiny(a, 4), rollWildShiny(b, 4), "same seed reproduces the roll");
+  // Restoring the pre-roll state reproduces the pending encounter's shininess.
+  const run = createRun("PENDING");
+  const before = run.rngState;
+  const first = rollWildShiny(run, 8);
+  run.rngState = before;
+  assert.strictEqual(rollWildShiny(run, 8), first, "reload does not reroll shininess");
 });
 
 console.log(`\n${passed} checks passed`);

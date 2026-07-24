@@ -58,16 +58,37 @@ export function fetchEvo(url) {
 // Pick the best available sprites: prefer Gen-V animated (crisp, in-motion),
 // fall back to Gen-1 stills and finally the hi-res artwork. Returns direct
 // image URLs so we no longer need the fragile canvas/CORS-proxy trimming.
-export function spriteSet(data) {
+//
+// When `shiny` is set, the shiny variants are preferred at every tier and then
+// fall back to the corresponding normal sprite, so a species with missing shiny
+// art still renders (P2.3: "missing shiny sprite data falls back safely").
+export function spriteSet(data, shiny = false) {
   const s = data.sprites || {};
   const bw = s.versions?.["generation-v"]?.["black-white"]?.animated || {};
   const artwork = s.other?.["official-artwork"]?.front_default || null;
   const home = s.other?.home?.front_default || null;
+  if (shiny) {
+    const bwSF = bw.front_shiny, bwSB = bw.back_shiny;
+    const artworkS = s.other?.["official-artwork"]?.front_shiny || null;
+    const homeS = s.other?.home?.front_shiny || null;
+    const front = bwSF || s.front_shiny || artworkS || homeS ||
+      bw.front_default || s.front_default || artwork || home || "";
+    const back = bwSB || s.back_shiny || bwSF || s.front_shiny ||
+      bw.back_default || s.back_default || front || "";
+    return {
+      front,
+      back,
+      artwork: artworkS || s.front_shiny || artwork || s.front_default || "",
+      animated: !!bwSF,
+      shiny: true,
+    };
+  }
   return {
     front: bw.front_default || s.front_default || artwork || home || "",
     back: bw.back_default || s.back_default || bw.front_default || s.front_default || "",
     artwork: artwork || s.front_default || "",
     animated: !!bw.front_default,
+    shiny: false,
   };
 }
 

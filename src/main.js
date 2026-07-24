@@ -47,7 +47,7 @@ import {
   NODE, createRun, availableNext, travelTo, markResolved, currentNode,
   nodeById, offerSigils, offerMutations, rollShop, rollMysteryEncounter, rollGold,
   encounterLevel, bossMemberLevel, checkWipe, withRng, eventGoldCost,
-  resolveCoinflip, resolveWishingWell, resolveShrineScar,
+  resolveCoinflip, resolveWishingWell, resolveShrineScar, rollWildShiny,
 } from "./run.js";
 import { encounterTableFor, pickEncounter, defaultSpeciesId } from "./encounters.js";
 import {
@@ -72,6 +72,7 @@ import {
   recordRunResult,
   accumulatePlayTime,
   profileSummary,
+  grantShinyCharm,
 } from "./progression.js";
 import {
   DEX_FILTERS,
@@ -151,19 +152,24 @@ const state = {
 };
 
 function registerPokemonProgress(mon, field, announce = true) {
-  if (!mon || !registerSpeciesId(state.meta, field, mon.id)) {
-    return { added: false, unlocks: [] };
+  // A caught shiny registers in the shiny ledger (which implies caught + seen),
+  // so shiny ownership is tracked and the milestone counts stay correct.
+  const shiny = field === "caught" && !!mon?.isShiny;
+  const effectiveField = shiny ? "shinyCaught" : field;
+  if (!mon || !registerSpeciesId(state.meta, effectiveField, mon.id)) {
+    return { added: false, unlocks: [], shiny };
   }
   const unlocks = reconcileProgressionUnlocks(state.meta);
   saveMeta();
   if (announce) {
     const counts = progressionCounts(state.meta);
-    const label = field === "seen" ? "Seen" : "Caught";
+    const label = field === "seen" ? "Seen" : shiny ? "✦ Shiny" : "Caught";
+    const count = shiny ? counts.shinyCaught : counts[field];
     floatToast(unlocks.length
       ? `Unlocked · ${unlocks.map((entry) => entry.name).join(", ")}`
-      : `Pokédex · ${label} ${counts[field]}/${GEN1_DEX_SIZE} · ${mon.name}`);
+      : `Pokédex · ${label} ${count}/${GEN1_DEX_SIZE} · ${mon.name}`);
   }
-  return { added: true, unlocks };
+  return { added: true, unlocks, shiny };
 }
 
 // The Pokédex/unlock feedback lines for a capture registration (empty if the
@@ -214,14 +220,16 @@ function ensureRuntime(mon) {
   return mon;
 }
 
-function makeMon(data, level = 5) {
+function makeMon(data, level = 5, opts = {}) {
   const b = Object.fromEntries(data.stats.map((s) => [s.stat.name, s.base_stat]));
   const maxHp = Math.floor((b.hp * 2 * level) / 100 + level + 10);
   const st = (base) => Math.floor((base * 2 * level) / 100 + 5);
-  const sp = spriteSet(data);
+  const shiny = !!opts.shiny;
+  const sp = spriteSet(data, shiny);
   return {
     id: data.id,
     name: cap(data.name),
+    isShiny: shiny,
     spriteFront: sp.front,
     spriteBack: sp.back,
     artwork: sp.artwork,
@@ -246,10 +254,10 @@ function makeMon(data, level = 5) {
   };
 }
 
-async function buildMon(idOrName, level) {
+async function buildMon(idOrName, level, opts = {}) {
   const data = await fetchPokemon(idOrName);
   const species = await fetchSpecies(data.id);
-  const mon = makeMon(data, level);
+  const mon = makeMon(data, level, opts);
   mon.capture_rate = species.capture_rate;
   mon.moves = await fetchMoveset(data, level);
   if (!mon.moves.length) mon.moves = [{ ...STRUGGLE, name: "Tackle", key: "tackle", power: 40, pp: 35, ppLeft: 35, drain: 0 }];
@@ -394,7 +402,7 @@ async function maybeEvolve(mon, opts = {}) {
 
   const data = await fetchPokemon(candidate.species.name);
   const species = await fetchSpecies(data.id);
-  const evolved = makeMon(data, mon.level);
+  const evolved = makeMon(data, mon.level, { shiny: mon.isShiny });
   evolved.moves = mergeMoves(mon.moves, await fetchMoveset(data, mon.level));
   await setupGrowthAndEvo(evolved, species);
   evolved.stats.hp = Math.max(1, Math.floor(evolved.stats.maxHp * (mon.stats.hp / mon.stats.maxHp)));
@@ -465,7 +473,8 @@ function updateHUD() {
 
   if (state.player) {
     const p = state.player;
-    $("#playerName").textContent = p.name;
+    $("#playerName").textContent = shinyMark(p) + p.name;
+    $("#playerCard")?.classList.toggle("is-shiny", !!p.isShiny);
     $("#playerLevel").textContent = p.level;
     renderTypes($("#playerTypes"), p.types);
     renderStatus($("#playerStatus"), p.status);
@@ -486,7 +495,8 @@ function updateHUD() {
 
   if (state.enemy) {
     const e = state.enemy;
-    $("#enemyName").textContent = (state.mode === "trainer" ? "" : "Wild ") + e.name;
+    $("#enemyName").textContent = (state.mode === "trainer" ? "" : "Wild ") + shinyMark(e) + e.name;
+    $("#enemyCard")?.classList.toggle("is-shiny", !!e.isShiny);
     $("#enemyLevel").textContent = e.level;
     renderTypes($("#enemyTypes"), e.types);
     renderStatus($("#enemyStatus"), e.status);
@@ -664,6 +674,29 @@ async function fadeInSprite(sel) {
     ], { duration: 320, easing: "ease-out" }).finished;
   } catch (_) {}
   node.style.opacity = 1;
+}
+
+// A brief sparkle burst over a sprite, used for a shiny Pokémon's entrance.
+// Cosmetic only, so it draws on Math.random and no-ops safely head-less (no
+// layout box) — the shiny label/registration still fire regardless.
+async function shinySparkle(sel) {
+  const node = $(sel);
+  const layer = $("#vfx");
+  if (!node || !layer) return;
+  const nRect = node.getBoundingClientRect();
+  const lRect = layer.getBoundingClientRect();
+  if (!nRect.width || !lRect.width) return;
+  await flashWhite(sel);
+  for (let i = 0; i < 14; i++) {
+    const s = el("div", { class: "shiny-spark" });
+    s.style.left = `${nRect.left - lRect.left + Math.random() * nRect.width}px`;
+    s.style.top = `${nRect.top - lRect.top + Math.random() * nRect.height * 0.9}px`;
+    s.style.setProperty("--sz", `${6 + Math.round(Math.random() * 10)}px`);
+    s.style.setProperty("--dly", `${Math.round(Math.random() * 340)}ms`);
+    layer.appendChild(s);
+    setTimeout(() => s.remove(), 1100);
+  }
+  await sleep(620);
 }
 
 const bannerHold = { t: 0 };
@@ -861,6 +894,9 @@ const ThemeFX = (() => {
 function labelFor(mon, isEnemy) {
   return (isEnemy && state.mode !== "trainer" ? "Wild " : "") + mon.name;
 }
+
+// A leading sparkle marks a shiny in name labels (HUD, party, box, results).
+const shinyMark = (mon) => (mon && mon.isShiny ? "✦ " : "");
 
 // Resolve one combatant's move with full animation. Returns { acted, defenderFainted, result }.
 async function performMove(attacker, defender, move, attackerIsPlayer) {
@@ -1124,15 +1160,23 @@ function pickWildSpecies(run, node) {
 }
 
 // Build a level-appropriate wild Pokémon from an explicit biome species id.
-async function makeWildMon(level, speciesId) {
+async function makeWildMon(level, speciesId, opts = {}) {
   const id = Number.isInteger(speciesId) ? speciesId : defaultSpeciesId();
   const poke = await fetchPokemon(id);
-  const mon = makeMon(poke, level);
+  const mon = makeMon(poke, level, opts);
   const species = await fetchSpecies(poke.id);
   mon.capture_rate = species.capture_rate;
   mon.moves = await fetchMoveset(poke, mon.level);
   if (!mon.moves.length) mon.moves = [{ ...STRUGGLE, name: "Tackle", key: "tackle", power: 40, pp: 35, ppLeft: 35, drain: 0 }];
   return mon;
+}
+
+// Roll shininess for a fresh wild spawn on the run RNG, using the odds
+// snapshotted onto the run at start (base 1/512, Shiny Charm 1/256, full dex
+// 1/128). Boss/trainer teams never call this, so they are never shiny.
+function rollRunShiny() {
+  if (!state.run) return false;
+  return rollWildShiny(state.run, state.run.progressionFx?.shinyOneIn);
 }
 
 // spec: { kind:'battle', enemy } | { kind:'elite'|'champion', boss, team }
@@ -1167,7 +1211,12 @@ async function startBattle(spec) {
     updateHUD();
     setThemeByType(state.enemy.types);
     await fadeInSprite("#enemySprite");
-    await say(`A wild ${state.enemy.name} appeared!`);
+    if (state.enemy.isShiny) {
+      await shinySparkle("#enemySprite");
+      await say(`✦ A shiny wild ${state.enemy.name} appeared!`);
+    } else {
+      await say(`A wild ${state.enemy.name} appeared!`);
+    }
     registerPokemonProgress(state.enemy, "seen");
     if (entryStatus) await say(`${state.enemy.name} was poisoned by Toxic Spikes!`);
     await playCry(state.enemy);
@@ -1501,7 +1550,7 @@ async function resolveNode(node) {
 async function resolveBattleNode(node) {
   setBusy(true);
   const speciesId = pickWildSpecies(state.run, node);
-  const mon = await makeWildMon(encounterLevel(state.run), speciesId);
+  const mon = await makeWildMon(encounterLevel(state.run), speciesId, { shiny: rollRunShiny() });
   setBusy(false);
   await startBattle({
     kind: "battle", enemy: mon,
@@ -1774,7 +1823,7 @@ async function grantTrainerReward(reward) {
     }
     case "egg": {
       const speciesId = withRng(run, (rng) => pickEncounter(rng, encounterTableFor(currentNode(run), run), run.visited.length).id);
-      const mon = await makeWildMon(encounterLevel(run), speciesId);
+      const mon = await makeWildMon(encounterLevel(run), speciesId, { shiny: rollRunShiny() });
       if (run.team.length < 6) run.team.push(mon);
       else run.box.push(mon);
       await say(`The trainer gave you ${reward.label || "an Egg"} — it hatched into ${mon.name}!`);
@@ -1801,9 +1850,9 @@ async function applyEventEffect(effect) {
     case "sigil": { const s = await offerDraft("sigil"); if (s && !run.sigils.includes(s.id)) { run.sigils.push(s.id); msgs.push(`Attuned the ${s.name} Sigil!`); } break; }
     case "recruit": {
       const speciesId = withRng(run, (rng) => pickEncounter(rng, encounterTableFor(currentNode(run), run), run.visited.length).id);
-      const mon = await makeWildMon(encounterLevel(run), speciesId);
+      const mon = await makeWildMon(encounterLevel(run), speciesId, { shiny: rollRunShiny() });
       if (run.team.length < 6) run.team.push(mon); else run.box.push(mon);
-      msgs.push(`The egg hatched into ${mon.name}!`);
+      msgs.push(mon.isShiny ? `The egg hatched into a shiny ${mon.name}!` : `The egg hatched into ${mon.name}!`);
       msgs.push(...caughtProgressLines(registerPokemonProgress(mon, "caught", false)));
       break;
     }
@@ -1897,14 +1946,17 @@ async function runVictory() {
   recordRunResult(state.meta, true);
   const frags = 60 + state.run.visited.length * 4 + state.run.ascension * 30;
   state.meta.fragments += frags;
+  // First Champion win earns the Shiny Charm, improving future wild shiny odds.
+  const earnedShinyCharm = grantShinyCharm(state.meta);
   saveMeta();
   await flashWhite("#enemySprite");
   await new Promise((resolve) => {
     openPanel("Champion!", (body, close) => {
       body.appendChild(el("p", {}, "You conquered the Expedition and became Champion!"));
       body.appendChild(el("p", { class: "small" }, `+${frags} Fragments. Choose one Pokémon to ascend into your Vault for ranked play:`));
+      if (earnedShinyCharm) body.appendChild(el("p", { class: "small" }, "✦ You earned the Shiny Charm — shiny Pokémon now appear more often on future Expeditions."));
       state.run.team.forEach((m) => {
-        const b = el("button", { class: "title-btn primary" }, `Ascend ${m.name} (Lv ${m.level})`);
+        const b = el("button", { class: "title-btn primary" }, `Ascend ${shinyMark(m)}${m.name} (Lv ${m.level})`);
         b.onclick = () => { ascendToVault(m); close(); resolve(); };
         body.appendChild(b);
       });
@@ -2067,9 +2119,11 @@ function renderParty(forcedSwitch = false) {
     if (idx === state.active) item.classList.add("active-mon");
     if (m.stats.hp <= 0) item.classList.add("fainted");
     const main = el("div", { class: "p-main" });
-    main.appendChild(el("img", { src: m.spriteFront || m.artwork, alt: m.name }));
+    const pImg = el("img", { src: m.spriteFront || m.artwork, alt: m.name });
+    if (m.isShiny) pImg.classList.add("shiny-sprite");
+    main.appendChild(pImg);
     const info = el("div", { class: "p-info" });
-    info.appendChild(el("div", { class: "p-name" }, `${idx === state.active ? "★ " : ""}${m.name}`));
+    info.appendChild(el("div", { class: `p-name${m.isShiny ? " shiny" : ""}` }, `${idx === state.active ? "★ " : ""}${shinyMark(m)}${m.name}`));
     info.appendChild(el("div", { class: "small" }, `Lv ${m.level} · ${m.stats.hp}/${m.stats.maxHp} HP${m.status.cond !== "none" ? " · " + (STATUS_LABEL[m.status.cond] || "") : ""}`));
     const mini = el("div", { class: "mini-hp" });
     const miniFill = el("i", {});
@@ -2231,7 +2285,7 @@ async function throwBall(key = "poke-ball") {
     if (success) {
       handle.clear();
       await say(`Gotcha! ${state.enemy.name} was caught!`, 400);
-      const mon = await buildMon(state.enemy.id, state.enemy.level);
+      const mon = await buildMon(state.enemy.id, state.enemy.level, { shiny: state.enemy.isShiny });
       mon.stats.hp = state.enemy.stats.hp;
       mon.status = state.enemy.status;
       mon.sprite = mon.spriteFront;
@@ -2275,9 +2329,11 @@ function openBox() {
   state.box.forEach((m, idx) => {
     const c = el("div", { class: "box-item" });
     const main = el("div", { class: "p-main" });
-    main.appendChild(el("img", { src: m.spriteFront || m.artwork, alt: m.name }));
+    const bImg = el("img", { src: m.spriteFront || m.artwork, alt: m.name });
+    if (m.isShiny) bImg.classList.add("shiny-sprite");
+    main.appendChild(bImg);
     main.appendChild(el("div", { class: "p-info" }, ""));
-    main.lastChild.appendChild(el("div", { class: "p-name" }, m.name));
+    main.lastChild.appendChild(el("div", { class: `p-name${m.isShiny ? " shiny" : ""}` }, `${shinyMark(m)}${m.name}`));
     main.lastChild.appendChild(el("div", { class: "small" }, `Lv ${m.level}`));
     c.appendChild(main);
     const b = el("button", { class: "use-btn" }, state.party.length < 6 ? "Withdraw" : "Swap");
@@ -2659,6 +2715,9 @@ function describeProgressionEffects(effects) {
   if (effects.startingSuperPotions) parts.push(`${effects.startingSuperPotions} extra Super Potion`);
   if (effects.catchChanceMult > 1) parts.push("+5% catch chance");
   if (effects.goldMult > 1) parts.push("+10% battle gold");
+  if (effects.shinyCharm || effects.masterResearcher) {
+    parts.push(`Shiny Charm (1/${effects.shinyOneIn} wild shiny)`);
+  }
   return parts.length ? parts.join(" · ") : "No permanent run bonuses yet";
 }
 
@@ -2902,7 +2961,7 @@ function openArena() {
   const online = isArenaConfigured();
   const roster6 = roster.slice(0, 6);
   const list = roster6
-    .map((m) => `<li><b>${m.name}</b> <span class="small">Lv ${m.level}</span></li>`)
+    .map((m) => `<li><b>${m.isShiny ? "✦ " : ""}${m.name}</b> <span class="small">Lv ${m.level}</span></li>`)
     .join("");
   openModal({
     title: "Ranked Arena",
