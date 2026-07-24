@@ -17,10 +17,14 @@ import {
   eventGoldCost, resolveCoinflip, resolveWishingWell, resolveShrineScar,
   SHRINE_SCAR_STATS, rollWildShiny,
   rollWildAlpha, alphaLevel, alphaGoldBonus, ALPHA_CATCH_MULT, ALPHA_LEVEL_BONUS,
-  ALPHA_BASE_ONE_IN,
+  ALPHA_BASE_ONE_IN, RIVAL_ROW_LOCAL,
 } from "../src/run.js";
 import { ALPHA_MODIFIERS } from "../src/encounters.js";
-import { WANDERING_TRAINERS, GEN1_MAX_ID } from "../src/data.js";
+import {
+  rivalStarterFor, rivalStarterType, rivalStarterAtStage, rivalTeamIds,
+  championTeamIds, rivalEncounter, rivalCheckpointCount, RIVAL_CHECKPOINTS,
+} from "../src/rival.js";
+import { WANDERING_TRAINERS, GEN1_MAX_ID, STARTERS, CHAMPION } from "../src/data.js";
 
 let passed = 0;
 function test(name, fn) {
@@ -188,6 +192,89 @@ test("map: bosses single-node, champion last, fully connected", () => {
       const hasShop = Object.values(map.nodes).some((n) => n.region === reg && n.type === NODE.SHOP);
       assert.ok(hasShop, `region ${reg} needs a shop (${seed})`);
     }
+  }
+});
+
+// ---- recurring rival (P2.5) ----
+test("rival picks the counter-starter for every player starter", () => {
+  // Classic triangle: grass→fire, fire→water, water→grass.
+  assert.strictEqual(rivalStarterFor(1), 4, "Bulbasaur → Charmander");
+  assert.strictEqual(rivalStarterFor(4), 7, "Charmander → Squirtle");
+  assert.strictEqual(rivalStarterFor(7), 1, "Squirtle → Bulbasaur");
+  // Every real (base + bonus) starter resolves to one of the three rival lines.
+  const rivalBases = new Set([1, 4, 7]);
+  for (const s of [...STARTERS.map((x) => x.id), 25, 133]) {
+    assert.ok(rivalBases.has(rivalStarterFor(s)), `starter ${s} maps to a rival line`);
+  }
+  // An unknown starter still yields a valid line rather than crashing.
+  assert.ok(rivalBases.has(rivalStarterFor(999)));
+  assert.strictEqual(rivalStarterType(1), "fire");
+});
+
+test("rival starter evolves by stage and clamps out-of-range", () => {
+  assert.strictEqual(rivalStarterAtStage(4, 0), 4);  // Charmander
+  assert.strictEqual(rivalStarterAtStage(4, 1), 5);  // Charmeleon
+  assert.strictEqual(rivalStarterAtStage(4, 2), 6);  // Charizard
+  assert.strictEqual(rivalStarterAtStage(4, 9), 6, "stage clamps to the final form");
+  assert.strictEqual(rivalStarterAtStage(4, -3), 4, "negative stage clamps to base");
+});
+
+test("rival teams grow with depth and stay deterministic", () => {
+  const player = 1; // grass → rival fire (Charmander line)
+  const c0 = rivalTeamIds(player, 0);
+  const c1 = rivalTeamIds(player, 1);
+  const c2 = rivalTeamIds(player, 2);
+  assert.strictEqual(c0[0], 4, "checkpoint 0 leads with the base starter");
+  assert.strictEqual(c1[0], 5, "checkpoint 1 leads with the evolved starter");
+  assert.strictEqual(c2[0], 6, "checkpoint 2 leads with the final starter");
+  assert.ok(c1.length > c0.length && c2.length > c1.length, "the team grows each checkpoint");
+  // Deterministic: identical inputs → identical team (survives save/continue).
+  assert.deepStrictEqual(rivalTeamIds(player, 2), c2);
+  // Every member is a valid non-legendary Gen-1 id.
+  for (const id of [...c0, ...c1, ...c2]) {
+    assert.ok(Number.isInteger(id) && id >= 1 && id <= GEN1_MAX_ID, `id ${id} in range`);
+  }
+  assert.strictEqual(rivalCheckpointCount(), RIVAL_CHECKPOINTS.length);
+});
+
+test("Champion team fields the rival's own final starter", () => {
+  // Player grass → rival Charizard(6); the base team already has Charizard.
+  assert.deepStrictEqual(championTeamIds(CHAMPION.team, 1), CHAMPION.team);
+  // Player fire → rival water → Blastoise(9) should replace the starter slot.
+  const water = championTeamIds(CHAMPION.team, 4);
+  assert.ok(water.includes(9), "Champion now fields Blastoise");
+  assert.ok(!water.includes(6), "the fixed Charizard slot was swapped out");
+  assert.strictEqual(water.length, CHAMPION.team.length, "team size is preserved");
+  // Player water → rival grass → Venusaur(3).
+  assert.ok(championTeamIds(CHAMPION.team, 7).includes(3));
+});
+
+test("rivalEncounter is a valid trainer descriptor", () => {
+  const enc = rivalEncounter(4, 1); // fire player → water rival
+  assert.strictEqual(enc.type, "water");
+  assert.strictEqual(enc.team[0], 8, "Wartortle leads at checkpoint 1");
+  assert.ok(enc.leader && enc.sprite && enc.intro, "has leader, sprite, and intro");
+  assert.strictEqual(enc.checkpoint, 1);
+});
+
+test("map: one mandatory single-node rival checkpoint per region", () => {
+  for (const seed of ["riv-a", "riv-b", "riv-c", "riv-d"]) {
+    const map = generateMap(makeRng(hashSeed(seed)));
+    const { rowsPerRegion, totalRows, regions } = map;
+    const rivals = Object.values(map.nodes).filter((n) => n.type === NODE.RIVAL);
+    assert.strictEqual(rivals.length, regions, `one rival per region (${seed})`);
+    const checkpoints = rivals.map((n) => n.rivalCheckpoint).sort();
+    assert.deepStrictEqual(checkpoints, [0, 1, 2], `rivals carry region checkpoints (${seed})`);
+    for (let reg = 0; reg < regions; reg++) {
+      const rr = reg * rowsPerRegion + RIVAL_ROW_LOCAL;
+      assert.strictEqual(map.rows[rr].length, 1, `rival row ${rr} is a single funnel (${seed})`);
+      assert.strictEqual(map.nodes[map.rows[rr][0]].type, NODE.RIVAL);
+    }
+    // The rival never replaces the pre-boss Rest, and the Champion stays reachable.
+    for (let R = rowsPerRegion - 2; R < totalRows; R += rowsPerRegion) {
+      for (const id of map.rows[R]) assert.strictEqual(map.nodes[id].type, NODE.REST, `pre-boss rest intact (${seed})`);
+    }
+    assert.ok(bfsReaches(map, map.rows[0], map.rows[totalRows - 1][0]), `champion reachable through rivals (${seed})`);
   }
 });
 

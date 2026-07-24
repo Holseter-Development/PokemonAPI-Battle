@@ -22,12 +22,66 @@ export const POKEDEX_MILESTONES = [
   { id: "master_researcher", field: "caught", threshold: 151, name: "Master Researcher", desc: "Earn the Master Researcher badge and upgraded Shiny Charm." },
 ];
 
+// The Fragment Lab is a branching skill tree. Each branch is a themed vertical
+// of tiered nodes; a node unlocks once its `requires` prerequisite is owned and
+// its Fragment cost is paid. Every gameplay consequence lives in the declarative
+// `effect` descriptor so the controller, previews, and tests all read from one
+// source of truth (no logic in button handlers). The five original upgrade ids
+// (field_kit_1/2, ball_satchel_1/2, travel_fund_1) are preserved so existing
+// purchases keep working after the tree expansion.
+//
+// effect shape:
+//   add:          { gold, balls, greatBalls, potions, superPotions, hyperPotions }
+//   mult:         { catch, gold, xp, alphaGold }   (multiplicative, stacks by product)
+//   shopDiscount: fraction off Poké Mart prices (additive, capped downstream)
+//   shinyStep:    steps up the shiny-odds ladder (additive with charm/dex tiers)
+export const UPGRADE_BRANCHES = [
+  { id: "provisions", name: "Provisions", icon: "🎒", color: "#5fbd58",
+    blurb: "Field supplies that stock every fresh Expedition." },
+  { id: "fortune", name: "Fortune", icon: "💰", color: "#f5c451",
+    blurb: "Gold in your pocket and a lighter shopping bill." },
+  { id: "expertise", name: "Expertise", icon: "🔬", color: "#4d90d5",
+    blurb: "Sharper catching, brighter shinies, and faster growth." },
+];
+
 export const UPGRADE_CATALOG = [
-  { id: "field_kit_1", name: "Field Kit I", cost: 75, desc: "Start each run with 1 extra Potion." },
-  { id: "ball_satchel_1", name: "Ball Satchel I", cost: 100, desc: "Start each run with 1 extra Poké Ball." },
-  { id: "travel_fund_1", name: "Travel Fund I", cost: 150, desc: "Start each run with 50 extra gold." },
-  { id: "field_kit_2", name: "Field Kit II", cost: 225, requires: "field_kit_1", desc: "Upgrade the extra Potion to a Super Potion." },
-  { id: "ball_satchel_2", name: "Ball Satchel II", cost: 300, requires: "ball_satchel_1", desc: "Start with a second extra Poké Ball." },
+  // ---- Provisions ------------------------------------------------------
+  { id: "field_kit_1", name: "Field Kit I", cost: 75, branch: "provisions", tier: 1,
+    effect: { add: { potions: 1 } }, desc: "Start each run with 1 extra Potion." },
+  { id: "field_kit_2", name: "Field Kit II", cost: 225, branch: "provisions", tier: 2, requires: "field_kit_1",
+    effect: { add: { potions: -1, superPotions: 1 } }, desc: "Upgrade the extra Potion to a Super Potion." },
+  { id: "field_kit_3", name: "Field Kit III", cost: 420, branch: "provisions", tier: 3, requires: "field_kit_2",
+    effect: { add: { superPotions: -1, hyperPotions: 1 } }, desc: "Upgrade the Super Potion to a Hyper Potion." },
+  { id: "ball_satchel_1", name: "Ball Satchel I", cost: 100, branch: "provisions", tier: 1,
+    effect: { add: { balls: 1 } }, desc: "Start each run with 1 extra Poké Ball." },
+  { id: "ball_satchel_2", name: "Ball Satchel II", cost: 300, branch: "provisions", tier: 2, requires: "ball_satchel_1",
+    effect: { add: { balls: 1 } }, desc: "Start with a second extra Poké Ball." },
+  { id: "ball_satchel_3", name: "Ball Satchel III", cost: 520, branch: "provisions", tier: 3, requires: "ball_satchel_2",
+    effect: { add: { greatBalls: 1 } }, desc: "Start with a Great Ball as well." },
+
+  // ---- Fortune ---------------------------------------------------------
+  { id: "travel_fund_1", name: "Travel Fund I", cost: 150, branch: "fortune", tier: 1,
+    effect: { add: { gold: 50 } }, desc: "Start each run with 50 extra gold." },
+  { id: "travel_fund_2", name: "Travel Fund II", cost: 320, branch: "fortune", tier: 2, requires: "travel_fund_1",
+    effect: { add: { gold: 75 } }, desc: "Start with a further 75 gold (125 total)." },
+  { id: "merchants_cut", name: "Merchant's Cut", cost: 260, branch: "fortune", tier: 2, requires: "travel_fund_1",
+    effect: { mult: { gold: 1.1 } }, desc: "Earn 10% more gold from every battle." },
+  { id: "hagglers_tongue", name: "Haggler's Tongue", cost: 360, branch: "fortune", tier: 3, requires: "merchants_cut",
+    effect: { shopDiscount: 0.15 }, desc: "Poké Mart prices are 15% cheaper." },
+
+  // ---- Expertise -------------------------------------------------------
+  { id: "catchers_eye", name: "Catcher's Eye", cost: 200, branch: "expertise", tier: 1,
+    effect: { mult: { catch: 1.08 } }, desc: "Improve catch chance by 8%." },
+  { id: "deft_hands", name: "Deft Hands", cost: 380, branch: "expertise", tier: 2, requires: "catchers_eye",
+    effect: { mult: { catch: 1.08 } }, desc: "Improve catch chance by a further 8%." },
+  { id: "alpha_hunter", name: "Alpha Hunter", cost: 360, branch: "expertise", tier: 2, requires: "catchers_eye",
+    effect: { mult: { alphaGold: 1.5 } }, desc: "Alpha bounties pay 50% more gold." },
+  { id: "keen_eye", name: "Keen Eye", cost: 300, branch: "expertise", tier: 1,
+    effect: { shinyStep: 1 }, desc: "Improve wild shiny odds by one tier." },
+  { id: "scholars_focus", name: "Scholar's Focus", cost: 280, branch: "expertise", tier: 1,
+    effect: { mult: { xp: 1.1 } }, desc: "Your party earns 10% more XP." },
+  { id: "veterans_study", name: "Veteran's Study", cost: 460, branch: "expertise", tier: 2, requires: "scholars_focus",
+    effect: { mult: { xp: 1.15 } }, desc: "Your party earns a further 15% XP." },
 ];
 
 function nonNegativeInt(value) {
@@ -149,30 +203,71 @@ export function reconcileProgressionUnlocks(profile) {
 // Wild shiny odds as a 1-in-N denominator (P2.3). The roguelite's shorter
 // format uses a base of 1/512; the Champion's Shiny Charm improves it to 1/256
 // and completing the Pokédex (Master Researcher) upgrades it further to 1/128.
+// The Fragment Lab's Keen Eye node steps one further rung down the ladder.
 export const SHINY_BASE_ONE_IN = 512;
 export const SHINY_CHARM_ONE_IN = 256;
 export const SHINY_MASTER_ONE_IN = 128;
+export const SHINY_LADDER = [SHINY_BASE_ONE_IN, SHINY_CHARM_ONE_IN, SHINY_MASTER_ONE_IN, 64];
+export const SHOP_DISCOUNT_CAP = 0.5;
+
+// Fold every purchased skill-tree node into one accumulator of numeric bonuses.
+// Pure and data-driven: reads `effect` descriptors from UPGRADE_CATALOG so the
+// tree can grow without touching this reducer or the controller.
+export function upgradeEffectTotals(upgrades) {
+  const owned = cleanRecord(upgrades);
+  const acc = {
+    gold: 0, balls: 0, greatBalls: 0, potions: 0, superPotions: 0, hyperPotions: 0,
+    catchMult: 1, goldMult: 1, xpMult: 1, alphaGoldMult: 1, shopDiscount: 0, shinyStep: 0,
+  };
+  for (const upgrade of UPGRADE_CATALOG) {
+    if (!owned[upgrade.id]) continue;
+    const e = upgrade.effect || {};
+    if (e.add) for (const [k, v] of Object.entries(e.add)) acc[k] = (acc[k] || 0) + v;
+    if (e.mult) {
+      if (e.mult.catch) acc.catchMult *= e.mult.catch;
+      if (e.mult.gold) acc.goldMult *= e.mult.gold;
+      if (e.mult.xp) acc.xpMult *= e.mult.xp;
+      if (e.mult.alphaGold) acc.alphaGoldMult *= e.mult.alphaGold;
+    }
+    if (e.shopDiscount) acc.shopDiscount += e.shopDiscount;
+    if (e.shinyStep) acc.shinyStep += e.shinyStep;
+  }
+  // Potion upgrades convert rather than stack, so clamp the "consumed" tiers.
+  acc.potions = Math.max(0, acc.potions);
+  acc.superPotions = Math.max(0, acc.superPotions);
+  acc.shopDiscount = Math.min(SHOP_DISCOUNT_CAP, Math.max(0, acc.shopDiscount));
+  return acc;
+}
+
+function shinyBaseIndex(unlocks) {
+  if (unlocks.master_researcher) return 2;
+  if (unlocks.shiny_charm) return 1;
+  return 0;
+}
+
 export function shinyOdds(profile) {
-  const { unlocks } = normalizeProgression(profile);
-  if (unlocks.master_researcher) return SHINY_MASTER_ONE_IN;
-  if (unlocks.shiny_charm) return SHINY_CHARM_ONE_IN;
-  return SHINY_BASE_ONE_IN;
+  const normalized = normalizeProgression(profile);
+  const steps = upgradeEffectTotals(normalized.upgrades).shinyStep;
+  const idx = Math.min(SHINY_LADDER.length - 1, shinyBaseIndex(normalized.unlocks) + steps);
+  return SHINY_LADDER[idx];
 }
 
 export function progressionEffects(profile) {
   const normalized = normalizeProgression(profile);
   const unlocks = normalized.unlocks;
-  const upgrades = normalized.upgrades;
-  const fieldKit2 = !!upgrades.field_kit_2;
+  const t = upgradeEffectTotals(normalized.upgrades);
   return {
-    startingGold: (unlocks.explorer_grant ? 40 : 0) + (upgrades.travel_fund_1 ? 50 : 0),
-    startingBalls: (unlocks.ball_belt ? 1 : 0) +
-      (upgrades.ball_satchel_1 ? 1 : 0) +
-      (upgrades.ball_satchel_2 ? 1 : 0),
-    startingPotions: upgrades.field_kit_1 && !fieldKit2 ? 1 : 0,
-    startingSuperPotions: fieldKit2 ? 1 : 0,
-    catchChanceMult: unlocks.catching_insight ? 1.05 : 1,
-    goldMult: unlocks.merchant_license ? 1.1 : 1,
+    startingGold: (unlocks.explorer_grant ? 40 : 0) + t.gold,
+    startingBalls: (unlocks.ball_belt ? 1 : 0) + t.balls,
+    startingGreatBalls: t.greatBalls,
+    startingPotions: t.potions,
+    startingSuperPotions: t.superPotions,
+    startingHyperPotions: t.hyperPotions,
+    catchChanceMult: (unlocks.catching_insight ? 1.05 : 1) * t.catchMult,
+    goldMult: (unlocks.merchant_license ? 1.1 : 1) * t.goldMult,
+    xpMult: t.xpMult,
+    alphaGoldMult: t.alphaGoldMult,
+    shopDiscount: t.shopDiscount,
     starterIds: BONUS_STARTERS.filter((s) => unlocks[s.unlockId]).map((s) => s.id),
     masterResearcher: !!unlocks.master_researcher,
     shinyCharm: !!unlocks.shiny_charm,

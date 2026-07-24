@@ -44,7 +44,8 @@ The following systems are already implemented and should be preserved:
 - Persistent Fragments, expedition win count, and an ascended Pokémon Vault.
 - A complete Gen 1 Pokédex overlay with seen, caught, missing, and shiny filters.
 - Data-driven Pokédex milestone perks, including bonus starters and run bonuses.
-- A Fragment Lab with five permanent, stacking account upgrades.
+- A Fragment Lab skill tree with three branches (Provisions, Fortune, Expertise)
+  of tiered, prerequisite-gated permanent account upgrades.
 - Save/continue for active Expeditions.
 - Seedable RNG utilities and pure battle/run modules.
 - Engine, roguelike, DOM, and Expedition smoke tests.
@@ -546,6 +547,27 @@ stat-scaling applier, safe no-op) cover the acceptance criteria.
 - Teams scale without exceeding the existing boss-level safety bounds.
 - Champion dialogue and roster reflect the recurring rival.
 
+**Status:** Complete. New pure module `src/rival.js` owns the rival's identity:
+`rivalStarterFor` picks the counter-starter for all five player starters (the
+grass→fire→water→grass triangle, with Pikachu/Eevee mapped to sensible lines),
+`rivalStarterAtStage` walks the three starter evolution lines, and
+`rivalTeamIds` / `rivalEncounter` build a deterministic, RNG-free team that grows
+each checkpoint (base→stage1→final starter plus a widening non-legendary filler).
+`generateMap` collapses one authored row per region (`RIVAL_ROW_LOCAL = 3`, clear
+of the pre-boss Rest) into a single mandatory `NODE.RIVAL` checkpoint carrying a
+region-indexed `rivalCheckpoint`, using the same funnel trick as the bosses so
+the Champion stays reachable. `resolveRivalNode` fights the rival at Elite parity
+via the existing trainer-battle path (Silver sprite, authored taunts); a win pays
+a signature reward (bonus gold + a Great Ball + a guaranteed mutation), a loss
+ends the run. `championTeamIds` swaps the fixed Charizard slot for the rival's own
+fully-evolved starter, so the Champion — narratively the grown-up rival — always
+fields the line they chose to counter you. `run.rivalStarterId` is locked from the
+player's starter at run start and backfilled for legacy saves in `bindRun`, so a
+seed + path reproduces every rival encounter across save/continue. Tests in
+`rogue.test.js` cover counter-starter mapping, stage clamping, team growth and
+determinism, the Champion swap, encounter validity, and the one-per-region
+single-node map checkpoints with the pre-boss Rest left intact.
+
 ## P2.6 — Mystery event expansion
 
 **Size:** S  
@@ -983,8 +1005,8 @@ Implement in this order:
 8. `P2.2` — Deterministic controller rolls. **Complete**
 9. `P2.3` — Shinies. **Complete**
 10. `P2.4` — Alpha encounters. **Complete**
-11. `P2.5` — Recurring rival. **Next**
-12. `P2.6` — Mystery event expansion.
+11. `P2.5` — Recurring rival. **Complete**
+12. `P2.6` — Mystery event expansion. **Next**
 
 After P2, reassess run length, difficulty, money pressure, catch rate, and API
 load behavior before committing to P3 balance values.
@@ -1020,8 +1042,9 @@ Update this section as chunks ship.
 | P2.2 | Complete | Seeded coinflip/well/shrine resolvers, readable Mystery outcome modal, and reroll-guard tests shipped 2026-07-24 |
 | P2.3 | Complete | Seeded wild shiny rolls, tiered odds + Shiny Charm, shiny sprites/markers, and identity-through-growth tests shipped 2026-07-24 |
 | P2.4 | Complete | Seeded Alpha rolls, visible aura buffs, +2 level cap, catch penalty, one-time gold+mutation reward, and Alpha tests shipped 2026-07-24 |
-| P2.5 | Next | Recurring rival |
-| P2.6 | Backlog | Mystery event expansion |
+| P2.5 | Complete | Counter-starter rival, per-region single-node checkpoints, depth-scaled deterministic teams, rival-starter Champion, signature reward, and rival tests shipped 2026-07-24 |
+| P2.6 | Next | Mystery event expansion |
+| Fragment Lab | Complete | Rebuilt the five flat upgrades into a 16-node branching skill tree (Provisions/Fortune/Expertise) with new effects — Great Balls, Hyper Potions, XP, shop discount, Alpha bounty, shiny step — data-driven effect reducer, visual tree UI, and expanded tests shipped 2026-07-24 |
 | P3.0–P3.6 | Backlog | Team-building depth |
 | P4.1–P4.7 | Backlog | Replay and challenge |
 | P5.1–P5.3 | Deferred | Multi-target battle formats |

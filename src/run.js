@@ -11,6 +11,7 @@ import { pickAlphaModifier } from "./encounters.js";
 export const NODE = {
   BATTLE: "battle", // wild encounter (catchable)
   ELITE: "elite",   // Gym-Leader boss
+  RIVAL: "rival",   // recurring rival checkpoint (P2.5)
   CHAMPION: "champion",
   SHOP: "shop",
   REST: "rest",
@@ -18,6 +19,11 @@ export const NODE = {
 };
 
 export const RUN_CONFIG = { regions: 3, rowsPerRegion: 7, width: 4, paths: 6 };
+
+// Local (within-region) row that becomes the mandatory rival checkpoint. Kept
+// well clear of the pre-boss Rest (local row rowsPerRegion-1) so the rival never
+// silently replaces the heal before a regional boss.
+export const RIVAL_ROW_LOCAL = 3;
 
 // ---- map generation ----------------------------------------------------
 
@@ -63,6 +69,24 @@ export function generateMap(rng, cfg = RUN_CONFIG) {
     nodes[boss.id] = boss;
     // Everything in the previous row funnels into the boss.
     Object.values(nodes).filter((n) => n.row === R - 1).forEach((n) => { n.edges = [boss.id]; });
+  }
+
+  // Collapse one authored row per region into a single mandatory RIVAL node, the
+  // same funnel trick the bosses use. Each region's rival carries a checkpoint
+  // index (0-based by region) so the controller can grow the rival's starter and
+  // team with depth. Skipped if a region is too short to hold the row cleanly.
+  for (let reg = 0; reg < regions; reg++) {
+    const rr = reg * rowsPerRegion + RIVAL_ROW_LOCAL;
+    if (rr <= 0 || rr >= totalRows - 1 || isBossRow(rr)) continue;
+    const rowNodes = Object.values(nodes).filter((n) => n.row === rr);
+    if (!rowNodes.length) continue;
+    const outward = new Set();
+    rowNodes.forEach((n) => n.edges.forEach((e) => outward.add(e)));
+    rowNodes.forEach((n) => delete nodes[n.id]);
+    const rival = { id: `${rr}-rival`, row: rr, col: centerCol, region: reg,
+      type: NODE.RIVAL, rivalCheckpoint: reg, edges: [...outward] };
+    nodes[rival.id] = rival;
+    Object.values(nodes).filter((n) => n.row === rr - 1).forEach((n) => { n.edges = [rival.id]; });
   }
 
   // Type the remaining nodes deterministically (stable row/col order). The
