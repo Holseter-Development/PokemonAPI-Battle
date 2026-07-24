@@ -12,6 +12,15 @@ let audioCtx = null;
 let masterGain = null;
 const routed = new WeakSet();
 
+// True once the user has unlocked audio and music is meant to be playing. Lets
+// us pause music in the background and resume it on return without ever
+// starting it before the first gesture (which autoplay policies would block).
+let musicWanted = false;
+
+function getMusic() {
+  return document.getElementById("battleMusic");
+}
+
 function ensureCtx() {
   if (audioCtx) return audioCtx;
   try {
@@ -64,21 +73,45 @@ function playEl(el, { useGraph = true } = {}) {
   return el.play();
 }
 
+// Music plays directly on the element (not through the Web Audio graph) so it
+// starts reliably on the first gesture on iOS, where a suspended AudioContext
+// would otherwise leave a routed element silent until some later sound resumed
+// the context.
+function startMusic() {
+  const music = getMusic();
+  if (!music) return;
+  musicWanted = true;
+  if (isMuted || document.hidden) return;
+  if (music.paused) playEl(music, { useGraph: false }).catch(() => {});
+}
+
+function pauseMusic() {
+  const music = getMusic();
+  if (music && !music.paused) {
+    try {
+      music.pause();
+    } catch (_) {}
+  }
+}
+
 export function setMuted(v) {
   isMuted = !!v;
-  const music = document.getElementById("battleMusic");
+  const music = getMusic();
   if (music) {
     music.muted = isMuted; // honored on iOS
-    if (!isMuted && music.paused) playEl(music).catch(() => {});
+    if (isMuted) pauseMusic();
+    else startMusic();
   }
   applyGain();
+  updateMuteIcons();
 }
 
 export function setVolume(v) {
   sfxVolume = Math.max(0, Math.min(1, isNaN(v) ? sfxVolume : v));
-  const music = document.getElementById("battleMusic");
+  const music = getMusic();
   if (music && !routed.has(music)) music.volume = sfxVolume;
   applyGain();
+  syncVolumeSliders();
 }
 
 // Maps API move names (e.g., "hydro-pump") to your sound file names.
@@ -281,47 +314,74 @@ export function playFile(url) {
   } catch (_) {}
 }
 
-function updateMuteIcon(btn) {
-  if (!btn) return;
-  const use = btn.querySelector("use");
-  if (use) use.setAttribute("href", isMuted ? "#i-volume-off" : "#i-volume");
-  btn.setAttribute("aria-pressed", String(isMuted));
-  btn.title = isMuted ? "Unmute" : "Mute";
+// The same controls live in two places (the top bar and the main-menu title
+// screen), so mute/volume state is mirrored across every matching control.
+function updateMuteIcons() {
+  document.querySelectorAll("[data-mute-btn]").forEach((btn) => {
+    const use = btn.querySelector("use");
+    if (use) use.setAttribute("href", isMuted ? "#i-volume-off" : "#i-volume");
+    btn.setAttribute("aria-pressed", String(isMuted));
+    btn.title = isMuted ? "Unmute" : "Mute";
+  });
+}
+
+function syncVolumeSliders() {
+  document.querySelectorAll("[data-volume-slider]").forEach((slider) => {
+    if (document.activeElement !== slider) slider.value = String(sfxVolume);
+  });
 }
 
 export function initAudio() {
-  const music = document.getElementById("battleMusic");
-  const muteBtn = document.getElementById("muteBtn");
-  const volumeSlider = document.getElementById("volumeSlider");
+  const muteButtons = Array.from(document.querySelectorAll("[data-mute-btn]"));
+  const volumeSliders = Array.from(document.querySelectorAll("[data-volume-slider]"));
 
-  if (volumeSlider) sfxVolume = parseFloat(volumeSlider.value) || sfxVolume;
+  const firstSlider = volumeSliders[0];
+  if (firstSlider) sfxVolume = parseFloat(firstSlider.value) || sfxVolume;
 
   // Unlock + start the music on the first real user gesture (required by
   // autoplay policies, and to create/resume the AudioContext on iOS).
   const unlock = () => {
     ensureCtx();
     if (audioCtx && audioCtx.state === "suspended") audioCtx.resume().catch(() => {});
-    if (music && !isMuted && music.paused) playEl(music).catch(() => {});
+    startMusic();
     events.forEach((ev) => document.removeEventListener(ev, unlock));
   };
   const events = ["pointerdown", "touchstart", "keydown", "click"];
   events.forEach((ev) => document.addEventListener(ev, unlock, { passive: true }));
 
-  if (muteBtn) {
-    updateMuteIcon(muteBtn);
-    muteBtn.addEventListener("click", (e) => {
+  muteButtons.forEach((btn) => {
+    btn.addEventListener("click", (e) => {
       e.stopPropagation();
       setMuted(!isMuted);
-      updateMuteIcon(muteBtn);
     });
-  }
-  if (volumeSlider) {
-    volumeSlider.value = String(sfxVolume);
-    volumeSlider.addEventListener("input", () => {
-      setVolume(parseFloat(volumeSlider.value));
-      if (sfxVolume > 0 && isMuted) { setMuted(false); updateMuteIcon(muteBtn); }
+  });
+  updateMuteIcons();
+
+  volumeSliders.forEach((slider) => {
+    slider.value = String(sfxVolume);
+    slider.addEventListener("input", () => {
+      setVolume(parseFloat(slider.value));
+      if (sfxVolume > 0 && isMuted) setMuted(false);
     });
-  }
+  });
+
+  // Never let the music keep playing in the background. When the tab is hidden,
+  // the phone is locked, or the page is being closed/navigated away, pause it
+  // (this is what stops iOS from continuing playback on the lock screen) and
+  // suspend the audio graph. Resume both when the page returns to the foreground.
+  const onVisibility = () => {
+    if (document.visibilityState === "hidden") {
+      pauseMusic();
+      if (audioCtx && audioCtx.state === "running") audioCtx.suspend().catch(() => {});
+    } else {
+      if (audioCtx && audioCtx.state === "suspended") audioCtx.resume().catch(() => {});
+      if (musicWanted && !isMuted) startMusic();
+    }
+  };
+  document.addEventListener("visibilitychange", onVisibility);
+  window.addEventListener("pagehide", pauseMusic);
+  window.addEventListener("freeze", pauseMusic);
+
   // Prime element state.
   setVolume(sfxVolume);
 }

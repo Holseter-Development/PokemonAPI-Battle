@@ -515,6 +515,10 @@
   var audioCtx = null;
   var masterGain = null;
   var routed = /* @__PURE__ */ new WeakSet();
+  var musicWanted = false;
+  function getMusic() {
+    return document.getElementById("battleMusic");
+  }
   function ensureCtx() {
     if (audioCtx)
       return audioCtx;
@@ -564,23 +568,46 @@
     el2.muted = isMuted;
     return el2.play();
   }
+  function startMusic() {
+    const music = getMusic();
+    if (!music)
+      return;
+    musicWanted = true;
+    if (isMuted || document.hidden)
+      return;
+    if (music.paused)
+      playEl(music, { useGraph: false }).catch(() => {
+      });
+  }
+  function pauseMusic() {
+    const music = getMusic();
+    if (music && !music.paused) {
+      try {
+        music.pause();
+      } catch (_) {
+      }
+    }
+  }
   function setMuted(v) {
     isMuted = !!v;
-    const music = document.getElementById("battleMusic");
+    const music = getMusic();
     if (music) {
       music.muted = isMuted;
-      if (!isMuted && music.paused)
-        playEl(music).catch(() => {
-        });
+      if (isMuted)
+        pauseMusic();
+      else
+        startMusic();
     }
     applyGain();
+    updateMuteIcons();
   }
   function setVolume(v) {
     sfxVolume = Math.max(0, Math.min(1, isNaN(v) ? sfxVolume : v));
-    const music = document.getElementById("battleMusic");
+    const music = getMusic();
     if (music && !routed.has(music))
       music.volume = sfxVolume;
     applyGain();
+    syncVolumeSliders();
   }
   var ATTACK_SFX_MAP = {
     absorb: "Absorb.wav",
@@ -782,51 +809,69 @@
     } catch (_) {
     }
   }
-  function updateMuteIcon(btn) {
-    if (!btn)
-      return;
-    const use = btn.querySelector("use");
-    if (use)
-      use.setAttribute("href", isMuted ? "#i-volume-off" : "#i-volume");
-    btn.setAttribute("aria-pressed", String(isMuted));
-    btn.title = isMuted ? "Unmute" : "Mute";
+  function updateMuteIcons() {
+    document.querySelectorAll("[data-mute-btn]").forEach((btn) => {
+      const use = btn.querySelector("use");
+      if (use)
+        use.setAttribute("href", isMuted ? "#i-volume-off" : "#i-volume");
+      btn.setAttribute("aria-pressed", String(isMuted));
+      btn.title = isMuted ? "Unmute" : "Mute";
+    });
+  }
+  function syncVolumeSliders() {
+    document.querySelectorAll("[data-volume-slider]").forEach((slider) => {
+      if (document.activeElement !== slider)
+        slider.value = String(sfxVolume);
+    });
   }
   function initAudio() {
-    const music = document.getElementById("battleMusic");
-    const muteBtn = document.getElementById("muteBtn");
-    const volumeSlider = document.getElementById("volumeSlider");
-    if (volumeSlider)
-      sfxVolume = parseFloat(volumeSlider.value) || sfxVolume;
+    const muteButtons = Array.from(document.querySelectorAll("[data-mute-btn]"));
+    const volumeSliders = Array.from(document.querySelectorAll("[data-volume-slider]"));
+    const firstSlider = volumeSliders[0];
+    if (firstSlider)
+      sfxVolume = parseFloat(firstSlider.value) || sfxVolume;
     const unlock = () => {
       ensureCtx();
       if (audioCtx && audioCtx.state === "suspended")
         audioCtx.resume().catch(() => {
         });
-      if (music && !isMuted && music.paused)
-        playEl(music).catch(() => {
-        });
+      startMusic();
       events.forEach((ev) => document.removeEventListener(ev, unlock));
     };
     const events = ["pointerdown", "touchstart", "keydown", "click"];
     events.forEach((ev) => document.addEventListener(ev, unlock, { passive: true }));
-    if (muteBtn) {
-      updateMuteIcon(muteBtn);
-      muteBtn.addEventListener("click", (e) => {
+    muteButtons.forEach((btn) => {
+      btn.addEventListener("click", (e) => {
         e.stopPropagation();
         setMuted(!isMuted);
-        updateMuteIcon(muteBtn);
       });
-    }
-    if (volumeSlider) {
-      volumeSlider.value = String(sfxVolume);
-      volumeSlider.addEventListener("input", () => {
-        setVolume(parseFloat(volumeSlider.value));
-        if (sfxVolume > 0 && isMuted) {
+    });
+    updateMuteIcons();
+    volumeSliders.forEach((slider) => {
+      slider.value = String(sfxVolume);
+      slider.addEventListener("input", () => {
+        setVolume(parseFloat(slider.value));
+        if (sfxVolume > 0 && isMuted)
           setMuted(false);
-          updateMuteIcon(muteBtn);
-        }
       });
-    }
+    });
+    const onVisibility = () => {
+      if (document.visibilityState === "hidden") {
+        pauseMusic();
+        if (audioCtx && audioCtx.state === "running")
+          audioCtx.suspend().catch(() => {
+          });
+      } else {
+        if (audioCtx && audioCtx.state === "suspended")
+          audioCtx.resume().catch(() => {
+          });
+        if (musicWanted && !isMuted)
+          startMusic();
+      }
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    window.addEventListener("pagehide", pauseMusic);
+    window.addEventListener("freeze", pauseMusic);
     setVolume(sfxVolume);
   }
   var CRY_CACHE = /* @__PURE__ */ new Map();
