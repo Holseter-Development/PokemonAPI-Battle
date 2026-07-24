@@ -132,6 +132,34 @@ export const GYMS = [
     team: [111, 51, 112], intro: "Giovanni, the self-proclaimed strongest, sneers.", floor: 50, reward: { money: 2500, ultraBalls: 3, hyperPotions: 2 } },
 ];
 
+// ---- Wandering trainers -------------------------------------------------
+// Optional, non-boss trainers that can ambush the player on a Mystery node.
+// Unlike GYMS these scale with the route's encounter level, carry a small
+// non-legendary team, and hand over a random item when beaten. Sprites are
+// reused from the shared trainer art in assets/sprites.
+export const WANDERING_TRAINERS = [
+  { leader: "Bug Catcher", title: "Wandering", type: "bug", sprite: "assets/sprites/ninjaboy.png",
+    team: [13, 48], meta: "A challenger blocks the trail!", intro: "A Bug Catcher springs from the tall grass, ready to battle!" },
+  { leader: "Biker", title: "Wandering", type: "poison", sprite: "assets/sprites/biker-gen4.png",
+    team: [88, 109], meta: "A challenger blocks the trail!", intro: "A revving Biker cuts you off and challenges you!" },
+  { leader: "Swimmer", title: "Wandering", type: "water", sprite: "assets/sprites/swimmerf.png",
+    team: [116, 118], meta: "A challenger blocks the trail!", intro: "A Swimmer surfaces and dares you to a battle!" },
+  { leader: "Psychic", title: "Wandering", type: "psychic", sprite: "assets/sprites/psychicf.png",
+    team: [63, 96], meta: "A challenger blocks the trail!", intro: "A Psychic senses your approach and blocks the way!" },
+  { leader: "Lass", title: "Wandering", type: "normal", sprite: "assets/sprites/beauty-gen3.png",
+    team: [35, 39], meta: "A challenger blocks the trail!", intro: "A cheerful Lass wants to battle!" },
+  { leader: "Scientist", title: "Wandering", type: "electric", sprite: "assets/sprites/scientist.png",
+    team: [100, 81], meta: "A challenger blocks the trail!", intro: "A Scientist adjusts their goggles and challenges you!" },
+  { leader: "Street Thug", title: "Wandering", type: "fighting", sprite: "assets/sprites/streetthug.png",
+    team: [66, 56], meta: "A challenger blocks the trail!", intro: "A Street Thug shoves forward, spoiling for a fight!" },
+  { leader: "Rocket Grunt", title: "Wandering", type: "poison", sprite: "assets/sprites/teamrocketgruntm-gen3.png",
+    team: [23, 41], meta: "A challenger blocks the trail!", intro: "A Team Rocket Grunt ambushes you!" },
+  { leader: "Ace Trainer", title: "Wandering", type: "normal", sprite: "assets/sprites/acetrainerf-gen4.png",
+    team: [58, 21], meta: "A challenger blocks the trail!", intro: "An Ace Trainer sizes up your team and challenges you!" },
+  { leader: "Veteran", title: "Wandering", type: "normal", sprite: "assets/sprites/veteran.png",
+    team: [22, 20], meta: "A challenger blocks the trail!", intro: "A grizzled Veteran steps in for a battle!" },
+];
+
 // The final challenge after all eight badges.
 export const CHAMPION = {
   leader: "Champion Blue", title: "Champion", town: "Indigo Plateau", type: "normal", badge: "Champion",

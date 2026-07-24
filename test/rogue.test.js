@@ -12,8 +12,10 @@ import {
 import {
   NODE, generateMap, createRun, availableNext, travelTo, markResolved,
   currentNode, checkWipe, offerSigils, offerMutations, rollShop,
-  rollMysteryEvent, rollGold, encounterLevel, bossMemberLevel, RUN_CONFIG,
+  rollMysteryEvent, rollMysteryEncounter, pickTrainerReward, TRAINER_REWARDS,
+  MYSTERY_TRAINER_CHANCE, rollGold, encounterLevel, bossMemberLevel, RUN_CONFIG,
 } from "../src/run.js";
+import { WANDERING_TRAINERS, GEN1_MAX_ID } from "../src/data.js";
 
 let passed = 0;
 function test(name, fn) {
@@ -241,6 +243,67 @@ test("shop stock & mystery events are valid; gold/level scale", () => {
   assert.ok(ev.id && ev.choices.length >= 1);
   assert.ok(rollGold(clone(run), NODE.ELITE) > rollGold(clone(run), NODE.BATTLE));
   assert.ok(encounterLevel({ visited: new Array(10), ascension: 0 }) > encounterLevel({ visited: [], ascension: 0 }));
+});
+
+test("wandering trainers are valid, non-legendary, and reference real sprites", () => {
+  assert.ok(WANDERING_TRAINERS.length >= 4, "there is a pool of wandering trainers");
+  for (const t of WANDERING_TRAINERS) {
+    assert.ok(t.leader && t.type && t.intro, `${t.leader} has identity + intro copy`);
+    assert.match(t.sprite, /^assets\/sprites\/.+\.png$/, `${t.leader} points at a real sprite asset`);
+    assert.ok(Array.isArray(t.team) && t.team.length >= 1, `${t.leader} has a team`);
+    for (const id of t.team) {
+      assert.ok(Number.isInteger(id) && id >= 1 && id <= GEN1_MAX_ID, `${t.leader} team id ${id} is Gen 1`);
+      assert.ok(id < 144 || id > 151, `${t.leader} team id ${id} is not a legendary`);
+    }
+  }
+});
+
+test("trainer reward table is well-formed and picks are valid, bounded rewards", () => {
+  const allowedItems = new Set(["poke-ball", "great-ball", "potion", "super-potion"]);
+  for (const entry of TRAINER_REWARDS) {
+    assert.ok(entry.weight > 0, "every reward carries a positive weight");
+    const r = entry.reward;
+    assert.ok(["gold", "item", "egg"].includes(r.kind), "reward kinds are recognised");
+    if (r.kind === "item") assert.ok(allowedItems.has(r.id), `${r.id} is a real run item`);
+    if (r.kind === "gold") assert.ok(r.max >= r.min && r.min > 0, "gold reward has a sane range");
+  }
+  // Sweep the rng so every branch of the picker is exercised.
+  const rng = makeRng(4242);
+  const kinds = new Set();
+  for (let i = 0; i < 400; i++) {
+    const reward = pickTrainerReward(rng);
+    kinds.add(reward.kind);
+    assert.ok(reward.label, "every reward is player-describable");
+    if (reward.kind === "gold") {
+      assert.ok(reward.amount >= 40 && reward.amount <= 90, "gold amount stays inside the table range");
+      assert.strictEqual(reward.min, undefined, "resolved gold reward drops its range fields");
+    }
+    if (reward.kind === "item") assert.ok(reward.amount >= 1, "item rewards grant at least one");
+  }
+  assert.ok(kinds.has("gold") && kinds.has("item") && kinds.has("egg"), "all reward kinds are reachable");
+});
+
+test("mystery encounter is deterministic and yields both trainers and events", () => {
+  // Same seed + state reproduces the same encounter (and reward).
+  const a = rollMysteryEncounter(clone(createRun("MYST")));
+  const b = rollMysteryEncounter(clone(createRun("MYST")));
+  assert.deepStrictEqual(a, b, "a fixed seed reproduces the encounter");
+
+  // Across many seeds we see both branches; trainer encounters carry a reward.
+  let trainers = 0, events = 0;
+  for (let i = 0; i < 200; i++) {
+    const enc = rollMysteryEncounter(createRun("SEED" + i));
+    if (enc.kind === "trainer") {
+      trainers++;
+      assert.ok(enc.trainer && enc.trainer.team, "trainer encounter includes a trainer");
+      assert.ok(enc.reward && enc.reward.kind, "trainer encounter pre-rolls a reward");
+    } else {
+      events++;
+      assert.ok(enc.event && enc.event.choices.length >= 1, "event encounter includes a classic event");
+    }
+  }
+  assert.ok(trainers > 0 && events > 0, "both trainer and event mysteries occur");
+  assert.ok(MYSTERY_TRAINER_CHANCE > 0 && MYSTERY_TRAINER_CHANCE < 1, "trainer chance is a proper probability");
 });
 
 test("encounters and Elite bosses stay near an under-levelled living party", () => {

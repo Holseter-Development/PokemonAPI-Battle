@@ -109,6 +109,20 @@ assert.strictEqual(Object.values(purchasedMeta.upgrades).filter(Boolean).length,
 doc.querySelector(".upgrade-close").click();
 console.log("  ✓ Pokédex filters and Fragment Lab render from migrated progression");
 
+// Trainer Profile summarizes account identity and reflects earned upgrades.
+doc.getElementById("profileBtn").click();
+assert.ok(!modal.classList.contains("hidden") && modal.classList.contains("modal-wide"), "Trainer Profile opens in a wide modal");
+const profileStats = [...doc.querySelectorAll(".profile-stat")].map((card) => card.textContent);
+assert.ok(profileStats.some((text) => /2 \/ 2/.test(text)), "won/started reflects legacy wins");
+assert.ok(profileStats.some((text) => /100%/.test(text)), "win rate derives from legacy record");
+assert.ok(profileStats.some((text) => /Playtime/.test(text)), "playtime stat is present");
+assert.ok(profileStats.some((text) => /1 \/ 151/.test(text)), "Pokédex completion reflects backfilled catch");
+assert.strictEqual(doc.querySelectorAll(".profile-upgrades li").length, 5, "purchased upgrades are listed");
+assert.ok(/Champion/.test(doc.querySelector(".profile-badges").textContent), "Champion badge shows for a prior win");
+doc.querySelector(".profile-close").click();
+assert.ok(modal.classList.contains("hidden"), "Trainer Profile closes");
+console.log("  ✓ Trainer Profile renders account statistics and rewards");
+
 // --- click "New Adventure" and let the async flow settle ---
 const staleEnemy = doc.getElementById("enemySprite");
 staleEnemy.setAttribute("src", "old-battle.png");

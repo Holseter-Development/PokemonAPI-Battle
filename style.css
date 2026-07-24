@@ -1272,6 +1272,79 @@ button.use-btn:active { transform: translateY(2px); }
 .upgrade-buy { flex: 0 0 auto; min-width: 100px; }
 .upgrade-buy:disabled { opacity: .52; cursor: not-allowed; }
 
+/* ---- Trainer Profile ---------------------------------------------------- */
+.profile-shell {
+  max-height: min(720px, 78vh);
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  text-align: left;
+}
+.profile-stats {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+.profile-stat {
+  display: grid;
+  place-items: center;
+  text-align: center;
+  padding: 11px 8px;
+  border: 1px solid var(--panel-line);
+  border-radius: 12px;
+  background: rgba(255,255,255,.045);
+}
+.profile-stat b { color: var(--ink); font-size: 19px; line-height: 1.1; }
+.profile-stat small {
+  margin-top: 5px;
+  color: var(--muted);
+  font-size: 9px;
+  font-weight: 850;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+}
+.profile-stat-sub { margin-top: 3px; color: #9edcff; font-size: 10px; }
+.profile-section { display: grid; gap: 8px; }
+.profile-section h3 {
+  margin: 0;
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+  color: #9facc0;
+}
+.profile-empty { margin: 0 !important; }
+.profile-badges {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 8px;
+}
+.profile-badge {
+  display: grid;
+  gap: 2px;
+  padding: 9px 11px;
+  border: 1px solid rgba(255,209,102,.28);
+  border-radius: 11px;
+  background: linear-gradient(90deg, rgba(255,209,102,.09), rgba(77,195,255,.05));
+}
+.profile-badge b { color: #ffe48b; font-size: 12px; }
+.profile-badge span { color: var(--muted); font-size: 10px; }
+.profile-upgrades { margin: 0; padding: 0; list-style: none; display: grid; gap: 7px; }
+.profile-upgrades li {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 9px 11px;
+  border: 1px solid rgba(55,214,122,.3);
+  border-radius: 11px;
+  background: rgba(55,214,122,.06);
+}
+.profile-upgrades b { font-size: 12px; }
+.profile-upgrades span { color: var(--muted); font-size: 10px; text-align: right; }
+.profile-close { margin-top: 2px; }
+
 .foot { margin-top: 10px; opacity: .7; text-align: center; }
 .small { font-size: 12px; color: var(--muted); }
 .hidden { display: none !important; }
@@ -1729,6 +1802,11 @@ button.use-btn:active { transform: translateY(2px); }
   .upgrade-list { grid-template-columns: minmax(0, 1fr); }
   .upgrade-card { padding: 10px; }
   .upgrade-buy { min-width: 92px; }
+  .profile-shell { max-height: 83dvh; }
+  .profile-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .profile-badges { grid-template-columns: minmax(0, 1fr); }
+  .profile-upgrades li { flex-direction: column; gap: 3px; }
+  .profile-upgrades span { text-align: left; }
 }
 
 /* Landscape phones: keep the message box compact so the arena stays visible. */

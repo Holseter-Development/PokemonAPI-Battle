@@ -5,6 +5,7 @@
 
 import { makeRng, hashSeed, randRange, pick, shuffle, sampleDistinct } from "./rng.js";
 import { mutationList, sigilList, rarityWeightOf } from "./mutations.js";
+import { WANDERING_TRAINERS } from "./data.js";
 
 export const NODE = {
   BATTLE: "battle", // wild encounter (catchable)
@@ -288,11 +289,58 @@ export const EVENTS = [
 ];
 
 export function rollMysteryEvent(run) {
+  return withRng(run, (rng) => pickEventInline(rng));
+}
+
+function pickEventInline(rng) {
+  const entries = EVENTS.map((e) => ({ item: e, weight: e.weight }));
+  let t = rng() * entries.reduce((s, e) => s + e.weight, 0);
+  for (const e of entries) { t -= e.weight; if (t < 0) return e.item; }
+  return EVENTS[0];
+}
+
+// A Mystery node has this chance of being an ambush by a wandering trainer
+// instead of a classic event. Beating the trainer yields a random item.
+export const MYSTERY_TRAINER_CHANCE = 0.3;
+
+// Weighted item rewards for beating a wandering trainer. `gold` rolls an amount
+// at pick time; everything else maps to a run-inventory item or a hatchable egg.
+export const TRAINER_REWARDS = [
+  { weight: 24, reward: { kind: "gold", min: 40, max: 90 } },
+  { weight: 20, reward: { kind: "item", id: "poke-ball", amount: 2, label: "2 Poké Balls" } },
+  { weight: 16, reward: { kind: "item", id: "potion", amount: 2, label: "2 Potions" } },
+  { weight: 12, reward: { kind: "item", id: "super-potion", amount: 1, label: "a Super Potion" } },
+  { weight: 10, reward: { kind: "item", id: "great-ball", amount: 1, label: "a Great Ball" } },
+  { weight: 8, reward: { kind: "egg", label: "a Mystery Egg" } },
+];
+
+// Deterministically pick one reward from the table using the supplied rng.
+export function pickTrainerReward(rng) {
+  const total = TRAINER_REWARDS.reduce((s, e) => s + e.weight, 0);
+  let t = rng() * total;
+  let chosen = TRAINER_REWARDS[TRAINER_REWARDS.length - 1].reward;
+  for (const e of TRAINER_REWARDS) { t -= e.weight; if (t < 0) { chosen = e.reward; break; } }
+  const reward = { ...chosen };
+  if (reward.kind === "gold") {
+    reward.amount = randRange(rng, reward.min, reward.max);
+    reward.label = `${reward.amount} gold`;
+    delete reward.min;
+    delete reward.max;
+  }
+  return reward;
+}
+
+// Resolve what a Mystery node actually is: either a wandering-trainer ambush
+// (with a pre-rolled reward) or a weighted classic event. Seeded on the run's
+// RNG stream so a seed + path reproduces the same encounter.
+export function rollMysteryEncounter(run) {
   return withRng(run, (rng) => {
-    const entries = EVENTS.map((e) => ({ item: e, weight: e.weight }));
-    let t = rng() * entries.reduce((s, e) => s + e.weight, 0);
-    for (const e of entries) { t -= e.weight; if (t < 0) return e.item; }
-    return EVENTS[0];
+    if (WANDERING_TRAINERS.length && rng() < MYSTERY_TRAINER_CHANCE) {
+      const trainer = pick(rng, WANDERING_TRAINERS);
+      const reward = pickTrainerReward(rng);
+      return { kind: "trainer", trainer, reward };
+    }
+    return { kind: "event", event: pickEventInline(rng) };
   });
 }
 
