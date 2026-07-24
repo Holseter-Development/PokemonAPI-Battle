@@ -6,6 +6,7 @@ import { makeRng } from "../src/rng.js";
 import {
   BIOMES, LEGENDARY_IDS, encounterTableFor, eligibleEntries, pickEncounter,
   defaultSpeciesId, validateBiomes,
+  ALPHA_MODIFIERS, pickAlphaModifier, applyAlphaModifier,
 } from "../src/encounters.js";
 import { generateMap } from "../src/run.js";
 import { GEN1_MAX_ID } from "../src/data.js";
@@ -115,6 +116,57 @@ test("defaultSpeciesId is a valid, non-legendary common", () => {
   const id = defaultSpeciesId();
   assert.ok(Number.isInteger(id) && id >= 1 && id <= GEN1_MAX_ID);
   assert.ok(!LEGENDARY_IDS.has(id));
+});
+
+// ---- P2.4: Alpha modifiers ----
+test("every Alpha modifier is well-formed with positive stat factors", () => {
+  assert.ok(ALPHA_MODIFIERS.length > 0, "there is at least one Alpha aura");
+  const ids = new Set();
+  for (const m of ALPHA_MODIFIERS) {
+    assert.ok(m.id && m.name && m.desc, `modifier missing id/name/desc: ${JSON.stringify(m)}`);
+    assert.ok(!ids.has(m.id), `duplicate modifier id ${m.id}`);
+    ids.add(m.id);
+    const factors = Object.values(m.stats || {});
+    assert.ok(factors.length > 0, `modifier ${m.id} has no stat factors`);
+    for (const f of factors) assert.ok(typeof f === "number" && f > 0, `modifier ${m.id} has a non-positive factor`);
+  }
+});
+
+test("pickAlphaModifier only returns catalog entries and is seeded", () => {
+  const catalogIds = new Set(ALPHA_MODIFIERS.map((m) => m.id));
+  const r1 = makeRng(555), r2 = makeRng(555);
+  const seq1 = [], seq2 = [];
+  for (let i = 0; i < 20; i++) {
+    const pick = pickAlphaModifier(r1);
+    assert.ok(catalogIds.has(pick.id), "pick escaped the catalog");
+    seq1.push(pick.id);
+    seq2.push(pickAlphaModifier(r2).id);
+  }
+  assert.deepStrictEqual(seq1, seq2, "same seed reproduces the aura sequence");
+});
+
+test("applyAlphaModifier scales the target's own stats and tags the aura", () => {
+  const base = { stats: { maxHp: 100, hp: 100, atk: 100, def: 100, spa: 100, spd: 100, spe: 100 } };
+  const frenzied = ALPHA_MODIFIERS.find((m) => m.id === "frenzied");
+  const mon = applyAlphaModifier(JSON.parse(JSON.stringify(base)), frenzied);
+  assert.strictEqual(mon.stats.atk, 130, "attack scaled +30%");
+  assert.strictEqual(mon.stats.spa, 130, "sp. atk scaled +30%");
+  assert.strictEqual(mon.stats.def, 100, "untouched stats stay put");
+  assert.deepStrictEqual(mon.alpha, { id: "frenzied", name: frenzied.name, desc: frenzied.desc });
+
+  // A max-HP aura enters battle topped up to the new maximum.
+  const vigorous = ALPHA_MODIFIERS.find((m) => m.id === "vigorous");
+  const tank = applyAlphaModifier(JSON.parse(JSON.stringify(base)), vigorous);
+  assert.strictEqual(tank.stats.maxHp, 125, "max HP scaled +25%");
+  assert.strictEqual(tank.stats.hp, tank.stats.maxHp, "spawns at full boosted HP");
+});
+
+test("applyAlphaModifier is a safe no-op on bad input", () => {
+  assert.strictEqual(applyAlphaModifier(null, ALPHA_MODIFIERS[0]), null);
+  const mon = { stats: { atk: 50 } };
+  assert.strictEqual(applyAlphaModifier(mon, null), mon, "missing modifier leaves the mon unchanged");
+  assert.strictEqual(mon.stats.atk, 50);
+  assert.strictEqual(mon.alpha, undefined);
 });
 
 console.log(`\n${passed} checks passed`);

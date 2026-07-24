@@ -109,6 +109,39 @@ export function defaultSpeciesId() {
   return BIOMES[0].entries[0].id;
 }
 
+// ---- Alpha encounters (P2.4) -------------------------------------------
+// A rare wild battle can spawn an Alpha: a stronger individual fighting under
+// one visible aura buff. Each aura scales the Alpha's OWN stats (mirrors a
+// mutation stat graft) so the advantage is transparent in the HUD rather than
+// hidden AI stat cheating. `stats` values are multiplicative factors. The list
+// is authored data — the picker and applier below stay pure and seedable.
+export const ALPHA_MODIFIERS = [
+  { id: "frenzied", name: "Frenzied", desc: "+30% Attack & Sp. Atk", stats: { atk: 1.3, spa: 1.3 } },
+  { id: "ironclad", name: "Ironclad", desc: "+40% Defense & Sp. Def", stats: { def: 1.4, spd: 1.4 } },
+  { id: "swift",    name: "Swift",    desc: "+40% Speed",             stats: { spe: 1.4 } },
+  { id: "vigorous", name: "Vigorous", desc: "+25% max HP",            stats: { maxHp: 1.25 } },
+];
+
+// Seeded pick of one Alpha aura from the catalog.
+export function pickAlphaModifier(rng) {
+  return ALPHA_MODIFIERS[Math.floor(rng() * ALPHA_MODIFIERS.length)];
+}
+
+// Apply an Alpha aura's visible stat buff to a live mon, in place. Mirrors the
+// mutation stat-graft math (floor, min 1). A max-HP buff also tops the Alpha up
+// to its new maximum so it enters battle at full boosted HP. Tags the mon with
+// `alpha` describing the active aura. Returns the mon.
+export function applyAlphaModifier(mon, modifier) {
+  if (!mon || !mon.stats || !modifier || !modifier.stats) return mon;
+  for (const [k, f] of Object.entries(modifier.stats)) {
+    if (mon.stats[k] == null) continue;
+    mon.stats[k] = Math.max(1, Math.floor(mon.stats[k] * f));
+  }
+  if (modifier.stats.maxHp) mon.stats.hp = mon.stats.maxHp; // enter at full boosted HP
+  mon.alpha = { id: modifier.id, name: modifier.name, desc: modifier.desc };
+  return mon;
+}
+
 // Structural validation of the biome tables. Returns an array of error strings
 // (empty when everything is well-formed). Checked by tests, not at runtime.
 export function validateBiomes(biomes = BIOMES) {

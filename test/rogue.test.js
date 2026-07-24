@@ -16,7 +16,10 @@ import {
   MYSTERY_TRAINER_CHANCE, rollGold, encounterLevel, bossMemberLevel, RUN_CONFIG,
   eventGoldCost, resolveCoinflip, resolveWishingWell, resolveShrineScar,
   SHRINE_SCAR_STATS, rollWildShiny,
+  rollWildAlpha, alphaLevel, alphaGoldBonus, ALPHA_CATCH_MULT, ALPHA_LEVEL_BONUS,
+  ALPHA_BASE_ONE_IN,
 } from "../src/run.js";
+import { ALPHA_MODIFIERS } from "../src/encounters.js";
 import { WANDERING_TRAINERS, GEN1_MAX_ID } from "../src/data.js";
 
 let passed = 0;
@@ -454,6 +457,58 @@ test("rollWildShiny: deterministic per rng state and reload-safe", () => {
   const first = rollWildShiny(run, 8);
   run.rngState = before;
   assert.strictEqual(rollWildShiny(run, 8), first, "reload does not reroll shininess");
+});
+
+// ---- P2.4: Alpha encounters ----
+test("rollWildAlpha: forced odds always/never spawn an Alpha, base odds are rare", () => {
+  // 1-in-1 always yields an Alpha (returns a modifier object); huge odds never do.
+  const forced = rollWildAlpha(createRun("ALPHA"), 1);
+  assert.ok(forced && ALPHA_MODIFIERS.some((m) => m.id === forced.id), "1-in-1 yields a real modifier");
+  assert.strictEqual(rollWildAlpha(createRun("ALPHA"), 1e9), null, "astronomical odds never spawn an Alpha");
+  // Invalid odds fall back to the base rate rather than throwing/NaN.
+  const fallback = rollWildAlpha(createRun("ALPHA"), undefined);
+  assert.ok(fallback === null || typeof fallback === "object", "invalid odds fall back safely");
+
+  // Both outcomes occur across seeds, but Alphas stay a minority at base odds.
+  let alphas = 0;
+  const N = 3000;
+  for (let i = 0; i < N; i++) if (rollWildAlpha(createRun("AL" + i), ALPHA_BASE_ONE_IN)) alphas++;
+  assert.ok(alphas > 0, "some Alphas appear over many seeds");
+  assert.ok(alphas / N < 0.2, `Alphas stay a minority at base odds (${alphas}/${N})`);
+});
+
+test("rollWildAlpha: deterministic per rng state and reload-safe", () => {
+  const a = createRun("A-REPRO"), b = clone(a);
+  assert.deepStrictEqual(rollWildAlpha(a, 3), rollWildAlpha(b, 3), "same seed reproduces the roll");
+  // Restoring the pre-roll state reproduces the pending Alpha (and its aura).
+  const run = createRun("A-PENDING");
+  const before = run.rngState;
+  const first = rollWildAlpha(run, 2);
+  run.rngState = before;
+  assert.deepStrictEqual(rollWildAlpha(run, 2), first, "reload does not reroll the Alpha");
+});
+
+test("alphaLevel: two above the route target, capped at 100", () => {
+  assert.strictEqual(alphaLevel(10), 10 + ALPHA_LEVEL_BONUS);
+  assert.strictEqual(alphaLevel(99), 100, "clamped to the level cap");
+  assert.strictEqual(alphaLevel(100), 100, "never exceeds 100");
+  assert.strictEqual(alphaLevel(0), 1 + ALPHA_LEVEL_BONUS, "invalid/low base floors to level 1 first");
+});
+
+test("ALPHA_CATCH_MULT lowers catch odds below the normal rate", () => {
+  assert.ok(ALPHA_CATCH_MULT > 0 && ALPHA_CATCH_MULT < 1, "is a real fractional penalty");
+  const normal = 0.92;
+  assert.ok(normal * ALPHA_CATCH_MULT < normal, "an Alpha is harder to catch than a normal wild");
+});
+
+test("alphaGoldBonus grows with depth and ascension and is positive", () => {
+  const shallow = alphaGoldBonus({ visited: [], ascension: 0 });
+  const deep = alphaGoldBonus({ visited: new Array(10).fill(0), ascension: 0 });
+  const ascended = alphaGoldBonus({ visited: [], ascension: 2 });
+  assert.ok(shallow > 0, "always a positive bonus");
+  assert.ok(deep > shallow, "deeper runs pay more");
+  assert.ok(ascended > shallow, "ascension pays more");
+  assert.strictEqual(alphaGoldBonus(undefined), alphaGoldBonus({ visited: [], ascension: 0 }), "handles missing run");
 });
 
 console.log(`\n${passed} checks passed`);
