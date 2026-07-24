@@ -1676,10 +1676,13 @@ button.use-btn:active { transform: translateY(2px); }
      (z-index 5) sits above the HUD (z-index 4), so command buttons are always
      on top even if a card sits near them. */
   .statusbox { max-width: 58vw; min-width: 46vw; padding: 8px 9px; }
-  /* Multi-type cards: drop the type badges onto their own line so a second type
-     makes the card taller rather than wider, keeping it clear of the sprites. */
+  /* Multi-type cards: stack the type badges vertically on their own line so a
+     second type makes the card taller rather than wider, keeping it clear of
+     the sprites. (align-items:flex-start stops the pills stretching full width.) */
   .statusbox-top { row-gap: 4px; }
-  .statusbox-top .type-badges { flex-basis: 100%; }
+  .statusbox-top .type-badges {
+    flex-basis: 100%; flex-direction: column; align-items: flex-start;
+  }
   .mon-name { font-size: 13px; }
   .lv-badge { font-size: 10px; padding: 1px 6px; }
   .enemy-box { top: 10px; left: 10px; }
