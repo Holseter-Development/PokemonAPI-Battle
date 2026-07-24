@@ -356,6 +356,47 @@ export function rollMysteryEncounter(run) {
   });
 }
 
+// ---- deterministic Mystery-event outcome resolvers ---------------------
+//
+// These draw from the run's RNG stream (via withRng) instead of Math.random,
+// so a saved seed + the same choice always yields the same result and a
+// save/continue mid-run never rerolls a pending outcome. They are pure enough
+// to unit-test with a controlled stream; the controller applies the returned
+// outcome to gold, mutations, and stats.
+
+// The Gambler's coin flip. Returns whether the bet was won and the signed gold
+// delta to apply (the caller has already verified the stake is affordable).
+export function resolveCoinflip(run, stake) {
+  return withRng(run, (rng) => {
+    const won = rng() < 0.5;
+    return { won, delta: won ? stake : -stake };
+  });
+}
+
+// The Wishing Well. One roll decides the branch; a reward roll only happens on
+// the gold branch so the stream advances predictably per outcome.
+//   { type: "gold", gold }  — gold reward (80..159)
+//   { type: "mutation" }    — grant a mutation graft
+//   { type: "nothing" }     — the well stays silent
+export function resolveWishingWell(run) {
+  return withRng(run, (rng) => {
+    const roll = rng();
+    if (roll < 0.4) return { type: "gold", gold: 80 + Math.floor(rng() * 80) };
+    if (roll < 0.7) return { type: "mutation" };
+    return { type: "nothing" };
+  });
+}
+
+// The Cursed Shrine's scar: which team member is weakened and which stat. The
+// caller applies the -15% after its mutation graft.
+export function resolveShrineScar(run, statKeys = ["atk", "def", "spa", "spd", "spe"]) {
+  const teamLen = (run.team || []).length;
+  return withRng(run, (rng) => ({
+    victimIndex: teamLen ? Math.floor(rng() * teamLen) : -1,
+    statKey: statKeys[Math.floor(rng() * statKeys.length)],
+  }));
+}
+
 // Difficulty scaling follows run depth, but never races far ahead merely
 // because a route contained shops, rests, or mysteries instead of battles.
 export function encounterLevel(run) {
