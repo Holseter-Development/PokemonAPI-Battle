@@ -412,6 +412,24 @@ separate battle stream until Daily Challenges require complete replayability.
 - Tests exercise every mystery outcome through controlled RNG.
 - No run-resolution branch in `main.js` uses `Math.random()`.
 
+**Status:** Complete. The remaining run-affecting rolls now draw from the run RNG
+through three pure resolvers in `src/run.js` — `resolveCoinflip` (the Gambler),
+`resolveWishingWell` (gold/mutation/nothing + gold amount), and
+`resolveShrineScar` (victim + stat). `applyEventEffect` consumes them, so a seed
+plus path reproduces every Mystery outcome and a save/continue mid-node no longer
+rerolls a pending result. Wild species, boss selection, event recruitment, and
+reward drafts were already deterministic; battle accuracy/damage/crit and the
+catch shake stay on the separate battle stream per the note above. New
+`rogue.test.js` cases cover determinism, reachable outcomes, value ranges, and
+the reload-does-not-reroll guarantee.
+
+This chunk also fixed a Mystery-readability bug: node outcomes were narrated
+through the battle text box (`say()`), which sits at `z-index: 5` behind the
+opaque map overlay (`z-index: 20`) — so results were rendered completely hidden
+and appeared to "end instantly." Mystery, Rest, and Wishing-Well/Shrine outcomes
+now surface in the modal (`showOutcome`) with a **Continue** button the player
+dismisses at their own pace.
+
 ## P2.3 — Shinies
 
 **Size:** S/M  
@@ -927,8 +945,8 @@ Implement in this order:
 5. `P1.5` — Fragment upgrade shop. **Complete**
 6. `P1.6` — Trainer profile. **Complete**
 7. `P2.1` — Biome encounter catalog. **Complete**
-8. `P2.2` — Deterministic controller rolls. **Next**
-9. `P2.3` — Shinies.
+8. `P2.2` — Deterministic controller rolls. **Complete**
+9. `P2.3` — Shinies. **Next**
 10. `P2.4` — Alpha encounters.
 11. `P2.5` — Recurring rival.
 12. `P2.6` — Mystery event expansion.
@@ -964,8 +982,9 @@ Update this section as chunks ship.
 | P1.5 | Complete | Confirmed Fragment purchases, five permanent upgrades, and combined effect previews shipped 2026-07-24 |
 | P1.6 | Complete | Trainer Profile screen, run history summary, and capped active-foreground playtime shipped 2026-07-24 |
 | P2.1 | Complete | Three region biome tables, seeded depth-gated wild picker, and encounter tests shipped 2026-07-24 |
-| P2.2 | Next | Deterministic controller rolls |
-| P2.3–P2.6 | Backlog | Places and surprise |
+| P2.2 | Complete | Seeded coinflip/well/shrine resolvers, readable Mystery outcome modal, and reroll-guard tests shipped 2026-07-24 |
+| P2.3 | Next | Shinies |
+| P2.4–P2.6 | Backlog | Places and surprise |
 | P3.0–P3.6 | Backlog | Team-building depth |
 | P4.1–P4.7 | Backlog | Replay and challenge |
 | P5.1–P5.3 | Deferred | Multi-target battle formats |

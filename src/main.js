@@ -47,6 +47,7 @@ import {
   NODE, createRun, availableNext, travelTo, markResolved, currentNode,
   nodeById, offerSigils, offerMutations, rollShop, rollMysteryEncounter, rollGold,
   encounterLevel, bossMemberLevel, checkWipe, withRng, eventGoldCost,
+  resolveCoinflip, resolveWishingWell, resolveShrineScar,
 } from "./run.js";
 import { encounterTableFor, pickEncounter, defaultSpeciesId } from "./encounters.js";
 import {
@@ -100,6 +101,24 @@ async function say(str, hold = 260) {
   if (hold) await sleep(hold);
 }
 
+// Show map-node outcome lines in the modal — which sits above the map overlay —
+// with a Continue button, so results are readable at the player's own pace. The
+// battle text box `say()` writes to is hidden behind the opaque map screen while
+// a node resolves, so mystery / rest outcomes must surface here instead of
+// flashing by invisibly. Resolves when the player dismisses it (button or Esc).
+function showOutcome(lines, title = "Result") {
+  const list = (Array.isArray(lines) ? lines : [lines]).filter(Boolean);
+  if (!list.length) return Promise.resolve();
+  return new Promise((resolve) => {
+    openPanel(title, (body, close) => {
+      list.forEach((line) => body.appendChild(el("p", {}, line)));
+      const ok = el("button", { class: "title-btn primary" }, "Continue");
+      ok.onclick = () => close();
+      body.appendChild(ok);
+    }, { onClose: resolve });
+  });
+}
+
 // ---------------------------------------------------------------- state ----
 
 const RUN_KEY = "pkbattle:run:v1";
@@ -147,13 +166,21 @@ function registerPokemonProgress(mon, field, announce = true) {
   return { added: true, unlocks };
 }
 
-async function announceCaughtProgress(registration) {
-  if (!registration.added) return;
+// The Pokédex/unlock feedback lines for a capture registration (empty if the
+// species was already caught). Shared so both the battle text box and the map
+// outcome modal can present the same progress.
+function caughtProgressLines(registration) {
+  if (!registration.added) return [];
   const counts = progressionCounts(state.meta);
-  await say(`Pokédex updated: ${counts.caught}/${GEN1_DEX_SIZE} species caught.`);
+  const lines = [`Pokédex updated: ${counts.caught}/${GEN1_DEX_SIZE} species caught.`];
   for (const unlocked of registration.unlocks) {
-    await say(`Permanent perk unlocked: ${unlocked.name} — ${unlocked.desc}`);
+    lines.push(`Permanent perk unlocked: ${unlocked.name} — ${unlocked.desc}`);
   }
+  return lines;
+}
+
+async function announceCaughtProgress(registration) {
+  for (const line of caughtProgressLines(registration)) await say(line);
 }
 
 function backfillOwnedPokemon(...groups) {
@@ -1571,19 +1598,23 @@ async function resolveRestNode(node) {
       body.appendChild(heal); body.appendChild(mut);
     });
   });
-  if (choice === "heal") { healTeam(); await say("Your team is fully rested."); }
-  else if (choice === "mutate") await graftMutationFlow();
+  const lines = [];
+  if (choice === "heal") { healTeam(); lines.push("Your team is fully rested."); }
+  else if (choice === "mutate") { const m = await graftMutationFlow(); if (m) lines.push(m); }
+  await showOutcome(lines, "Rest Site");
   goToMap();
 }
 
+// Runs the mutation draft + target picker. Returns the outcome line (for the
+// caller to surface), or null if the player skipped either step.
 async function graftMutationFlow() {
   const opt = await offerDraft("mutation");
-  if (!opt) return;
+  if (!opt) return null;
   const mon = await pickTeamMember(`Graft ${opt.name} onto…`);
-  if (!mon) return;
+  if (!mon) return null;
   applyMutation(mon, opt.id);
   if (mon === state.player) updateHUD();
-  await say(`${mon.name} gained the ${opt.name} mutation!`);
+  return `${mon.name} gained the ${opt.name} mutation!`;
 }
 
 async function resolveShopNode(node) {
@@ -1671,7 +1702,8 @@ async function resolveMysteryNode(node) {
       });
     });
   });
-  await applyEventEffect(choice.effect || { kind: "none" });
+  const lines = await applyEventEffect(choice.effect || { kind: "none" });
+  await showOutcome(lines, ev.title);
   goToMap();
 }
 
@@ -1756,56 +1788,65 @@ async function grantTrainerReward(reward) {
   saveRun();
 }
 
+// Apply a Mystery choice's effect and return the outcome lines to show. All
+// run-affecting rolls go through the run RNG (P2.2) so a seed + path reproduces
+// the result and a save/continue mid-node never rerolls it.
 async function applyEventEffect(effect) {
   const run = state.run;
+  const msgs = [];
   switch (effect.kind) {
-    case "heal": healTeam(); await say("Your team recovered fully."); break;
-    case "balls": run.items["poke-ball"] = (run.items["poke-ball"] || 0) + (effect.amount || 1); await say(`You found ${effect.amount || 1} Poké Ball!`); break;
-    case "gold": run.gold += effect.amount || 0; await say(`You found ${effect.amount || 0} gold!`); break;
-    case "sigil": { const s = await offerDraft("sigil"); if (s && !run.sigils.includes(s.id)) { run.sigils.push(s.id); await say(`Attuned the ${s.name} Sigil!`); } break; }
+    case "heal": healTeam(); msgs.push("Your team recovered fully."); break;
+    case "balls": run.items["poke-ball"] = (run.items["poke-ball"] || 0) + (effect.amount || 1); msgs.push(`You found ${effect.amount || 1} Poké Ball!`); break;
+    case "gold": run.gold += effect.amount || 0; msgs.push(`You found ${effect.amount || 0} gold!`); break;
+    case "sigil": { const s = await offerDraft("sigil"); if (s && !run.sigils.includes(s.id)) { run.sigils.push(s.id); msgs.push(`Attuned the ${s.name} Sigil!`); } break; }
     case "recruit": {
       const speciesId = withRng(run, (rng) => pickEncounter(rng, encounterTableFor(currentNode(run), run), run.visited.length).id);
       const mon = await makeWildMon(encounterLevel(run), speciesId);
       if (run.team.length < 6) run.team.push(mon); else run.box.push(mon);
-      await say(`The egg hatched into ${mon.name}!`);
-      await announceCaughtProgress(registerPokemonProgress(mon, "caught", false));
+      msgs.push(`The egg hatched into ${mon.name}!`);
+      msgs.push(...caughtProgressLines(registerPokemonProgress(mon, "caught", false)));
       break;
     }
     case "tutor": {
-      if (run.gold >= (effect.cost || 0)) { run.gold -= effect.cost || 0; state.player.moves.forEach((mv) => (mv.ppLeft = mv.pp)); await say("Your Pokémon's moves were honed. (PP restored)"); }
-      else await say("You can't afford it.");
+      if (run.gold >= (effect.cost || 0)) { run.gold -= effect.cost || 0; state.player.moves.forEach((mv) => (mv.ppLeft = mv.pp)); msgs.push("Your Pokémon's moves were honed. (PP restored)"); }
+      else msgs.push("You can't afford it.");
       break;
     }
     case "coinflip": {
       if (run.gold >= (effect.stake || 0)) {
-        if (Math.random() < 0.5) { run.gold += effect.stake; await say(`You won ${effect.stake} gold!`); }
-        else { run.gold -= effect.stake; await say(`You lost ${effect.stake} gold...`); }
-      } else await say("Not enough gold to bet.");
+        const { won, delta } = resolveCoinflip(run, effect.stake);
+        run.gold += delta;
+        msgs.push(won ? `You won ${effect.stake} gold!` : `You lost ${effect.stake} gold...`);
+      } else msgs.push("Not enough gold to bet.");
       break;
     }
     case "gamble": {
       if (run.gold >= (effect.cost || 0)) {
         run.gold -= effect.cost || 0;
-        const roll = Math.random();
-        if (roll < 0.4) { const g = 80 + Math.floor(Math.random() * 80); run.gold += g; await say(`The well rewards you with ${g} gold!`); }
-        else if (roll < 0.7) { await graftMutationFlow(); }
-        else await say("The well stays silent...");
-      } else await say("You can't spare the gold.");
+        const result = resolveWishingWell(run);
+        if (result.outcome === "gold") { run.gold += result.gold; msgs.push(`The well rewards you with ${result.gold} gold!`); }
+        else if (result.outcome === "mutation") { const m = await graftMutationFlow(); msgs.push(m || "The well's gift slips through your fingers."); }
+        else msgs.push("The well stays silent...");
+      } else msgs.push("You can't spare the gold.");
       break;
     }
     case "mutationThenScar": {
-      await graftMutationFlow();
-      const victim = state.run.team[Math.floor(Math.random() * state.run.team.length)];
-      const statKeys = ["atk", "def", "spa", "spd", "spe"];
-      const k = statKeys[Math.floor(Math.random() * statKeys.length)];
-      victim.stats[k] = Math.max(1, Math.floor(victim.stats[k] * 0.85));
-      await say(`...but the shrine's curse weakened ${victim.name}.`);
+      const m = await graftMutationFlow();
+      if (m) msgs.push(m);
+      const { victimIndex, stat } = resolveShrineScar(run);
+      const victim = run.team[victimIndex];
+      if (victim) {
+        victim.stats[stat] = Math.max(1, Math.floor(victim.stats[stat] * 0.85));
+        if (victim === state.player) updateHUD();
+        msgs.push(`...but the shrine's curse weakened ${victim.name}.`);
+      }
       break;
     }
     default: break;
   }
   renderRunHud();
   saveRun();
+  return msgs;
 }
 
 // ---- reward drafts ----
@@ -2813,6 +2854,7 @@ function openPanel(title, build, options = {}) {
     modal.classList.remove("modal-wide");
     modal.onkeydown = null;
     if (returnFocus && typeof returnFocus.focus === "function") returnFocus.focus();
+    if (typeof options.onClose === "function") options.onClose();
   };
   modal.onkeydown = (event) => {
     if (event.key === "Escape") {

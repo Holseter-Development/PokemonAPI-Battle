@@ -356,6 +356,43 @@ export function rollMysteryEncounter(run) {
   });
 }
 
+// ---- deterministic Mystery outcome rolls (P2.2) ------------------------
+// Each of these draws from the run's own RNG stream via `withRng`, so a seed
+// plus the same path reproduces the outcome and a save/continue mid-node does
+// not reroll a pending result. They are pure and unit-testable: they return a
+// description of what happened; the controller applies it to gold, team, and UI.
+
+// The Gambler's coin flip. Returns `{ won, delta }` where `delta` is the signed
+// gold change for the given stake.
+export function resolveCoinflip(run, stake) {
+  const s = Math.max(0, stake || 0);
+  const won = withRng(run, (rng) => rng() < 0.5);
+  return { won, delta: won ? s : -s };
+}
+
+// The Wishing Well: a weighted gold / mutation / nothing result. When it pays
+// out gold the amount is rolled on the same stream so it is reproducible too.
+export function resolveWishingWell(run) {
+  return withRng(run, (rng) => {
+    const roll = rng();
+    if (roll < 0.4) return { outcome: "gold", gold: randRange(rng, 80, 159) };
+    if (roll < 0.7) return { outcome: "mutation" };
+    return { outcome: "nothing" };
+  });
+}
+
+// The Cursed Shrine's scar: which living-team index is weakened and on which
+// stat. `victimIndex` is -1 for an empty team (the controller skips the scar).
+export const SHRINE_SCAR_STATS = ["atk", "def", "spa", "spd", "spe"];
+export function resolveShrineScar(run) {
+  const teamLen = (run.team || []).length;
+  return withRng(run, (rng) => {
+    const victimIndex = teamLen ? Math.floor(rng() * teamLen) : -1;
+    const stat = SHRINE_SCAR_STATS[Math.floor(rng() * SHRINE_SCAR_STATS.length)];
+    return { victimIndex, stat };
+  });
+}
+
 // Difficulty scaling follows run depth, but never races far ahead merely
 // because a route contained shops, rests, or mysteries instead of battles.
 export function encounterLevel(run) {
