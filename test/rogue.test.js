@@ -14,7 +14,7 @@ import {
   currentNode, checkWipe, offerSigils, offerMutations, rollShop,
   rollMysteryEvent, rollMysteryEncounter, pickTrainerReward, TRAINER_REWARDS,
   MYSTERY_TRAINER_CHANCE, rollGold, encounterLevel, bossMemberLevel, RUN_CONFIG,
-  eventGoldCost,
+  eventGoldCost, resolveCoinflip, resolveWishingWell, resolveShrineScar,
 } from "../src/run.js";
 import { WANDERING_TRAINERS, GEN1_MAX_ID } from "../src/data.js";
 
@@ -311,6 +311,49 @@ test("mystery encounter is deterministic and yields both trainers and events", (
   }
   assert.ok(trainers > 0 && events > 0, "both trainer and event mysteries occur");
   assert.ok(MYSTERY_TRAINER_CHANCE > 0 && MYSTERY_TRAINER_CHANCE < 1, "trainer chance is a proper probability");
+});
+
+test("Mystery outcome resolvers are deterministic and cover every branch", () => {
+  // Coinflip: signed delta is exactly ±stake, deterministic for a given state.
+  const cRun = { seedNum: 1, rngState: 12345, team: [] };
+  const a = resolveCoinflip(clone(cRun), 50);
+  assert.deepStrictEqual(a, resolveCoinflip(clone(cRun), 50), "same state reproduces the flip");
+  assert.ok(a.delta === 50 || a.delta === -50, "delta is ±stake");
+  assert.strictEqual(a.won, a.delta === 50, "won matches a positive delta");
+  let wins = 0, losses = 0;
+  for (let s = 1; s <= 400; s++) {
+    if (resolveCoinflip({ seedNum: 1, rngState: s }, 10).won) wins++; else losses++;
+  }
+  assert.ok(wins > 0 && losses > 0, "coinflip yields both outcomes across the stream");
+
+  // Wishing Well: all three branches reachable; gold reward stays in 80..159.
+  const types = new Set();
+  for (let s = 1; s <= 600; s++) {
+    const o = resolveWishingWell({ seedNum: 1, rngState: s });
+    types.add(o.type);
+    if (o.type === "gold") assert.ok(o.gold >= 80 && o.gold <= 159, `well gold ${o.gold} in range`);
+  }
+  assert.ok(types.has("gold") && types.has("mutation") && types.has("nothing"), "every well outcome occurs");
+  const well = { seedNum: 2, rngState: 999 };
+  assert.deepStrictEqual(resolveWishingWell(clone(well)), resolveWishingWell(clone(well)), "well outcome is deterministic");
+
+  // Shrine scar: victim within team bounds, valid stat key, deterministic.
+  const statKeys = ["atk", "def", "spa", "spd", "spe"];
+  const sRun = { seedNum: 3, rngState: 77, team: [{}, {}, {}] };
+  const s1 = resolveShrineScar(clone(sRun));
+  assert.deepStrictEqual(s1, resolveShrineScar(clone(sRun)), "scar is deterministic");
+  assert.ok(s1.victimIndex >= 0 && s1.victimIndex < 3, "victim index in range");
+  assert.ok(statKeys.includes(s1.statKey), "stat key is valid");
+  assert.strictEqual(resolveShrineScar({ seedNum: 3, rngState: 77, team: [] }).victimIndex, -1, "empty team → no victim");
+
+  // Save/continue determinism: the same starting state reproduces the full
+  // outcome sequence and advances the rng state identically.
+  const base = { seedNum: 9, rngState: 42, team: [{}, {}] };
+  const run1 = clone(base), run2 = clone(base);
+  const seqA = [resolveWishingWell(run1), resolveCoinflip(run1, 5), resolveShrineScar(run1)];
+  const seqB = [resolveWishingWell(run2), resolveCoinflip(run2, 5), resolveShrineScar(run2)];
+  assert.deepStrictEqual(seqA, seqB, "identical start reproduces the outcome sequence");
+  assert.strictEqual(run1.rngState, run2.rngState, "rng state advances identically");
 });
 
 test("encounters and Elite bosses stay near an under-levelled living party", () => {

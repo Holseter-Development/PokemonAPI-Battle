@@ -47,6 +47,7 @@ import {
   NODE, createRun, availableNext, travelTo, markResolved, currentNode,
   nodeById, offerSigils, offerMutations, rollShop, rollMysteryEncounter, rollGold,
   encounterLevel, bossMemberLevel, checkWipe, withRng, eventGoldCost,
+  resolveCoinflip, resolveWishingWell, resolveShrineScar,
 } from "./run.js";
 import { encounterTableFor, pickEncounter, defaultSpeciesId } from "./encounters.js";
 import {
@@ -1777,28 +1778,30 @@ async function applyEventEffect(effect) {
     }
     case "coinflip": {
       if (run.gold >= (effect.stake || 0)) {
-        if (Math.random() < 0.5) { run.gold += effect.stake; await say(`You won ${effect.stake} gold!`); }
-        else { run.gold -= effect.stake; await say(`You lost ${effect.stake} gold...`); }
+        const { won, delta } = resolveCoinflip(run, effect.stake || 0);
+        run.gold += delta;
+        await say(won ? `You won ${effect.stake} gold!` : `You lost ${effect.stake} gold...`);
       } else await say("Not enough gold to bet.");
       break;
     }
     case "gamble": {
       if (run.gold >= (effect.cost || 0)) {
         run.gold -= effect.cost || 0;
-        const roll = Math.random();
-        if (roll < 0.4) { const g = 80 + Math.floor(Math.random() * 80); run.gold += g; await say(`The well rewards you with ${g} gold!`); }
-        else if (roll < 0.7) { await graftMutationFlow(); }
+        const outcome = resolveWishingWell(run);
+        if (outcome.type === "gold") { run.gold += outcome.gold; await say(`The well rewards you with ${outcome.gold} gold!`); }
+        else if (outcome.type === "mutation") { await graftMutationFlow(); }
         else await say("The well stays silent...");
       } else await say("You can't spare the gold.");
       break;
     }
     case "mutationThenScar": {
       await graftMutationFlow();
-      const victim = state.run.team[Math.floor(Math.random() * state.run.team.length)];
-      const statKeys = ["atk", "def", "spa", "spd", "spe"];
-      const k = statKeys[Math.floor(Math.random() * statKeys.length)];
-      victim.stats[k] = Math.max(1, Math.floor(victim.stats[k] * 0.85));
-      await say(`...but the shrine's curse weakened ${victim.name}.`);
+      const { victimIndex, statKey } = resolveShrineScar(state.run);
+      const victim = victimIndex >= 0 ? state.run.team[victimIndex] : null;
+      if (victim) {
+        victim.stats[statKey] = Math.max(1, Math.floor(victim.stats[statKey] * 0.85));
+        await say(`...but the shrine's curse weakened ${victim.name}.`);
+      }
       break;
     }
     default: break;

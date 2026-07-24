@@ -412,6 +412,16 @@ separate battle stream until Daily Challenges require complete replayability.
 - Tests exercise every mystery outcome through controlled RNG.
 - No run-resolution branch in `main.js` uses `Math.random()`.
 
+**Status:** Complete. Wild species/rarity (P2.1) and boss selection already ran
+on `withRng`; this chunk moves the remaining run-affecting rolls onto the seeded
+stream via pure resolvers in `src/run.js` — `resolveCoinflip` (Gambler),
+`resolveWishingWell` (well branch + gold), and `resolveShrineScar` (curse
+victim/stat) — and the egg/recruit species picks. The only `Math.random()` left
+in `main.js` is the explicitly-deferred battle stream (accuracy, damage, crits,
+status, first-mover ties, catch shakes) and cosmetic particle FX. Resolver tests
+cover determinism, every branch, bounds, and save/continue reproducibility.
+Shiny/Alpha rolls arrive with P2.3/P2.4; the rival with P2.5.
+
 ## P2.3 — Shinies
 
 **Size:** S/M  
@@ -927,8 +937,8 @@ Implement in this order:
 5. `P1.5` — Fragment upgrade shop. **Complete**
 6. `P1.6` — Trainer profile. **Complete**
 7. `P2.1` — Biome encounter catalog. **Complete**
-8. `P2.2` — Deterministic controller rolls. **Next**
-9. `P2.3` — Shinies.
+8. `P2.2` — Deterministic controller rolls. **Complete**
+9. `P2.3` — Shinies. **Next**
 10. `P2.4` — Alpha encounters.
 11. `P2.5` — Recurring rival.
 12. `P2.6` — Mystery event expansion.
@@ -964,8 +974,9 @@ Update this section as chunks ship.
 | P1.5 | Complete | Confirmed Fragment purchases, five permanent upgrades, and combined effect previews shipped 2026-07-24 |
 | P1.6 | Complete | Trainer Profile screen, run history summary, and capped active-foreground playtime shipped 2026-07-24 |
 | P2.1 | Complete | Three region biome tables, seeded depth-gated wild picker, and encounter tests shipped 2026-07-24 |
-| P2.2 | Next | Deterministic controller rolls |
-| P2.3–P2.6 | Backlog | Places and surprise |
+| P2.2 | Complete | Mystery coinflip/well/shrine and egg-recruit rolls moved onto the seeded run RNG with pure resolvers and tests shipped 2026-07-24 |
+| P2.3 | Next | Shinies |
+| P2.4–P2.6 | Backlog | Places and surprise |
 | P3.0–P3.6 | Backlog | Team-building depth |
 | P4.1–P4.7 | Backlog | Replay and challenge |
 | P5.1–P5.3 | Deferred | Multi-target battle formats |
