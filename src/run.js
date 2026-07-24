@@ -306,11 +306,37 @@ export const EVENTS = [
     choices: [
       { label: "Take the egg", effect: { kind: "recruit" } },
     ] },
-  { id: "move_tutor", title: "Move Tutor", weight: 8,
-    desc: "An old master offers to teach a move.",
+  // Renamed from the misleading "Move Tutor" (P2.6). It recovers move PP - it
+  // does not teach a new move. The real relearner ships in P3.4; until then the
+  // copy accurately describes what happens.
+  { id: "move_restorer", title: "Move Restorer", weight: 8,
+    desc: "A field medic offers to massage your lead Pokémon's moves back to full PP.",
     choices: [
-      { label: "Learn (100 gold)", effect: { kind: "tutor", cost: 100 } },
+      { label: "Restore PP (100 gold)", effect: { kind: "tutor", cost: 100 } },
       { label: "Decline", effect: { kind: "none" } },
+    ] },
+  { id: "healing_spring", title: "Healing Spring", weight: 10,
+    desc: "A warm spring bubbles up - enough for one deep soak, or a shared splash.",
+    choices: [
+      { label: "Soak one fully", effect: { kind: "healOne" } },
+      { label: "Share with the team", effect: { kind: "healShare" } },
+    ] },
+  { id: "npc_trade", title: "Trade Offer", weight: 8,
+    desc: "A wandering collector eyes your team. \"Straight swap - my Pokémon for one of yours?\"",
+    choices: [
+      { label: "See the offer", effect: { kind: "trade" } },
+      { label: "Not interested", effect: { kind: "none" } },
+    ] },
+  { id: "ball_fountain", title: "Ball Fountain", weight: 8,
+    desc: "Poké Balls glitter at the bottom of a wishing fountain. Toss one in for luck?",
+    choices: [
+      { label: "Toss in a Poké Ball", effect: { kind: "ballFountain" } },
+      { label: "Leave it be", effect: { kind: "none" } },
+    ] },
+  { id: "ambush", title: "Ambush!", weight: 8,
+    desc: "The grass erupts - a riled-up wild Pokémon lunges before you can slip past!",
+    choices: [
+      { label: "Defend yourself", effect: { kind: "ambush" } },
     ] },
   { id: "gambler", title: "The Gambler", weight: 8,
     desc: "\"Double or nothing on that gold, kid.\"",
@@ -416,6 +442,53 @@ export function resolveShrineScar(run) {
     const stat = SHRINE_SCAR_STATS[Math.floor(rng() * SHRINE_SCAR_STATS.length)];
     return { victimIndex, stat };
   });
+}
+
+// ---- P2.6: Mystery event expansion -------------------------------------
+
+// Healing Spring's "share with the team" splash restores this fraction of every
+// member's max HP (the tradeoff against a single full soak). Deterministic - no
+// roll needed - so it lives as a plain constant the controller reads.
+export const SPRING_SHARE_FRACTION = 0.5;
+
+// Ball Fountain: toss one Poké Ball in for a risk/reward roll. The result is
+// drawn on the run RNG so a seed + path reproduces it and a save/continue never
+// rerolls a pending toss. `poke`/`great` are the balls handed back; the tossed
+// ball is spent by the controller regardless, so "nothing" is a net loss and
+// "minor" is a net gain of one.
+export const BALL_FOUNTAIN_COST = 1;
+export function resolveBallFountain(run) {
+  return withRng(run, (rng) => {
+    const roll = rng();
+    if (roll < 0.35) return { outcome: "nothing", poke: 0, great: 0 };
+    if (roll < 0.8) return { outcome: "minor", poke: 2, great: 0 };
+    return { outcome: "jackpot", poke: 2, great: 1 };
+  });
+}
+
+// Ambush: a boosted wild battle. The foe fights a few levels above the route
+// target (capped at 100) - a pure, testable helper mirroring alphaLevel so the
+// cap behaviour is covered without touching the controller.
+export const AMBUSH_LEVEL_BONUS = 3;
+export function ambushLevel(baseLevel) {
+  const b = Math.max(1, Math.floor(Number(baseLevel) || 1));
+  return Math.min(100, b + AMBUSH_LEVEL_BONUS);
+}
+// Bonus gold for surviving an ambush, scaled by depth + ascension. A pure
+// function of run state (no RNG draw) so later node rolls stay reproducible.
+export function ambushGoldBonus(run) {
+  const depth = run?.visited?.length || 0;
+  const ascension = run?.ascension || 0;
+  return 25 + depth * 2 + ascension * 10;
+}
+
+// NPC trade: the collector's Pokémon is offered a few levels above the route
+// target so a straight swap is tempting. Species selection is deterministic in
+// the controller (drawn from the node's biome table on the run RNG, like the
+// egg/recruit events); only the level bonus is centralised here.
+export const TRADE_LEVEL_BONUS = 4;
+export function tradeOfferLevel(run) {
+  return Math.min(100, encounterLevel(run) + TRADE_LEVEL_BONUS);
 }
 
 // Deterministic wild shiny roll (P2.3). `oneIn` is the 1-in-N odds from the

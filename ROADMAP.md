@@ -584,6 +584,35 @@ Add at least four events using existing systems:
 Fix the existing Move Tutor description until the real relearning system ships:
 rename it to **Move Restorer** or make its copy accurately describe PP recovery.
 
+**Status:** Complete. Four new Mystery events ship through the existing weighted
+`EVENTS` picker and effect dispatcher in `src/run.js` / `src/main.js`:
+
+- **Healing Spring** — a heal-one/heal-all tradeoff: `healOne` fully restores
+  (HP + status + PP) a chosen team member, or `healShare` splashes the whole team
+  for `SPRING_SHARE_FRACTION` (50%) of max HP and clears status.
+- **Trade Offer** — an NPC swap. You pick a member to give; the collector's
+  Pokémon is drawn from the node's biome table on the run RNG at
+  `tradeOfferLevel` (route target + 4, capped 100) and built via `buildMon` so it
+  keeps growth/evolution. A side-by-side stat-total comparison precedes an
+  explicit accept/decline; the received species registers as caught + seen, and
+  the lead is re-seated if it was the one traded away. Backing out at any step
+  costs nothing.
+- **Ball Fountain** — a risk/reward roll. Toss one Poké Ball (`BALL_FOUNTAIN_COST`)
+  for a seeded `resolveBallFountain` result: nothing (net loss), a minor 2-ball
+  profit, or a jackpot of 2 Poké Balls + a Great Ball.
+- **Ambush** — a boosted wild battle. `resolveAmbush` draws the species from the
+  node's biome table (run RNG) at `ambushLevel` (route target + 3, capped 100),
+  flags `mon.ambush` for a pre-battle banner, and pays `ambushGoldBonus` on top of
+  normal gold on a win. It stays fully catchable at ordinary odds; fleeing earns
+  nothing.
+
+All run-affecting rolls draw from the run RNG so a seed + path reproduces the
+outcome and a save/continue never rerolls a pending result (P2.2 rule). The
+misleading **Move Tutor** was renamed to **Move Restorer** with copy that
+accurately describes PP recovery (the real relearner still lands in P3.4). Tests
+in `rogue.test.js` cover the new events' structure, the rename, the ball-fountain
+outcomes + reload-safety, and the ambush/trade level helpers.
+
 ### P2 milestone exit gate
 
 - Region choice predicts encounter types.
@@ -1006,7 +1035,7 @@ Implement in this order:
 9. `P2.3` — Shinies. **Complete**
 10. `P2.4` — Alpha encounters. **Complete**
 11. `P2.5` — Recurring rival. **Complete**
-12. `P2.6` — Mystery event expansion. **Next**
+12. `P2.6` — Mystery event expansion. **Complete**
 
 After P2, reassess run length, difficulty, money pressure, catch rate, and API
 load behavior before committing to P3 balance values.
@@ -1043,7 +1072,7 @@ Update this section as chunks ship.
 | P2.3 | Complete | Seeded wild shiny rolls, tiered odds + Shiny Charm, shiny sprites/markers, and identity-through-growth tests shipped 2026-07-24 |
 | P2.4 | Complete | Seeded Alpha rolls, visible aura buffs, +2 level cap, catch penalty, one-time gold+mutation reward, and Alpha tests shipped 2026-07-24 |
 | P2.5 | Complete | Counter-starter rival, per-region single-node checkpoints, depth-scaled deterministic teams, rival-starter Champion, signature reward, and rival tests shipped 2026-07-24 |
-| P2.6 | Next | Mystery event expansion |
+| P2.6 | Complete | Healing Spring, NPC Trade, Ball Fountain, Ambush events + Move Restorer rename and tests shipped 2026-07-24 |
 | Fragment Lab | Complete | Rebuilt the five flat upgrades into a 16-node branching skill tree (Provisions/Fortune/Expertise) with new effects — Great Balls, Hyper Potions, XP, shop discount, Alpha bounty, shiny step — data-driven effect reducer, visual tree UI, and expanded tests shipped 2026-07-24 |
 | P3.0–P3.6 | Backlog | Team-building depth |
 | P4.1–P4.7 | Backlog | Replay and challenge |

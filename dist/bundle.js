@@ -2471,14 +2471,56 @@
         { label: "Take the egg", effect: { kind: "recruit" } }
       ]
     },
+    // Renamed from the misleading "Move Tutor" (P2.6). It recovers move PP - it
+    // does not teach a new move. The real relearner ships in P3.4; until then the
+    // copy accurately describes what happens.
     {
-      id: "move_tutor",
-      title: "Move Tutor",
+      id: "move_restorer",
+      title: "Move Restorer",
       weight: 8,
-      desc: "An old master offers to teach a move.",
+      desc: "A field medic offers to massage your lead Pok\xE9mon's moves back to full PP.",
       choices: [
-        { label: "Learn (100 gold)", effect: { kind: "tutor", cost: 100 } },
+        { label: "Restore PP (100 gold)", effect: { kind: "tutor", cost: 100 } },
         { label: "Decline", effect: { kind: "none" } }
+      ]
+    },
+    {
+      id: "healing_spring",
+      title: "Healing Spring",
+      weight: 10,
+      desc: "A warm spring bubbles up - enough for one deep soak, or a shared splash.",
+      choices: [
+        { label: "Soak one fully", effect: { kind: "healOne" } },
+        { label: "Share with the team", effect: { kind: "healShare" } }
+      ]
+    },
+    {
+      id: "npc_trade",
+      title: "Trade Offer",
+      weight: 8,
+      desc: 'A wandering collector eyes your team. "Straight swap - my Pok\xE9mon for one of yours?"',
+      choices: [
+        { label: "See the offer", effect: { kind: "trade" } },
+        { label: "Not interested", effect: { kind: "none" } }
+      ]
+    },
+    {
+      id: "ball_fountain",
+      title: "Ball Fountain",
+      weight: 8,
+      desc: "Pok\xE9 Balls glitter at the bottom of a wishing fountain. Toss one in for luck?",
+      choices: [
+        { label: "Toss in a Pok\xE9 Ball", effect: { kind: "ballFountain" } },
+        { label: "Leave it be", effect: { kind: "none" } }
+      ]
+    },
+    {
+      id: "ambush",
+      title: "Ambush!",
+      weight: 8,
+      desc: "The grass erupts - a riled-up wild Pok\xE9mon lunges before you can slip past!",
+      choices: [
+        { label: "Defend yourself", effect: { kind: "ambush" } }
       ]
     },
     {
@@ -2573,6 +2615,32 @@
       const stat = SHRINE_SCAR_STATS[Math.floor(rng() * SHRINE_SCAR_STATS.length)];
       return { victimIndex, stat };
     });
+  }
+  var SPRING_SHARE_FRACTION = 0.5;
+  var BALL_FOUNTAIN_COST = 1;
+  function resolveBallFountain(run) {
+    return withRng(run, (rng) => {
+      const roll = rng();
+      if (roll < 0.35)
+        return { outcome: "nothing", poke: 0, great: 0 };
+      if (roll < 0.8)
+        return { outcome: "minor", poke: 2, great: 0 };
+      return { outcome: "jackpot", poke: 2, great: 1 };
+    });
+  }
+  var AMBUSH_LEVEL_BONUS = 3;
+  function ambushLevel(baseLevel) {
+    const b = Math.max(1, Math.floor(Number(baseLevel) || 1));
+    return Math.min(100, b + AMBUSH_LEVEL_BONUS);
+  }
+  function ambushGoldBonus(run) {
+    const depth = run?.visited?.length || 0;
+    const ascension = run?.ascension || 0;
+    return 25 + depth * 2 + ascension * 10;
+  }
+  var TRADE_LEVEL_BONUS = 4;
+  function tradeOfferLevel(run) {
+    return Math.min(100, encounterLevel(run) + TRADE_LEVEL_BONUS);
   }
   function rollWildShiny(run, oneIn) {
     const n = Number(oneIn);
@@ -4512,6 +4580,9 @@
       if (state.enemy.alpha) {
         await showBanner(`\u2694 Alpha ${state.enemy.name}!`, 1300);
         await say(`It's an Alpha - ${state.enemy.alpha.name} aura (${state.enemy.alpha.desc}). It won't be caught easily!`);
+      } else if (state.enemy.ambush) {
+        await showBanner(`Ambush! ${state.enemy.name}!`, 1300);
+        await say(`It ambushed you - stronger than the usual wild ${state.enemy.name}. Fend it off for bonus gold!`);
       }
       registerPokemonProgress(state.enemy, "seen");
       if (entryStatus)
@@ -5126,7 +5197,7 @@
         ev.choices.forEach((ch) => {
           const baseEffect = ch.effect || { kind: "none" };
           const nominal = paidChoiceAmount(baseEffect);
-          let effect = baseEffect;
+          let effect2 = baseEffect;
           let label = ch.label;
           let disabled = false;
           if (nominal != null) {
@@ -5134,11 +5205,11 @@
             if (amount <= 0) {
               disabled = true;
             } else {
-              effect = { ...baseEffect };
+              effect2 = { ...baseEffect };
               if (baseEffect.cost != null)
-                effect.cost = amount;
+                effect2.cost = amount;
               if (baseEffect.stake != null)
-                effect.stake = amount;
+                effect2.stake = amount;
               label = paidChoiceLabel(baseEffect, amount) || ch.label;
             }
           }
@@ -5149,14 +5220,54 @@
           } else
             b.onclick = () => {
               close();
-              resolve({ effect });
+              resolve({ effect: effect2 });
             };
           body.appendChild(b);
         });
       });
     });
-    const lines = await applyEventEffect(choice.effect || { kind: "none" });
+    const effect = choice.effect || { kind: "none" };
+    if (effect.kind === "ambush") {
+      await resolveAmbush(node);
+      return;
+    }
+    const lines = await applyEventEffect(effect);
     await showOutcome(lines, ev.title);
+    goToMap();
+  }
+  async function resolveAmbush(node) {
+    setBusy(true);
+    const speciesId = pickWildSpecies(state.run, node);
+    const shiny = rollRunShiny();
+    const mon = await makeWildMon(ambushLevel(encounterLevel(state.run)), speciesId, { shiny });
+    mon.ambush = true;
+    setBusy(false);
+    await startBattle({
+      kind: "battle",
+      enemy: mon,
+      onWin: (info) => afterAmbushWin(info),
+      onLose: () => runWipe(),
+      onFlee: () => goToMap()
+    });
+  }
+  async function afterAmbushWin(info = {}) {
+    if (info.caught) {
+      ensureRuntime(info.caught);
+      if (state.run.team.length < 6)
+        state.run.team.push(info.caught);
+      else {
+        state.run.box.push(info.caught);
+        await say(`${info.caught.name} was sent to storage.`);
+      }
+      await announceCaughtProgress(registerPokemonProgress(info.caught, "caught", false));
+    }
+    const gold = Math.round(
+      (rollGold(state.run, NODE.BATTLE) + ambushGoldBonus(state.run)) * (state.sigilFx.goldMult || 1) * (state.run.progressionFx?.goldMult || 1)
+    );
+    state.run.gold += gold;
+    if (gold)
+      floatToast(`+${gold} gold`);
+    await say(`You fended off the ambush!${gold ? ` +${gold} gold.` : ""}`, 400);
     goToMap();
   }
   function paidChoiceAmount(effect) {
@@ -5171,7 +5282,7 @@
   function paidChoiceLabel(effect, amount) {
     switch (effect.kind) {
       case "tutor":
-        return `Learn (${amount} gold)`;
+        return `Restore PP (${amount} gold)`;
       case "coinflip":
         return `Bet ${amount} gold`;
       case "gamble":
@@ -5279,9 +5390,62 @@
         if (run.gold >= (effect.cost || 0)) {
           run.gold -= effect.cost || 0;
           state.player.moves.forEach((mv) => mv.ppLeft = mv.pp);
-          msgs.push("Your Pok\xE9mon's moves were honed. (PP restored)");
+          msgs.push(`${state.player.name}'s move PP was fully restored.`);
         } else
           msgs.push("You can't afford it.");
+        break;
+      }
+      case "healOne": {
+        const mon = await pickTeamMember("Soak which Pok\xE9mon fully?");
+        if (mon) {
+          mon.stats.hp = mon.stats.maxHp;
+          mon.status = { cond: "none", turns: 0, toxic: 0 };
+          resetStages(mon);
+          mon.moves.forEach((mv) => mv.ppLeft = mv.pp);
+          if (mon === state.player)
+            updateHUD();
+          msgs.push(`${mon.name} soaked in the spring and recovered completely.`);
+        } else
+          msgs.push("You left the spring untouched.");
+        break;
+      }
+      case "healShare": {
+        let healed = 0;
+        run.team.forEach((m) => {
+          if (!m?.stats)
+            return;
+          const before = m.stats.hp;
+          m.stats.hp = Math.min(m.stats.maxHp, m.stats.hp + Math.ceil(m.stats.maxHp * SPRING_SHARE_FRACTION));
+          m.status = { cond: "none", turns: 0, toxic: 0 };
+          if (m.stats.hp > before)
+            healed++;
+        });
+        if (state.player)
+          updateHUD();
+        msgs.push(`The spring's water reached the whole team (${Math.round(SPRING_SHARE_FRACTION * 100)}% HP and status cured).`);
+        if (!healed)
+          msgs.push("Everyone was already at full health.");
+        break;
+      }
+      case "ballFountain": {
+        if ((run.items["poke-ball"] || 0) < BALL_FOUNTAIN_COST) {
+          msgs.push("You have no Pok\xE9 Ball to toss in.");
+          break;
+        }
+        run.items["poke-ball"] -= BALL_FOUNTAIN_COST;
+        const result = resolveBallFountain(run);
+        run.items["poke-ball"] = (run.items["poke-ball"] || 0) + (result.poke || 0);
+        run.items["great-ball"] = (run.items["great-ball"] || 0) + (result.great || 0);
+        if (result.outcome === "jackpot")
+          msgs.push(`Jackpot! The fountain returned ${result.poke} Pok\xE9 Balls and a Great Ball.`);
+        else if (result.outcome === "minor")
+          msgs.push(`The fountain bubbled up ${result.poke} Pok\xE9 Balls - a small profit.`);
+        else
+          msgs.push("The fountain swallowed your Pok\xE9 Ball and gave nothing back.");
+        break;
+      }
+      case "trade": {
+        msgs.push(...await tradeFlow());
         break;
       }
       case "coinflip": {
@@ -5329,6 +5493,70 @@
     renderRunHud();
     saveRun();
     return msgs;
+  }
+  function statTotal(mon) {
+    const s = mon?.stats || {};
+    return (s.maxHp || 0) + (s.atk || 0) + (s.def || 0) + (s.spa || 0) + (s.spd || 0) + (s.spe || 0);
+  }
+  async function tradeFlow() {
+    const run = state.run;
+    if (!run.team.length)
+      return ["There was no one to trade."];
+    const give = await pickTeamMember("Offer which Pok\xE9mon?");
+    if (!give)
+      return ["You declined the trade."];
+    setBusy(true);
+    const speciesId = withRng(run, (rng) => pickEncounter(rng, encounterTableFor(currentNode(run), run), run.visited.length).id);
+    const offered = await buildMon(speciesId, tradeOfferLevel(run), { shiny: rollRunShiny() });
+    setBusy(false);
+    const accept = await confirmTrade(give, offered);
+    if (!accept)
+      return [`You kept ${give.name}.`];
+    const idx = run.team.indexOf(give);
+    if (idx >= 0)
+      run.team.splice(idx, 1, offered);
+    else
+      run.team.push(offered);
+    ensureRuntime(offered);
+    if (give === state.player) {
+      state.active = clamp(idx >= 0 ? idx : 0, 0, run.team.length - 1);
+      setActive(state.active);
+    }
+    const lines = [offered.isShiny ? `You traded ${give.name} for a shiny ${offered.name}!` : `You traded ${give.name} for ${offered.name}!`];
+    lines.push(...caughtProgressLines(registerPokemonProgress(offered, "caught", false)));
+    return lines;
+  }
+  function confirmTrade(give, offered) {
+    return new Promise((resolve) => {
+      openPanel("Trade Offer", (body, close) => {
+        const giveT = statTotal(give), offT = statTotal(offered);
+        const diff = offT - giveT;
+        const row = (label, mon, total) => el(
+          "div",
+          { class: "small" },
+          `${label}: ${shinyMark(mon)}${mon.name} \xB7 Lv ${mon.level} \xB7 ${(mon.types || []).join("/")} \xB7 stat total ${total}`
+        );
+        body.appendChild(row("You give", give, giveT));
+        body.appendChild(row("You get", offered, offT));
+        body.appendChild(el(
+          "p",
+          { class: "small" },
+          diff === 0 ? "An even swap on paper." : diff > 0 ? `The offer is +${diff} stat total stronger.` : `The offer is ${diff} stat total weaker.`
+        ));
+        const yes = el("button", { class: "title-btn primary" }, "Accept the trade");
+        yes.onclick = () => {
+          close();
+          resolve(true);
+        };
+        const no = el("button", { class: "title-btn" }, "Keep my Pok\xE9mon");
+        no.onclick = () => {
+          close();
+          resolve(false);
+        };
+        body.appendChild(yes);
+        body.appendChild(no);
+      });
+    });
   }
   function offerDraft(kind) {
     const options = kind === "sigil" ? offerSigils(state.run, 3) : offerMutations(state.run, 3);
