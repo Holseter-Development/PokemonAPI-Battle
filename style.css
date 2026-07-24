@@ -2002,3 +2002,25 @@ img.shiny-sprite { filter: drop-shadow(0 0 5px rgba(255,210,110,.6)); }
   .caret { animation: none; opacity: 1; }
   .map-node.available, .map-edges .route-available { animation: none !important; }
 }
+
+/* ---- Held-item equipment (P3.1) ---- */
+.map-route-bar { flex-wrap: wrap; }
+.map-bag-btn { flex: 0 0 auto; white-space: nowrap; }
+.equip-party { display: flex; flex-direction: column; gap: 10px; margin-bottom: 14px; }
+.equip-row {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  padding: 10px; border: 1px solid rgba(255,255,255,.08); border-radius: 10px;
+  background: rgba(255,255,255,.03);
+}
+.equip-sprite { width: 48px; height: 48px; image-rendering: pixelated; flex: 0 0 auto; }
+.equip-info { flex: 1 1 140px; min-width: 0; }
+.equip-name { font-weight: 700; color: #f4f7ff; }
+.equip-actions { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; margin-left: auto; }
+.equip-bag {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
+  padding-top: 10px; border-top: 1px solid rgba(255,255,255,.08);
+}
+.equip-bag-title { font-weight: 800; letter-spacing: .06em; text-transform: uppercase; color: #91a4c9; margin-right: 4px; }
+.equip-bag-item { padding: 2px 8px; border-radius: 999px; background: rgba(255,255,255,.06); color: #dbe4f8; }
+.tiny { font-size: 10px; line-height: 1.35; }
+.dim { color: #8f9db8; }

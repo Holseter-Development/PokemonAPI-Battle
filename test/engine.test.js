@@ -4,7 +4,7 @@
 
 import assert from "node:assert";
 import {
-  typeEffect, calcDamage, useMove, applyAilment, canAct, endOfTurn,
+  typeEffect, calcDamage, useMove, applyAilment, canAct, endOfTurn, endOfTurnHeal,
   firstMover, effectiveStat, chooseAIMove, bestMoveIndex, catchSuccess,
   rollHit, switchOutHeal, applyEntryStatus, applyWeatherChip, applyDefeatHeal,
 } from "../src/battle.js";
@@ -12,6 +12,7 @@ import { selectMoves, spriteSet } from "../src/api.js";
 import { buildMove, GYMS, CHAMPION } from "../src/data.js";
 import { aggregateSigils, applyStartingBallBonus } from "../src/mutations.js";
 import { snapshotMon, buildRoster, validateRoster, rosterPower, carryIdentity } from "../src/roster.js";
+import { HELD_ITEMS, heldItemEffects, emptyHeldEffects } from "../src/items.js";
 
 let passed = 0;
 function test(name, fn) {
@@ -456,6 +457,96 @@ test("Apex Predator heals after a KO and Ball Cache augments starting items", ()
   const added = applyStartingBallBonus(items, aggregateSigils(["ball_cache"]));
   assert.strictEqual(added, 2);
   assert.strictEqual(items["poke-ball"], 5);
+});
+
+// ---- held items (P3.1) ----
+test("held-item catalogue is well-formed and normalizes to empty by default", () => {
+  for (const [id, it] of Object.entries(HELD_ITEMS)) {
+    assert.ok(it.name && it.desc && it.effects, id + " malformed");
+  }
+  assert.deepStrictEqual(heldItemEffects(mon()), emptyHeldEffects(), "no item -> neutral baseline");
+  assert.deepStrictEqual(heldItemEffects(mon({})), heldItemEffects({ heldItemId: "does-not-exist" }));
+});
+
+test("Charcoal boosts matching-type damage; other types unaffected", () => {
+  // Big numbers so flooring doesn't distort the ratio. No STAB (normal attacker)
+  // isolates the item factor.
+  const attacker = mon({ types: ["normal"], stats: { atk: 200 } });
+  const target = mon({ stats: { def: 50 } });
+  const fireMove = dmgMove({ type: "fire", power: 120 });
+  const plain = calcDamage(attacker, target, fireMove, () => 0.5, { avg: true });
+  attacker.heldItemId = "charcoal";
+  const boosted = calcDamage(attacker, target, fireMove, () => 0.5, { avg: true });
+  const ratio = boosted.dmg / plain.dmg;
+  assert.ok(ratio > 1.15 && ratio < 1.25, "~+20% Fire damage, got " + ratio.toFixed(3));
+  // A non-Fire move gets nothing from Charcoal.
+  const water = dmgMove({ type: "water", power: 120 });
+  assert.strictEqual(
+    calcDamage(attacker, target, water, () => 0.5, { avg: true }).dmg,
+    calcDamage(mon({ types: ["normal"], stats: { atk: 200 } }), target, water, () => 0.5, { avg: true }).dmg,
+    "non-Fire move unaffected by Charcoal");
+});
+
+test("Leftovers heals 1/16 at end of turn; never overheals or revives", () => {
+  const m = mon({ stats: { maxHp: 160, hp: 100 } });
+  m.heldItemId = "leftovers";
+  assert.strictEqual(endOfTurnHeal(m).heal, 10); // 160/16
+  assert.strictEqual(m.stats.hp, 110);
+  m.stats.hp = m.stats.maxHp;
+  assert.strictEqual(endOfTurnHeal(m), null, "full HP -> no heal");
+  m.stats.hp = 0;
+  assert.strictEqual(endOfTurnHeal(m), null, "fainted -> no heal");
+  assert.strictEqual(endOfTurnHeal(mon({ stats: { maxHp: 80, hp: 40 } })), null, "no item -> no heal");
+});
+
+test("Focus Band can survive a lethal hit at 1 HP, on the enemy side too", () => {
+  const move = dmgMove({ power: 200 });
+  const attacker = () => mon({ stats: { maxHp: 200, hp: 200, atk: 200 } });
+  // Enemy defender holds the band (player attacking). rng()=0 lands the 10% roll.
+  const enemy = mon({ stats: { maxHp: 80, hp: 20 } });
+  enemy.heldItemId = "focus-band";
+  const res = useMove(attacker(), enemy, move, () => 0, { attackerIsPlayer: true, defenderIsPlayer: false });
+  assert.strictEqual(enemy.stats.hp, 1, "enemy held on at 1 HP - not player-gated");
+  assert.ok(res.endured);
+  // rng above the 10% threshold: the band fails and the hit is lethal.
+  const enemy2 = mon({ stats: { maxHp: 80, hp: 20 } });
+  enemy2.heldItemId = "focus-band";
+  useMove(attacker(), enemy2, move, () => 0.5, { attackerIsPlayer: true, defenderIsPlayer: false });
+  assert.strictEqual(enemy2.stats.hp, 0, "no proc -> normal KO");
+});
+
+test("competing lethal-survival effects have an explicit order and fire only once", () => {
+  // A player mon with BOTH Second Wind (Sigil) and Focus Band takes a lethal hit.
+  // Second Wind is guaranteed and takes priority; Focus Band must NOT also fire,
+  // and the guaranteed Second Wind must be consumed exactly once.
+  const move = dmgMove({ power: 500 });
+  const defender = mon({ stats: { maxHp: 80, hp: 40 } });
+  defender.heldItemId = "focus-band";
+  const endureUsed = { used: false };
+  const ctx = { playerFx: aggregateSigils(["second_wind"]), attackerIsPlayer: false, defenderIsPlayer: true, endureUsed };
+  const attacker = mon({ stats: { maxHp: 300, hp: 300, atk: 300 } });
+  useMove(attacker, defender, move, () => 0.99, ctx); // rng high: Focus Band would miss anyway
+  assert.strictEqual(defender.stats.hp, 1, "survived");
+  assert.strictEqual(endureUsed.used, true, "Second Wind consumed");
+  // The NEXT lethal hit: Second Wind spent, so only Focus Band can save it. With
+  // rng below 0.1 it holds on again - proving the two are independent, ordered.
+  defender.stats.hp = 40;
+  useMove(attacker, defender, move, () => 0.0, ctx);
+  assert.strictEqual(defender.stats.hp, 1, "Focus Band now covers the lethal hit");
+});
+
+test("Quick Claw can jump the speed order but never overrides priority", () => {
+  const slow = mon({ stats: { spe: 10 } });
+  slow.heldItemId = "quick-claw";
+  const fast = mon({ stats: { spe: 200 } });
+  const move = dmgMove({ priority: 0 });
+  // rng()=0 -> the 20% Quick Claw proc lands; the slower holder moves first.
+  assert.strictEqual(firstMover(slow, move, fast, move, () => 0), "a");
+  // rng high -> no proc, normal speed order (fast first).
+  assert.strictEqual(firstMover(slow, move, fast, move, () => 0.99), "b");
+  // A higher-priority move by the fast side beats a Quick Claw proc.
+  const priorityMove = dmgMove({ priority: 1 });
+  assert.strictEqual(firstMover(slow, move, fast, priorityMove, () => 0), "b");
 });
 
 // ---- roster (multiplayer bridge) ----

@@ -19,6 +19,7 @@ import {
   applyEntryStatus,
   canAct,
   endOfTurn,
+  endOfTurnHeal,
   applyWeatherChip,
   applyDefeatHeal,
   firstMover,
@@ -44,6 +45,7 @@ import {
   rivalEncounter, championTeamIds, rivalStarterFor, RIVAL_NAME,
 } from "./rival.js";
 import { buildRoster, validateRoster, rosterPower, snapshotMon, carryIdentity } from "./roster.js";
+import { HELD_ITEMS, heldItemEffects, heldItemName, heldItemList, isHeldItem } from "./items.js";
 import { arena, isArenaConfigured } from "./net.js";
 import { randomSeedString } from "./rng.js";
 import {
@@ -1070,6 +1072,20 @@ async function residualPhase() {
       }
     }
   }
+  // Held-item recovery (Leftovers) - last, so it composes on top of status and
+  // weather damage rather than being cancelled by it.
+  for (const [mon, sel] of [
+    [state.player, "#playerSprite"],
+    [state.enemy, "#enemySprite"],
+  ]) {
+    if (!mon || mon.stats.hp <= 0) continue;
+    const r = endOfTurnHeal(mon);
+    if (r && r.heal > 0) {
+      updateHUD();
+      floatTextNear(sel, `+${r.heal}`, "good");
+      await say(`${mon.name} restored a little HP with its ${heldItemName(mon.heldItemId)}!`);
+    }
+  }
   return false;
 }
 
@@ -1294,6 +1310,17 @@ const DEFAULT_ITEMS = () => ({
   antidote: 0, "parlyz-heal": 0, awakening: 0, "burn-heal": 0, "ice-heal": 0,
 });
 
+// A small starting held-item kit so the equipment UI is usable from the first
+// map. Depth-scaled drops and shop stock arrive in P3.2; until then this is the
+// only source, kept intentionally modest.
+const DEFAULT_HELD_ITEMS = () => ({ leftovers: 1, charcoal: 1 });
+
+// Count of unequipped held items in the run inventory.
+function heldInventoryCount(run) {
+  if (!run || !run.heldItems) return 0;
+  return Object.values(run.heldItems).reduce((n, c) => n + Math.max(0, c | 0), 0);
+}
+
 async function startExpedition(starterMon) {
   const seed = randomSeedString();
   const profileFx = progressionEffects(state.meta);
@@ -1310,6 +1337,7 @@ async function startExpedition(starterMon) {
   run.items["hyper-potion"] += profileFx.startingHyperPotions || 0;
   const startingFx = aggregateSigils(run.sigils);
   applyStartingBallBonus(run.items, startingFx);
+  run.heldItems = DEFAULT_HELD_ITEMS();
   run.team = [starterMon];
   run.box = [];
   // Lock in the rival's counter-starter from the player's pick (P2.5). Stored on
@@ -1337,6 +1365,7 @@ function bindRun(run) {
   run.box = (run.box || []).map(ensureRuntime);
   backfillOwnedPokemon(run.team, run.box);
   if (!run.items) run.items = DEFAULT_ITEMS();
+  if (!run.heldItems) run.heldItems = {}; // saves from before P3.1 start empty
   if (!run.sigils) run.sigils = [];
   if (!run.progressionFx) run.progressionFx = progressionEffects(defaultProgression());
   // Backfill the rival starter for runs saved before P2.5 (best effort from the
@@ -1581,6 +1610,87 @@ function renderRunHud() {
   if (progressFill) progressFill.style.width = `${progress * 100}%`;
 }
 
+// ---- held items: equipment ----
+
+// Equip an inventory item onto a mon. Equipping/swapping/removing is free and
+// only reachable from the map (never mid-battle). Any item the mon was already
+// holding returns to the run inventory, so no item is ever destroyed.
+function equipHeldItem(mon, itemId) {
+  const run = state.run;
+  if (!run || !mon || !isHeldItem(itemId)) return false;
+  if (mon.heldItemId === itemId) return false;
+  if ((run.heldItems[itemId] || 0) <= 0) return false;
+  if (mon.heldItemId) run.heldItems[mon.heldItemId] = (run.heldItems[mon.heldItemId] || 0) + 1;
+  run.heldItems[itemId] -= 1;
+  mon.heldItemId = itemId;
+  save();
+  return true;
+}
+
+function unequipHeldItem(mon) {
+  const run = state.run;
+  if (!run || !mon || !mon.heldItemId) return false;
+  run.heldItems[mon.heldItemId] = (run.heldItems[mon.heldItemId] || 0) + 1;
+  mon.heldItemId = null;
+  save();
+  return true;
+}
+
+function openEquipPanel() {
+  if (!state.run) return;
+  openPanel("Held Items", (body, close) => {
+    const run = state.run;
+    const render = () => {
+      body.innerHTML = "";
+      const party = el("div", { class: "equip-party" });
+      state.party.forEach((mon) => {
+        const row = el("div", { class: "equip-row" });
+        const img = el("img", { class: "equip-sprite", src: mon.spriteFront || mon.artwork, alt: mon.name });
+        if (mon.isShiny) img.classList.add("shiny-sprite");
+        row.appendChild(img);
+        const info = el("div", { class: "equip-info" });
+        info.appendChild(el("div", { class: "equip-name" }, `${shinyMark(mon)}${mon.name}`));
+        const held = mon.heldItemId ? HELD_ITEMS[mon.heldItemId] : null;
+        info.appendChild(el("div", { class: "small" }, held ? `Holding ${held.name}` : "Holding nothing"));
+        if (held) info.appendChild(el("div", { class: "tiny dim" }, held.desc));
+        row.appendChild(info);
+        const actions = el("div", { class: "equip-actions" });
+        for (const { id, name } of heldItemList()) {
+          const count = run.heldItems[id] || 0;
+          if (count <= 0 || mon.heldItemId === id) continue;
+          const b = el("button", { class: "small" }, `${name} (${count})`);
+          b.onclick = () => { equipHeldItem(mon, id); render(); };
+          actions.appendChild(b);
+        }
+        if (mon.heldItemId) {
+          const rm = el("button", { class: "small ghost" }, "Remove");
+          rm.onclick = () => { unequipHeldItem(mon); render(); };
+          actions.appendChild(rm);
+        }
+        if (!actions.children.length) actions.appendChild(el("span", { class: "tiny dim" }, "Bag empty"));
+        row.appendChild(actions);
+        party.appendChild(row);
+      });
+      body.appendChild(party);
+
+      const owned = heldItemList().filter(({ id }) => (run.heldItems[id] || 0) > 0);
+      const bag = el("div", { class: "equip-bag small" });
+      bag.appendChild(el("div", { class: "equip-bag-title" }, "Bag"));
+      if (owned.length) {
+        owned.forEach(({ id, name }) => bag.appendChild(el("span", { class: "equip-bag-item" }, `${name} ×${run.heldItems[id]}`)));
+      } else {
+        bag.appendChild(el("span", { class: "tiny dim" }, "No unequipped held items."));
+      }
+      body.appendChild(bag);
+
+      const done = el("button", { class: "title-btn primary equip-done" }, "Done");
+      done.onclick = () => close();
+      body.appendChild(done);
+    };
+    render();
+  }, { wide: true });
+}
+
 // ---- node resolvers ----
 
 async function resolveNode(node) {
@@ -1658,6 +1768,11 @@ async function buildBossTeam(boss) {
   for (let i = 0; i < boss.team.length; i++) {
     team.push(await buildMon(boss.team[i], bossMemberLevel(state.run, i, champion)));
   }
+  // Author a held item on the boss's ace (its last, strongest mon) so bosses
+  // exercise the same held-item hooks the player does: the Champion clutches a
+  // Focus Band, gym leaders close with Leftovers.
+  const ace = team[team.length - 1];
+  if (ace) ace.heldItemId = champion ? "focus-band" : "leftovers";
   return team;
 }
 
@@ -3305,6 +3420,8 @@ function wireUI() {
   $("#runBtn").addEventListener("click", () => { if (!state.busy) fleeBattle(); });
   const mapBtn = $("#mapBtn");
   if (mapBtn) mapBtn.addEventListener("click", () => { if (!state.busy && state.run) showMap(); });
+  const bagBtn = $("#bagBtn");
+  if (bagBtn) bagBtn.addEventListener("click", () => { if (state.run) openEquipPanel(); });
   $("#backBtn").addEventListener("click", async () => { if (!state.busy) { show("menu"); await say("What will you do?", 0); } });
   $("#swapBackBtn").addEventListener("click", async () => { if (!state.busy) { show("menu"); await say("What will you do?", 0); } });
   $("#boxOpenBtn").addEventListener("click", () => openBox());

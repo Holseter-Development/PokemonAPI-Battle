@@ -704,6 +704,39 @@ isolation and `snapshotMon` build preservation through a JSON round-trip.
   twice incorrectly.
 - Enemy-held items can be authored for bosses.
 
+**Status:** Complete. Held items are a new pure module plus four battle hooks and
+an off-battle equipment screen:
+
+- **Model.** New `src/items.js` owns the catalogue (Leftovers, Charcoal/Mystic
+  Water/Miracle Seed, Focus Band, Quick Claw) and one normalized helper,
+  `heldItemEffects(mon)`, that the engine reads. A mon holds `heldItemId` or none;
+  the run owns unequipped items in `run.heldItems` (`id -> count`). Because every
+  hook derives its effect from the mon itself (never a player-only context),
+  enemy-held items on bosses run through the identical code path - the Champion's
+  ace carries a Focus Band and gym leaders close with Leftovers.
+- **Battle hooks (`src/battle.js`).** Charcoal-family type boosts multiply into
+  `calcDamage` alongside the Sigil mults; `endOfTurnHeal` (Leftovers) runs in the
+  residual phase after status/weather damage so it composes with Sigils rather
+  than being cancelled; Focus Band is a chance-based lethal-survival check; Quick
+  Claw jumps the speed order within a priority bracket without overriding
+  priority, and only rolls when a holder actually carries it.
+- **Explicit survival order.** `applyHitDamage` resolves at most one lethal
+  survival per hit, in a fixed order - Second Wind (guaranteed, once per battle)
+  before Focus Band (chance, either side) - so a mon can never be saved twice or
+  dropped to 1 HP by two effects at once.
+- **Equipment UI.** A "Held Items" button on the map opens an equip panel (equip,
+  swap, remove) that moves items between party members and the run bag for free
+  outside battle. Persistence rides the existing run save; evolution keeps the
+  held item via P3.0's `carryIdentity`, and `snapshotMon` already serializes it
+  for the Vault. A modest starting kit (a Leftovers + a Charcoal) seeds the bag
+  until P3.2 wires shop stock and drops.
+
+Tests: `engine.test.js` covers the catalogue/normalization, Charcoal's matching-
+type boost, Leftovers healing bounds, Focus Band surviving on the enemy side, the
+ordered Second Wind-then-Focus-Band survival, and Quick Claw's priority rules;
+the run integration smoke opens the equip screen, equips from the bag, and
+asserts the change persists.
+
 ## P3.2 — Held-item acquisition and shop integration
 
 **Size:** S/M  
