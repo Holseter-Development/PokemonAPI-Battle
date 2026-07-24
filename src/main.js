@@ -3,7 +3,6 @@
 // encounters, trainer battles, catching, party/box, save/load and auto-play.
 
 import {
-  GEN1_MAX_ID,
   fetchPokemon,
   fetchSpecies,
   fetchGrowth,
@@ -49,6 +48,7 @@ import {
   nodeById, offerSigils, offerMutations, rollShop, rollMysteryEncounter, rollGold,
   encounterLevel, bossMemberLevel, checkWipe, withRng, eventGoldCost,
 } from "./run.js";
+import { encounterTableFor, pickEncounter, defaultSpeciesId } from "./encounters.js";
 import {
   SIGILS, MUTATIONS, applyMutation, aggregateSigils, applyStartingBallBonus, emptyEffects, RARITY_COLOR,
 } from "./mutations.js";
@@ -1073,31 +1073,35 @@ function applyEnemyEntryEffect(mon) {
   return applyEntryStatus(mon, state.sigilFx.enemyEntryStatus).applied;
 }
 
-// Build a level-appropriate wild Pokémon (non-legendary, gentle BST bias).
+// Documented first-encounter matchup assist: the very first wild Pokémon of a
+// run is drawn from a gentle counter to the player's starter type, so a new run
+// opens on a fair footing rather than a random 1–151 roll. Every other battle
+// uses the node's biome table (see pickWildSpecies).
 const OPENING_WILD_IDS = {
   grass: [60, 116], // Poliwag, Horsea
   fire: [10, 13],   // Caterpie, Weedle
   water: [37],      // Vulpix
 };
 
-async function makeWildMon(level, openingType = null) {
-  let mon = null, poke = null;
-  for (let tries = 0; tries < 12; tries++) {
-    const openingPool = openingType && OPENING_WILD_IDS[openingType];
-    const eid = openingPool
-      ? openingPool[Math.floor(Math.random() * openingPool.length)]
-      : 1 + Math.floor(Math.random() * GEN1_MAX_ID);
-    if (eid >= 144 && eid <= 151) continue;
-    poke = await fetchPokemon(eid);
-    const bst = poke.stats.reduce((a, s) => a + s.base_stat, 0);
-    const limit = openingPool ? 320 : 360;
-    if (bst <= limit || tries > 8) {
-      mon = makeMon(poke, level);
-      const species = await fetchSpecies(poke.id);
-      mon.capture_rate = species.capture_rate;
-      break;
-    }
-  }
+// Seeded wild species for a battle node. Uses the run RNG so a seed + path
+// reproduces the encounter. The opening override applies only to the run's
+// first battle; afterwards the species is drawn from the node's biome table.
+function pickWildSpecies(run, node) {
+  const starterType = run.visited.length === 0 ? state.player?.types?.[0] : null;
+  const openingPool = starterType && OPENING_WILD_IDS[starterType];
+  return withRng(run, (rng) => {
+    if (openingPool && openingPool.length) return openingPool[Math.floor(rng() * openingPool.length)];
+    return pickEncounter(rng, encounterTableFor(node, run), run.visited.length).id;
+  });
+}
+
+// Build a level-appropriate wild Pokémon from an explicit biome species id.
+async function makeWildMon(level, speciesId) {
+  const id = Number.isInteger(speciesId) ? speciesId : defaultSpeciesId();
+  const poke = await fetchPokemon(id);
+  const mon = makeMon(poke, level);
+  const species = await fetchSpecies(poke.id);
+  mon.capture_rate = species.capture_rate;
   mon.moves = await fetchMoveset(poke, mon.level);
   if (!mon.moves.length) mon.moves = [{ ...STRUGGLE, name: "Tackle", key: "tackle", power: 40, pp: 35, ppLeft: 35, drain: 0 }];
   return mon;
@@ -1468,8 +1472,8 @@ async function resolveNode(node) {
 
 async function resolveBattleNode(node) {
   setBusy(true);
-  const openingType = state.run.visited.length === 0 ? state.player?.types?.[0] : null;
-  const mon = await makeWildMon(encounterLevel(state.run), openingType);
+  const speciesId = pickWildSpecies(state.run, node);
+  const mon = await makeWildMon(encounterLevel(state.run), speciesId);
   setBusy(false);
   await startBattle({
     kind: "battle", enemy: mon,
@@ -1736,7 +1740,8 @@ async function grantTrainerReward(reward) {
       break;
     }
     case "egg": {
-      const mon = await makeWildMon(encounterLevel(run));
+      const speciesId = withRng(run, (rng) => pickEncounter(rng, encounterTableFor(currentNode(run), run), run.visited.length).id);
+      const mon = await makeWildMon(encounterLevel(run), speciesId);
       if (run.team.length < 6) run.team.push(mon);
       else run.box.push(mon);
       await say(`The trainer gave you ${reward.label || "an Egg"} — it hatched into ${mon.name}!`);
@@ -1758,7 +1763,8 @@ async function applyEventEffect(effect) {
     case "gold": run.gold += effect.amount || 0; await say(`You found ${effect.amount || 0} gold!`); break;
     case "sigil": { const s = await offerDraft("sigil"); if (s && !run.sigils.includes(s.id)) { run.sigils.push(s.id); await say(`Attuned the ${s.name} Sigil!`); } break; }
     case "recruit": {
-      const mon = await makeWildMon(encounterLevel(run));
+      const speciesId = withRng(run, (rng) => pickEncounter(rng, encounterTableFor(currentNode(run), run), run.visited.length).id);
+      const mon = await makeWildMon(encounterLevel(run), speciesId);
       if (run.team.length < 6) run.team.push(mon); else run.box.push(mon);
       await say(`The egg hatched into ${mon.name}!`);
       await announceCaughtProgress(registerPokemonProgress(mon, "caught", false));

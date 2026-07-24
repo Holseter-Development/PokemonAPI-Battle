@@ -396,7 +396,6 @@
 
   // src/api.js
   var API = "https://pokeapi.co/api/v2";
-  var GEN1_MAX_ID = 151;
   var MOVE_CACHE = /* @__PURE__ */ new Map();
   var GROWTH_CACHE = /* @__PURE__ */ new Map();
   var EVO_CACHE = /* @__PURE__ */ new Map();
@@ -1982,21 +1981,21 @@
       }
     }
     const centerCol = Math.floor(width / 2);
-    for (let R = rowsPerRegion - 1; R < totalRows; R += rowsPerRegion) {
-      const rowNodes = Object.values(nodes).filter((n) => n.row === R);
+    for (let R2 = rowsPerRegion - 1; R2 < totalRows; R2 += rowsPerRegion) {
+      const rowNodes = Object.values(nodes).filter((n) => n.row === R2);
       const outward = /* @__PURE__ */ new Set();
       rowNodes.forEach((n) => n.edges.forEach((e) => outward.add(e)));
       rowNodes.forEach((n) => delete nodes[n.id]);
       const boss = {
-        id: `${R}-boss`,
-        row: R,
+        id: `${R2}-boss`,
+        row: R2,
         col: centerCol,
-        region: regionOf(R),
-        type: R === totalRows - 1 ? NODE.CHAMPION : NODE.ELITE,
+        region: regionOf(R2),
+        type: R2 === totalRows - 1 ? NODE.CHAMPION : NODE.ELITE,
         edges: [...outward]
       };
       nodes[boss.id] = boss;
-      Object.values(nodes).filter((n) => n.row === R - 1).forEach((n) => {
+      Object.values(nodes).filter((n) => n.row === R2 - 1).forEach((n) => {
         n.edges = [boss.id];
       });
     }
@@ -2323,6 +2322,103 @@
     const depth = run.visited?.length || 0;
     const scaled = Math.min(n, Math.max(10, Math.round(n * (0.45 + depth / 26))));
     return Math.min(scaled, Math.max(0, run.gold || 0));
+  }
+
+  // src/encounters.js
+  var C = 20;
+  var U = 12;
+  var R = 4;
+  var BIOMES = {
+    0: {
+      region: 0,
+      name: "Viridian Wilds",
+      entries: [
+        { id: 10, weight: C, minDepth: 0, tags: ["common", "bug"] },
+        // Caterpie
+        { id: 13, weight: C, minDepth: 0, tags: ["common", "bug"] },
+        // Weedle
+        { id: 16, weight: C, minDepth: 0, tags: ["common", "flying"] },
+        // Pidgey
+        { id: 19, weight: C, minDepth: 0, tags: ["common", "normal"] },
+        // Rattata
+        { id: 29, weight: U, minDepth: 0, tags: ["common", "poison"] },
+        // Nidoran♀
+        { id: 32, weight: U, minDepth: 0, tags: ["common", "poison"] },
+        // Nidoran♂
+        { id: 25, weight: R, minDepth: 1, tags: ["rare", "electric"] },
+        // Pikachu
+        { id: 1, weight: R, minDepth: 1, tags: ["rare", "grass"] }
+        // Bulbasaur
+      ]
+    },
+    1: {
+      region: 1,
+      name: "Crimson Highlands",
+      entries: [
+        { id: 74, weight: C, minDepth: 0, tags: ["common", "rock"] },
+        // Geodude
+        { id: 66, weight: C, minDepth: 0, tags: ["common", "fighting"] },
+        // Machop
+        { id: 58, weight: U, minDepth: 0, tags: ["common", "fire"] },
+        // Growlithe
+        { id: 77, weight: U, minDepth: 0, tags: ["common", "fire"] },
+        // Ponyta
+        { id: 104, weight: C, minDepth: 0, tags: ["common", "ground"] },
+        // Cubone
+        { id: 95, weight: R, minDepth: 0, tags: ["rare", "rock"] },
+        // Onix
+        { id: 4, weight: R, minDepth: 0, tags: ["rare", "fire"] }
+        // Charmander
+      ]
+    },
+    2: {
+      region: 2,
+      name: "Indigo Summit",
+      entries: [
+        { id: 92, weight: C, minDepth: 0, tags: ["common", "ghost"] },
+        // Gastly
+        { id: 81, weight: C, minDepth: 0, tags: ["common", "electric"] },
+        // Magnemite
+        { id: 111, weight: U, minDepth: 0, tags: ["common", "ground"] },
+        // Rhyhorn
+        { id: 86, weight: C, minDepth: 0, tags: ["common", "water"] },
+        // Seel
+        { id: 147, weight: R, minDepth: 0, tags: ["rare", "dragon"] },
+        // Dratini
+        { id: 131, weight: R, minDepth: 0, tags: ["rare", "water"] },
+        // Lapras
+        { id: 133, weight: R, minDepth: 0, tags: ["rare", "normal"] }
+        // Eevee
+      ]
+    }
+  };
+  var REGION_COUNT = Object.keys(BIOMES).length;
+  function clampRegion(r) {
+    return Math.max(0, Math.min(REGION_COUNT - 1, r | 0));
+  }
+  function regionFor(node, run) {
+    if (node && Number.isInteger(node.region))
+      return clampRegion(node.region);
+    const pos = run && run.position && run.map && run.map.nodes ? run.map.nodes[run.position] : null;
+    if (pos && Number.isInteger(pos.region))
+      return clampRegion(pos.region);
+    return 0;
+  }
+  function encounterTableFor(node, run) {
+    return BIOMES[regionFor(node, run)] || BIOMES[0];
+  }
+  function eligibleEntries(table, depth = 0) {
+    const inWindow = table.entries.filter(
+      (e) => depth >= (e.minDepth ?? 0) && depth <= (e.maxDepth ?? Infinity)
+    );
+    return inWindow.length ? inWindow : table.entries;
+  }
+  function pickEncounter(rng, table, depth = 0) {
+    const pool = eligibleEntries(table, depth);
+    return weightedPick(rng, pool.map((e) => ({ item: e, weight: e.weight })));
+  }
+  function defaultSpeciesId() {
+    return BIOMES[0].entries[0].id;
   }
 
   // src/progression.js
@@ -3850,23 +3946,21 @@
     water: [37]
     // Vulpix
   };
-  async function makeWildMon(level, openingType = null) {
-    let mon = null, poke = null;
-    for (let tries = 0; tries < 12; tries++) {
-      const openingPool = openingType && OPENING_WILD_IDS[openingType];
-      const eid = openingPool ? openingPool[Math.floor(Math.random() * openingPool.length)] : 1 + Math.floor(Math.random() * GEN1_MAX_ID);
-      if (eid >= 144 && eid <= 151)
-        continue;
-      poke = await fetchPokemon(eid);
-      const bst = poke.stats.reduce((a, s) => a + s.base_stat, 0);
-      const limit = openingPool ? 320 : 360;
-      if (bst <= limit || tries > 8) {
-        mon = makeMon(poke, level);
-        const species = await fetchSpecies(poke.id);
-        mon.capture_rate = species.capture_rate;
-        break;
-      }
-    }
+  function pickWildSpecies(run, node) {
+    const starterType = run.visited.length === 0 ? state.player?.types?.[0] : null;
+    const openingPool = starterType && OPENING_WILD_IDS[starterType];
+    return withRng(run, (rng) => {
+      if (openingPool && openingPool.length)
+        return openingPool[Math.floor(rng() * openingPool.length)];
+      return pickEncounter(rng, encounterTableFor(node, run), run.visited.length).id;
+    });
+  }
+  async function makeWildMon(level, speciesId) {
+    const id = Number.isInteger(speciesId) ? speciesId : defaultSpeciesId();
+    const poke = await fetchPokemon(id);
+    const mon = makeMon(poke, level);
+    const species = await fetchSpecies(poke.id);
+    mon.capture_rate = species.capture_rate;
     mon.moves = await fetchMoveset(poke, mon.level);
     if (!mon.moves.length)
       mon.moves = [{ ...STRUGGLE, name: "Tackle", key: "tackle", power: 40, pp: 35, ppLeft: 35, drain: 0 }];
@@ -4255,8 +4349,8 @@
   }
   async function resolveBattleNode(node) {
     setBusy(true);
-    const openingType = state.run.visited.length === 0 ? state.player?.types?.[0] : null;
-    const mon = await makeWildMon(encounterLevel(state.run), openingType);
+    const speciesId = pickWildSpecies(state.run, node);
+    const mon = await makeWildMon(encounterLevel(state.run), speciesId);
     setBusy(false);
     await startBattle({
       kind: "battle",
@@ -4547,7 +4641,8 @@
         break;
       }
       case "egg": {
-        const mon = await makeWildMon(encounterLevel(run));
+        const speciesId = withRng(run, (rng) => pickEncounter(rng, encounterTableFor(currentNode(run), run), run.visited.length).id);
+        const mon = await makeWildMon(encounterLevel(run), speciesId);
         if (run.team.length < 6)
           run.team.push(mon);
         else
@@ -4586,7 +4681,8 @@
         break;
       }
       case "recruit": {
-        const mon = await makeWildMon(encounterLevel(run));
+        const speciesId = withRng(run, (rng) => pickEncounter(rng, encounterTableFor(currentNode(run), run), run.visited.length).id);
+        const mon = await makeWildMon(encounterLevel(run), speciesId);
         if (run.team.length < 6)
           run.team.push(mon);
         else

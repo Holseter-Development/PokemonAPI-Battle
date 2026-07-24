@@ -376,6 +376,14 @@ Final contents can be tuned without changing picker logic.
 - Every route has at least one encounter valid at its depth.
 - Legendary IDs remain excluded unless explicitly listed as special encounters.
 
+**Status:** Complete. `src/encounters.js` holds three region-keyed biome tables
+(Viridian Wilds, Crimson Highlands, Indigo Summit) with weighted, depth-gated
+entries; `encounterTableFor(node, run)` and `pickEncounter(rng, table, depth)`
+draw wild species through the run RNG, replacing the global 1–151 roll. The
+first battle keeps a documented starter-matchup override. `validateBiomes()`
+and `test/encounters.test.js` cover id/weight/legendary validity, per-region
+pool separation, depth gating, and seeded reproducibility.
+
 ## P2.2 — Deterministic controller rolls
 
 **Size:** M  
@@ -918,8 +926,8 @@ Implement in this order:
 4. `P1.4` — Pokédex milestone perks. **Complete**
 5. `P1.5` — Fragment upgrade shop. **Complete**
 6. `P1.6` — Trainer profile. **Complete**
-7. `P2.1` — Biome encounter catalog. **Next**
-8. `P2.2` — Deterministic controller rolls.
+7. `P2.1` — Biome encounter catalog. **Complete**
+8. `P2.2` — Deterministic controller rolls. **Next**
 9. `P2.3` — Shinies.
 10. `P2.4` — Alpha encounters.
 11. `P2.5` — Recurring rival.
@@ -955,8 +963,9 @@ Update this section as chunks ship.
 | P1.4 | Complete | Seven automatic milestones, bonus starters, and snapshotted run effects shipped 2026-07-24 |
 | P1.5 | Complete | Confirmed Fragment purchases, five permanent upgrades, and combined effect previews shipped 2026-07-24 |
 | P1.6 | Complete | Trainer Profile screen, run history summary, and capped active-foreground playtime shipped 2026-07-24 |
-| P2.1 | Next | Biome encounter catalog |
-| P2.2–P2.6 | Backlog | Places and surprise |
+| P2.1 | Complete | Three region biome tables, seeded depth-gated wild picker, and encounter tests shipped 2026-07-24 |
+| P2.2 | Next | Deterministic controller rolls |
+| P2.3–P2.6 | Backlog | Places and surprise |
 | P3.0–P3.6 | Backlog | Team-building depth |
 | P4.1–P4.7 | Backlog | Replay and challenge |
 | P5.1–P5.3 | Deferred | Multi-target battle formats |
